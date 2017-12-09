@@ -87,6 +87,11 @@ class Bot : public Ai
 	friend class BotWalkOrSlideInterpolatingReachChainMovementAction;
 	friend class BotCombatDodgeSemiRandomlyToTargetMovementAction;
 
+	friend class BotGenericGroundMovementFallback;
+	friend class BotUseWalkableNodeMovementFallback;
+	friend class BotUseRampExitMovementFallback;
+	friend class BotUseStairsExitMovementFallback;
+	friend class BotUseWalkableTriggerMovementFallback;
 public:
 	static constexpr auto PREFERRED_TRAVEL_FLAGS =
 		TFL_WALK | TFL_WALKOFFLEDGE | TFL_JUMP | TFL_AIR | TFL_TELEPORT | TFL_JUMPPAD;
@@ -330,6 +335,13 @@ private:
 
 	BotMovementPredictionContext movementPredictionContext;
 
+	BotUseWalkableNodeMovementFallback useWalkableNodeMovementFallback;
+	BotUseRampExitMovementFallback useRampExitMovementFallback;
+	BotUseStairsExitMovementFallback useStairsExitMovementFallback;
+	BotUseWalkableTriggerMovementFallback useWalkableTriggerMovementFallback;
+
+	BotMovementFallback *activeMovementFallback;
+
 	int64_t vsayTimeout;
 
 	bool isInSquad;
@@ -569,8 +581,6 @@ public:
 	static constexpr unsigned MAX_SAVED_AREAS = BotMovementPredictionContext::MAX_SAVED_LANDING_AREAS;
 	StaticVector<int, MAX_SAVED_AREAS> savedLandingAreas;
 	StaticVector<int, MAX_SAVED_AREAS> savedPlatformAreas;
-
-	BotFallbackMovementPath fallbackMovementPath;
 
 	void CheckTargetProximity();
 

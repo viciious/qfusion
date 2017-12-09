@@ -69,6 +69,11 @@ Bot::Bot( edict_t *self_, float skillLevel_ )
 	walkOrSlideInterpolatingReachChainMovementAction( this ),
 	combatDodgeSemiRandomlyToTargetMovementAction( this ),
 	movementPredictionContext( self_ ),
+	useWalkableNodeMovementFallback( self_ ),
+	useRampExitMovementFallback( self_ ),
+	useStairsExitMovementFallback( self_ ),
+	useWalkableTriggerMovementFallback( self_ ),
+	activeMovementFallback( nullptr ),
 	vsayTimeout( level.time + 10000 ),
 	isInSquad( false ),
 	defenceSpotId( -1 ),
@@ -711,7 +716,7 @@ void Bot::GhostingFrame() {
 	botBrain.ClearGoalAndPlan();
 
 	movementState.Reset();
-	fallbackMovementPath.Deactivate();
+	activeMovementFallback = nullptr;
 
 	blockedTimeoutAt = level.time + BLOCKED_TIMEOUT;
 	self->nextThink = level.time + 100;

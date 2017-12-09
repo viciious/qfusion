@@ -2,6 +2,7 @@
 #define QFUSION_BOT_MOVEMENT_H
 
 #include "ai_base_ai.h"
+#include "bot.h"
 
 class alignas ( 2 )AiCampingSpot
 {
@@ -1178,6 +1179,15 @@ public:
 	inline float GetJumpSpeed() const;
 	inline float GetDashSpeed() const;
 
+	void CheatingAccelerate( float frac );
+
+	inline void CheatingCorrectVelocity( const Vec3 &target ) {
+		CheatingCorrectVelocity( target.Data() );
+	}
+
+	void CheatingCorrectVelocity( const vec3_t target );
+	void CheatingCorrectVelocity( float velocity2DDirDotToTarget2DDir, const Vec3 &toTargetDir2D );
+
 	void OnInterceptedPredictedEvent( int ev, int parm );
 	void OnInterceptedPMoveTouchTriggers( pmove_t *pm, vec3_t const previousOrigin );
 
@@ -1307,16 +1317,6 @@ protected:
 		return false;
 	}
 
-	void CheatingAccelerate( BotMovementPredictionContext *context, float frac ) const;
-
-	void CheatingCorrectVelocity( BotMovementPredictionContext *context, const Vec3 &target ) {
-		CheatingCorrectVelocity( context, target.Data() );
-	}
-	void CheatingCorrectVelocity( BotMovementPredictionContext *context, const vec3_t target );
-	void CheatingCorrectVelocity( BotMovementPredictionContext *context,
-								  float velocity2DDirDotToTarget2DDir,
-								  const Vec3 &toTargetDir2D ) const;
-
 public:
 	inline BotBaseMovementAction( class Bot *bot_, const char *name_, int debugColor_ = 0 )
 		: bot( bot_ ),
@@ -1371,9 +1371,10 @@ public:
 #define DECLARE_MOVEMENT_ACTION_CONSTRUCTOR( name, debugColor_ ) \
 	name( class Bot *bot_ ) : BotBaseMovementAction( bot_, #name, debugColor_ )
 
+class BotMovementFallback;
+
 class BotDummyMovementAction : public BotBaseMovementAction
 {
-	inline bool ShouldCrouchSlideNow( BotMovementPredictionContext *context ) const;
 	bool HandleSpecialReachability( BotMovementPredictionContext *context, int nextReachNum );
 	bool HandleWalkOrFallReachability( BotMovementPredictionContext *context,
 									   const aas_reachability_t &reach,
@@ -1400,32 +1401,24 @@ class BotDummyMovementAction : public BotBaseMovementAction
 		const int *FromAreaNums() const { return fromAreaNums; }
 	};
 
-	int FindClosestToTargetTrigger( BotMovementPredictionContext *context,
-									float *triggerOrigin = nullptr,
-									int *triggerAreaNum = nullptr );
+	const edict_t *FindClosestToTargetTrigger( BotMovementPredictionContext *context );
 
-	int FindClosestToTargetTrigger( const ClosestTriggerProblemParams &problemParams,
-									const BotMovementPredictionContext::NearbyTriggersCache &triggersCache,
-									float *triggerOrigin = nullptr,
-									int *triggerAreaNum = nullptr );
+	const edict_t *FindClosestToTargetTrigger( const ClosestTriggerProblemParams &problemParams,
+											   const BotMovementPredictionContext::NearbyTriggersCache &triggersCache );
 
-	int FindClosestToTargetTrigger( const ClosestTriggerProblemParams &problemParams,
-									float *triggerOrigin,
-									int *triggerAreaNum,
-									const uint16_t *triggerEntNums,
-									int numTriggerEnts );
+	const edict_t *FindClosestToTargetTrigger( const ClosestTriggerProblemParams &problemParams,
+											   const uint16_t *triggerEntNums,
+											   int numTriggerEnts, int *travelTime );
 
 	void SetupNavTargetAreaMovement( BotMovementPredictionContext *context );
 	void SetupLostNavTargetMovement( BotMovementPredictionContext *context );
-	bool TryFindFallbackMovementPath( BotMovementPredictionContext *context );
-	bool TryFindFallbackStairsPath( BotMovementPredictionContext *context );
+	BotMovementFallback *TryFindMovementFallback( BotMovementPredictionContext *context );
+	BotMovementFallback *TryFindStairsFallback( BotMovementPredictionContext *context );
 	bool TrySetupRampMovement( BotMovementPredictionContext *context, int rampAreaNum );
 	const int *TryFindBestRampExitArea( BotMovementPredictionContext *context, int rampAreaNum, int forbiddenAreaNum = 0 );
-	bool TryFindFallbackRampAreaPath( BotMovementPredictionContext *context, int rampAreaNum, int forbiddenAreaNum = 0 );
-	bool TryFindNearbyRampAreasPaths( BotMovementPredictionContext *context );
-	bool TryFindClosestToTargetWalkableTrigger( BotMovementPredictionContext *context );
-	int TryFindFirstClosestTacticalSpot( BotMovementPredictionContext *context, float *spotOrigin, float *reachRadius );
-	void SetupFallbackMovement( BotMovementPredictionContext *context );
+	BotMovementFallback *TryFindRampFallback( BotMovementPredictionContext *context, int rampAreaNum, int forbiddenAreaNum = 0 );
+	BotMovementFallback *TryFindNearbyRampAreasFallback( BotMovementPredictionContext *context );
+	BotMovementFallback *TryFindWalkableTriggerFallback( BotMovementPredictionContext *context );
 public:
 	DECLARE_MOVEMENT_ACTION_CONSTRUCTOR( BotDummyMovementAction, COLOR_RGB( 0, 0, 0 ) ) {}
 	void PlanPredictionStep( BotMovementPredictionContext *context ) override;
@@ -1434,65 +1427,180 @@ public:
 	}
 };
 
-class BotFallbackMovementPath
+class BotMovementFallback
 {
-	struct Node {
-		vec3_t origin;
-		int aasAreaNum;
-		float reachRadius;
-	};
-
+public:
 	enum Status {
 		COMPLETED,
 		PENDING,
 		INVALID
 	};
 
-	// Can't be defined as constexpr for some arcane reasons
-	// (a library symbol is expected and is not generated)
-	enum { MAX_NODES = 3 };
+protected:
+	const edict_t *const self;
+	int64_t activatedAt;
+	Status status;
+	int debugColor;
 
-	Node nodes[MAX_NODES];
-
-	int currNode;
-	int numNodes;
-
-	Status TryDeactivateNode( const Node &node, const edict_t *self, BotMovementPredictionContext *context );
+	void Activate() {
+		activatedAt = level.time;
+		status = PENDING;
+	}
 public:
-	static constexpr auto TRAVEL_FLAGS = TFL_WALK | TFL_WALKOFFLEDGE | TFL_AIR;
+	BotMovementFallback( const edict_t *self_, int debugColor_ )
+		: self( self_ ), activatedAt( 0 ), status( COMPLETED ), debugColor( debugColor_ ) {}
 
-	BotFallbackMovementPath(): currNode( 0 ), numNodes( 0 ) {}
+	bool IsActive() const { return status == PENDING; }
 
-	void Activate( const Vec3 &origin, int areaNum = 0, float reachRadius = 64.0f ) {
-		Activate( origin.Data(), areaNum, reachRadius );
+	int DebugColor()  const { return debugColor; }
+
+	virtual ~BotMovementFallback() {}
+
+	virtual bool TryDeactivate( BotMovementPredictionContext *context = nullptr ) = 0;
+
+	virtual void SetupMovement( BotMovementPredictionContext *context ) = 0;
+};
+
+class BotGenericGroundMovementFallback: public BotMovementFallback
+{
+protected:
+	float runDistanceToTargetThreshold;
+	float runDotProductToTargetThreshold;
+	float dashDistanceToTargetThreshold;
+	float dashDotProductToTargetThreshold;
+	float airAccelDistanceToTargetThreshold;
+	float airAccelDotProductToTargetThreshold;
+	bool allowRunning;
+	bool allowDashing;
+	bool allowAirAccel;
+	bool allowCrouchSliding;
+
+	virtual void GetSteeringTarget( vec3_t target ) = 0;
+
+	inline bool ShouldSkipTests( BotMovementPredictionContext *context = nullptr );
+
+	inline int GetCurrBotAreas( int *areaNums, BotMovementPredictionContext *context = nullptr );
+
+	bool TestActualWalkability( int targetAreaNum, const vec3_t targetOrigin,
+								BotMovementPredictionContext *context = nullptr );
+
+	void GetAreaMidGroundPoint( int areaNum, vec3_t target ) {
+		const auto &area = AiAasWorld::Instance()->Areas()[areaNum];
+		VectorCopy( area.center, target );
+		target[2] = area.mins[2] + 1.0f - playerbox_stand_mins[2];
+	}
+public:
+	static constexpr auto TRAVEL_FLAGS = TFL_WALK | TFL_AIR | TFL_WALKOFFLEDGE;
+
+	BotGenericGroundMovementFallback( const edict_t *self_, int debugColor_ )
+		: BotMovementFallback( self_, debugColor_ ),
+		  runDistanceToTargetThreshold( 20.0f ),
+		  runDotProductToTargetThreshold( 0.3f ),
+		  dashDistanceToTargetThreshold( 72.0f ),
+		  dashDotProductToTargetThreshold( 0.9f ),
+		  airAccelDistanceToTargetThreshold( 72.0f ),
+		  airAccelDotProductToTargetThreshold( 0.9f ),
+		  allowRunning( true ),
+		  allowDashing( true ),
+	      allowAirAccel( true ),
+	      allowCrouchSliding( true ) {}
+
+	void SetupMovement( BotMovementPredictionContext *context ) override;
+
+	bool TryDeactivate( BotMovementPredictionContext *context ) override;
+};
+
+class BotUseWalkableNodeMovementFallback: public BotGenericGroundMovementFallback
+{
+protected:
+	vec3_t nodeOrigin;
+	int nodeAasAreaNum;
+	float reachRadius;
+
+	void GetSteeringTarget( vec3_t target ) override {
+		VectorCopy( nodeOrigin, target );
+	}
+public:
+	BotUseWalkableNodeMovementFallback( const edict_t *self_ )
+		: BotGenericGroundMovementFallback( self_, COLOR_RGB( 0, 192, 0 ) ) {}
+
+	void Activate( vec3_t nodeOrigin_, float reachRadius_, int nodeAasAreaNum_ = 0 ) {
+		VectorCopy( nodeOrigin_, this->nodeOrigin );
+		this->reachRadius = reachRadius_;
+		this->nodeAasAreaNum = nodeAasAreaNum_;
+		if( !nodeAasAreaNum ) {
+			nodeAasAreaNum = AiAasWorld::Instance()->FindAreaNum( nodeOrigin_ );
+		}
+		BotGenericGroundMovementFallback::Activate();
 	}
 
-	void Activate( const vec3_t origin, int areaNum = 0, float reachRadius = 64.0f ) {
-		this->numNodes = 1;
-		this->currNode = 0;
-		VectorCopy( origin, nodes[0].origin );
-		nodes[0].aasAreaNum = areaNum ? areaNum: AiAasWorld::Instance()->FindAreaNum( origin );
-		nodes[0].reachRadius = reachRadius;
+	bool TryDeactivate( BotMovementPredictionContext *context = nullptr ) override;
+};
+
+class BotUseStairsExitMovementFallback: public BotGenericGroundMovementFallback
+{
+	int stairsClusterNum;
+	int exitAreaNum;
+
+	void GetSteeringTarget( vec3_t target ) override {
+		GetAreaMidGroundPoint( exitAreaNum, target );
+	}
+public:
+	BotUseStairsExitMovementFallback( const edict_t *self_ )
+		: BotGenericGroundMovementFallback( self_, COLOR_RGB( 0, 0, 192 ) ), stairsClusterNum( 0 ), exitAreaNum( 0 ) {}
+
+	void Activate( int stairsClusterNum_, int stairsExitAreaNum_ ) {
+		this->stairsClusterNum = stairsClusterNum_;
+		this->exitAreaNum = stairsExitAreaNum_;
+		BotGenericGroundMovementFallback::Activate();
 	}
 
-	void Activate( const vec3_t *origins, int numNodes_,
-				   const int *areaNums = nullptr,
-				   const float *reachRadii = nullptr );
+	bool TryDeactivate( BotMovementPredictionContext *context = nullptr ) override;
+};
 
-	void Deactivate() {
-		currNode = 0;
-		numNodes = 0;
+class BotUseRampExitMovementFallback: public BotGenericGroundMovementFallback
+{
+	int rampAreaNum;
+	int exitAreaNum;
+
+	void GetSteeringTarget( vec3_t target ) override {
+		return GetAreaMidGroundPoint( exitAreaNum, target );
+	}
+public:
+	BotUseRampExitMovementFallback( const edict_t *self_ )
+		: BotGenericGroundMovementFallback( self_, COLOR_RGB( 192, 0, 0 ) ), rampAreaNum( 0 ), exitAreaNum( 0 ) {}
+
+	void Activate( int rampAreaNum_, int exitAreaNum_ ) {
+		this->rampAreaNum = rampAreaNum_;
+		this->exitAreaNum = exitAreaNum_;
+		BotGenericGroundMovementFallback::Activate();
 	}
 
-	bool IsActive() const {
-		return currNode < numNodes;
+	bool TryDeactivate( BotMovementPredictionContext *context = nullptr ) override;
+};
+
+class BotUseWalkableTriggerMovementFallback: public BotGenericGroundMovementFallback
+{
+	const edict_t *trigger;
+
+	void GetSteeringTarget( vec3_t target ) override {
+		// Triggers do not have s.origin set.
+		// Get the bounds center
+		VectorSubtract( trigger->r.absmax, trigger->r.absmin, target );
+		VectorScale( target, 0.5f, target );
+		// Add bounds center to abs mins
+		VectorAdd( trigger->r.absmin, target, target );
+	}
+public:
+	BotUseWalkableTriggerMovementFallback( const edict_t *self_ )
+		: BotGenericGroundMovementFallback( self_, COLOR_RGB( 192, 0, 192 ) ), trigger( nullptr ) {}
+
+	void Activate( const edict_t *trigger_ ) {
+		this->trigger = trigger_;
+		BotGenericGroundMovementFallback::Activate();
 	}
 
-	void TryDeactivate( const edict_t *self, BotMovementPredictionContext *context = nullptr );
-
-	inline const float *Origin() const {
-		return IsActive() ? nodes[currNode].origin : nullptr;
-	}
+	bool TryDeactivate( BotMovementPredictionContext *context = nullptr ) override;
 };
 
 class BotHandleTriggeredJumppadMovementAction : public BotBaseMovementAction
