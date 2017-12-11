@@ -277,8 +277,8 @@ private:
 		~PrecomputedSpotsGrid() override;
 
 		bool IsLoaded() const { return gridListOffsets != nullptr; }
-		bool Load( int fp );
-		void Save( int fp );
+		bool Load( class AiPrecomputedFileReader &reader );
+		void Save( class AiPrecomputedFileWriter &writer );
 
 		uint16_t FindSpotsInRadius( const OriginParams &originParams,
 									uint16_t *spotNums,

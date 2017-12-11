@@ -1,11 +1,10 @@
 #include "tactical_spots_registry.h"
+#include "ai_precomputed_file_handler.h"
 #include "bot.h"
 
 TacticalSpotsRegistry *TacticalSpotsRegistry::instance = nullptr;
 // An actual storage for an instance
 static StaticVector<TacticalSpotsRegistry, 1> instanceHolder;
-
-#define PRECOMPUTED_DATA_EXTENSION "spotscache"
 
 bool TacticalSpotsRegistry::Init( const char *mapname ) {
 	if( instance ) {
@@ -18,49 +17,6 @@ bool TacticalSpotsRegistry::Init( const char *mapname ) {
 	instance = new( instanceHolder.unsafe_grow_back() )TacticalSpotsRegistry;
 	return instance->Load( mapname );
 }
-
-struct FileCloseGuard {
-	int fp;
-	FileCloseGuard( int fp_ ) : fp( fp_ ) {}
-
-	~FileCloseGuard() {
-		if( fp >= 0 ) {
-			trap_FS_FCloseFile( fp );
-		}
-	}
-};
-
-struct FileRemoveGuard {
-	const char *filename;
-	FileRemoveGuard( const char *filename_ ) : filename( filename_ ) {};
-
-	~FileRemoveGuard() {
-		if( filename ) {
-			trap_FS_RemoveFile( filename );
-		}
-	}
-
-	void CancelPendingRemoval() { filename = nullptr; }
-};
-
-struct ScopedMessagePrinter {
-	char buffer[256];
-
-	ScopedMessagePrinter( const char *format, ... ) {
-		va_list va;
-		va_start( va, format );
-		Q_vsnprintfz( buffer, 256, format, va );
-		va_end( va );
-	}
-
-	~ScopedMessagePrinter() {
-		if( *buffer ) {
-			G_Printf( "%s", buffer );
-		}
-	}
-
-	void CancelPendingMessage() { buffer[0] = 0; }
-};
 
 class TacticalSpotsBuilder {
 	typedef TacticalSpotsRegistry::TacticalSpot TacticalSpot;
@@ -142,104 +98,30 @@ bool TacticalSpotsRegistry::Load( const char *mapname ) {
 	return true;
 }
 
-static bool WriteLengthAndData( const char *data, uint32_t dataLength, int fp ) {
-	if( trap_FS_Write( &dataLength, 4, fp ) <= 0 ) {
-		return false;
-	}
+constexpr const uint32_t PRECOMPUTED_DATA_VERSION = 0x1337A001;
 
-	if( trap_FS_Write( data, dataLength, fp ) <= 0 ) {
-		return false;
-	}
-
-	return true;
+static const char *MakePrecomputedFilePath( char *buffer, size_t bufferSize, const char *mapName ) {
+	Q_snprintfz( buffer, bufferSize, "ai/%s.spots", mapName );
+	return buffer;
 }
 
-static bool ReadLengthAndData( char **data, uint32_t *dataLength, int fp ) {
-	uint32_t length;
-	if( trap_FS_Read( &length, 4, fp ) <= 0 ) {
-		return false;
-	}
-
-	length = LittleLong( length );
-	char *mem = (char *)G_LevelMalloc( length );
-	if( trap_FS_Read( mem, length, fp ) <= 0 ) {
-		G_LevelFree( mem );
-		return false;
-	}
-
-	*data = mem;
-	*dataLength = length;
-	return true;
-}
-
-// We assume the end zero byte is written to a file too
-static bool ExpectFileString( const char *expected, int fp, const char *message ) {
-	uint32_t dataLength;
-	char *data;
-
-	if( !ReadLengthAndData( &data, &dataLength, fp ) ) {
-		return false;
-	}
-
-	if( !dataLength ) {
-		return expected[0] == 0;
-	}
-
-	data[dataLength - 1] = 0;
-	if( Q_stricmp( expected, data ) ) {
-		G_Printf( "%s", message );
-		G_Printf( "Actual string: `%s`\n", data );
-		G_Printf( "Expected string: `%s`\n", expected );
-		G_LevelFree( data );
-		return false;
-	}
-
-	G_LevelFree( data );
-	return true;
-}
-
-constexpr const uint32_t PRECOMPUTED_DATA_VERSION = 13371337;
-
-bool TacticalSpotsRegistry::TryLoadPrecomputedData( const char *mapname ) {
-	char filename[MAX_QPATH];
-	Q_snprintfz( filename, MAX_QPATH, "ai/%s." PRECOMPUTED_DATA_EXTENSION, mapname );
+bool TacticalSpotsRegistry::TryLoadPrecomputedData( const char *mapName ) {
+	char filePath[MAX_QPATH];
+	MakePrecomputedFilePath( filePath, sizeof( filePath ), mapName );
 
 	constexpr const char *function = "TacticalSpotsRegistry::TryLoadPrecomputedData()";
-	ScopedMessagePrinter messagePrinter( S_COLOR_YELLOW "%s: Can't load %s\n", function, filename );
 
-	int fp;
-	if( trap_FS_FOpenFile( filename, &fp, FS_READ ) <= 0 ) {
-		return false;
-	}
-
-	FileCloseGuard fileCloseGuard( fp );
-
-	uint32_t version;
-	if( trap_FS_Read( &version, 4, fp ) != 4 ) {
-		return false;
-	}
-
-	version = LittleLong( version );
-	if( version != PRECOMPUTED_DATA_VERSION ) {
-		G_Printf( S_COLOR_YELLOW "Precomputed data version mismatch\n" );
-		return false;
-	}
-
-	const char *mapMessage = va( S_COLOR_YELLOW "%s: The map version differs with the precomputed data one\n", function );
-	if( !ExpectFileString( trap_GetConfigString( CS_MAPCHECKSUM ), fp, mapMessage ) ) {
-		return false;
-	}
-
-	const char *aasMessage = va( S_COLOR_YELLOW "%s: The AAS data version differs with the precomputed data one\n", function );
-	if( !ExpectFileString( AiAasWorld::Instance()->Checksum(), fp, aasMessage ) ) {
-		return false;
-	}
+	AiPrecomputedFileReader reader( "PrecomputedFileReader@TacticalSpotsRegistry", PRECOMPUTED_DATA_VERSION );
 
 	uint32_t dataLength;
-	char *data;
+	uint8_t *data;
+
+	if( reader.BeginReading( filePath ) != AiPrecomputedFileReader::SUCCESS ) {
+		return false;
+	}
 
 	// Read spots
-	if( !ReadLengthAndData( &data, &dataLength, fp ) ) {
+	if( !reader.ReadLengthAndData( &data, &dataLength ) ) {
 		return false;
 	}
 
@@ -250,7 +132,7 @@ bool TacticalSpotsRegistry::TryLoadPrecomputedData( const char *mapname ) {
 	numSpots = dataLength / sizeof( TacticalSpot );
 
 	// Read spots travel time table
-	if( !ReadLengthAndData( &data, &dataLength, fp ) ) {
+	if( !reader.ReadLengthAndData( &data, &dataLength ) ) {
 		return false;
 	}
 
@@ -261,7 +143,7 @@ bool TacticalSpotsRegistry::TryLoadPrecomputedData( const char *mapname ) {
 	}
 
 	// Read spots visibility table
-	if( !ReadLengthAndData( &data, &dataLength, fp ) ) {
+	if( !reader.ReadLengthAndData( &data, &dataLength ) ) {
 		return false;
 	}
 
@@ -297,22 +179,21 @@ bool TacticalSpotsRegistry::TryLoadPrecomputedData( const char *mapname ) {
 	static_assert( sizeof( *spotVisibilityTable ) == 1, "" );
 
 	spotsGrid.AttachSpots( spots, numSpots );
-	if( !spotsGrid.Load( fp ) ) {
+	if( !spotsGrid.Load( reader ) ) {
 		return false;
 	}
 
-	messagePrinter.CancelPendingMessage();
 	return true;
 }
 
-bool TacticalSpotsRegistry::PrecomputedSpotsGrid::Load( int fp ) {
+bool TacticalSpotsRegistry::PrecomputedSpotsGrid::Load( AiPrecomputedFileReader &reader ) {
 	SetupGridParams();
 	const unsigned numGridCells = NumGridCells();
 
 	uint32_t dataLength;
-	char *data;
+	uint8_t *data;
 	// Read grid list offsets
-	if( !ReadLengthAndData( &data, &dataLength, fp ) ) {
+	if( !reader.ReadLengthAndData( &data, &dataLength ) ) {
 		return false;
 	}
 
@@ -325,7 +206,7 @@ bool TacticalSpotsRegistry::PrecomputedSpotsGrid::Load( int fp ) {
 	}
 
 	// Read grid spot lists
-	if( !ReadLengthAndData( &data, &dataLength, fp ) ) {
+	if( !reader.ReadLengthAndData( &data, &dataLength ) ) {
 		return false;
 	}
 
@@ -364,35 +245,12 @@ bool TacticalSpotsRegistry::PrecomputedSpotsGrid::Load( int fp ) {
 	return true;
 }
 
-void TacticalSpotsRegistry::SavePrecomputedData( const char *mapname ) {
-	char filename[MAX_QPATH];
-	Q_snprintfz( filename, MAX_QPATH, "ai/%s." PRECOMPUTED_DATA_EXTENSION, mapname );
+void TacticalSpotsRegistry::SavePrecomputedData( const char *mapName ) {
+	char fileName[MAX_QPATH];
+	MakePrecomputedFilePath( fileName, sizeof( fileName ), mapName );
 
-	ScopedMessagePrinter messagePrinter( S_COLOR_RED "Can't save %s\n", filename );
-
-	int fp;
-	if( trap_FS_FOpenFile( filename, &fp, FS_WRITE ) < 0 ) {
-		return;
-	}
-
-	FileCloseGuard fileCloseGuard( fp );
-	FileRemoveGuard fileRemoveGuard( filename );
-
-	uint32_t version = LittleLong( PRECOMPUTED_DATA_VERSION );
-	if( trap_FS_Write( &version, 4, fp ) != 4 ) {
-		return;
-	}
-
-	uint32_t dataLength;
-	const char *mapChecksum = trap_GetConfigString( CS_MAPCHECKSUM );
-	dataLength = (uint32_t)strlen( mapChecksum ) + 1;
-	if( !WriteLengthAndData( mapChecksum, dataLength, fp ) ) {
-		return;
-	}
-
-	const char *aasChecksum = AiAasWorld::Instance()->Checksum();
-	dataLength = (uint32_t)strlen( aasChecksum ) + 1;
-	if( !WriteLengthAndData( aasChecksum, dataLength, fp ) ) {
+	AiPrecomputedFileWriter writer( "PrecomputedFileWriter@TacticalSpotsRegistry", PRECOMPUTED_DATA_VERSION );
+	if( !writer.BeginWriting( fileName ) ) {
 		return;
 	}
 
@@ -408,8 +266,8 @@ void TacticalSpotsRegistry::SavePrecomputedData( const char *mapname ) {
 		}
 	}
 
-	dataLength = numSpots * sizeof( TacticalSpot );
-	if( !WriteLengthAndData( (const char *)spots, dataLength, fp ) ) {
+	uint32_t dataLength = numSpots * sizeof( TacticalSpot );
+	if( !writer.WriteLengthAndData( (const uint8_t *)spots, dataLength ) ) {
 		return;
 	}
 
@@ -423,7 +281,7 @@ void TacticalSpotsRegistry::SavePrecomputedData( const char *mapname ) {
 		spotTravelTimeTable[i] = LittleShort( spotTravelTimeTable[i] );
 
 	dataLength = numSpots * numSpots * sizeof( *spotTravelTimeTable );
-	if( !WriteLengthAndData( (const char *)spotTravelTimeTable, dataLength, fp ) ) {
+	if( !writer.WriteLengthAndData( (const uint8_t *)spotTravelTimeTable, dataLength ) ) {
 		return;
 	}
 
@@ -433,7 +291,7 @@ void TacticalSpotsRegistry::SavePrecomputedData( const char *mapname ) {
 
 	static_assert( sizeof( *spotVisibilityTable ) == 1, "Byte swapping is required" );
 	dataLength = numSpots * numSpots * sizeof( *spotVisibilityTable );
-	if( !WriteLengthAndData( (const char *)spotVisibilityTable, dataLength, fp ) ) {
+	if( !writer.WriteLengthAndData( (const uint8_t *)spotVisibilityTable, dataLength ) ) {
 		return;
 	}
 
@@ -441,15 +299,12 @@ void TacticalSpotsRegistry::SavePrecomputedData( const char *mapname ) {
 	G_LevelFree( spotVisibilityTable );
 	spotVisibilityTable = nullptr;
 
-	spotsGrid.Save( fp );
+	spotsGrid.Save( writer );
 
-	fileRemoveGuard.CancelPendingRemoval();
-	messagePrinter.CancelPendingMessage();
-
-	G_Printf( "The precomputed nav data file %s has been saved successfully\n", filename );
+	G_Printf( "The precomputed tactical spots data has been saved successfully to %s\n", fileName );
 }
 
-void TacticalSpotsRegistry::PrecomputedSpotsGrid::Save( int fp ) {
+void TacticalSpotsRegistry::PrecomputedSpotsGrid::Save( AiPrecomputedFileWriter &writer ) {
 	uint32_t dataLength;
 
 	// Byte swap grid list offsets and grid spots lists
@@ -465,7 +320,7 @@ void TacticalSpotsRegistry::PrecomputedSpotsGrid::Save( int fp ) {
 	}
 
 	dataLength = NumGridCells() * sizeof( *gridListOffsets );
-	if( !WriteLengthAndData( (const char *)gridListOffsets, dataLength, fp ) ) {
+	if( !writer.WriteLengthAndData( (const uint8_t *)gridListOffsets, dataLength ) ) {
 		return;
 	}
 
@@ -474,7 +329,7 @@ void TacticalSpotsRegistry::PrecomputedSpotsGrid::Save( int fp ) {
 	gridListOffsets = nullptr;
 
 	dataLength = sizeof( uint16_t ) * ( NumGridCells() + numSpots );
-	if( !WriteLengthAndData( (const char *)gridSpotsLists, dataLength, fp ) ) {
+	if( !writer.WriteLengthAndData( (const uint8_t *)gridSpotsLists, dataLength ) ) {
 		return;
 	}
 
