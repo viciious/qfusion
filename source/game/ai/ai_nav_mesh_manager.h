@@ -39,6 +39,13 @@ class AiNavMeshManager
 	float *polyCenters;
 	float *polyBounds;
 
+	// A data to save (might be null and is usually null).
+	// We have decided to defer saving just computed data until map shutdown
+	// to follow the existing TacticalSpotsRegistry behavior.
+	// This data is not really large, should be several hundreds of KiBs.
+	unsigned char *dataToSave;
+	int dataToSaveSize;
+
 	bool Load( const char *mapName );
 	bool InitNavMeshFromData( unsigned char *data, int dataSize );
 

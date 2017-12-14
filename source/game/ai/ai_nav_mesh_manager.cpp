@@ -1,4 +1,5 @@
 #include "ai_nav_mesh_manager.h"
+#include "ai_precomputed_file_handler.h"
 #include "buffer_builder.h"
 #include "static_vector.h"
 
@@ -91,11 +92,32 @@ void AiNavMeshManager::Shutdown() {
 AiNavMeshManager::AiNavMeshManager()
 	: underlyingNavMesh( nullptr ),
 	  polyCenters( nullptr ),
-	  polyBounds( nullptr ) {
+	  polyBounds( nullptr ),
+	  dataToSave( nullptr ),
+	  dataToSaveSize( 0 ) {
 	for( auto &query: querySlots ) {
 		query.parent = this;
 		query.underlying = nullptr;
 	}
+}
+
+constexpr const uint32_t PRECOMPUTED_FILE_VERSION = 0x1337B001;
+
+// PrecomputedFileReader/Writer rely on G_LevelMalloc() by default,
+// while the rest of code uses G_Malloc for reasons explained above.
+// We have to supply our own allocation facilities compatible with the rest of code.
+
+static void *PrecomputedIOAlloc( size_t size ) {
+	return G_Malloc( size );
+}
+
+static void PrecomputedIOFree( void *ptr ) {
+	G_Free( ptr );
+}
+
+static const char *MakePrecomputedFilePath( char *buffer, size_t bufferSize, const char *mapName ) {
+	Q_snprintfz( buffer, bufferSize, "ai/%s.navmesh", mapName );
+	return buffer;
 }
 
 AiNavMeshManager::~AiNavMeshManager() {
@@ -106,6 +128,26 @@ AiNavMeshManager::~AiNavMeshManager() {
 		}
 	}
 #endif
+
+	if( dataToSave ) {
+		char filePath[MAX_QPATH];
+		MakePrecomputedFilePath( filePath, sizeof( filePath ), level.mapname );
+		constexpr const char *writerTag = "PrecomputedFileWriter@AiNavMeshManager";
+		AiPrecomputedFileWriter writer( writerTag, PRECOMPUTED_FILE_VERSION, PrecomputedIOAlloc, PrecomputedIOFree );
+		if( writer.BeginWriting( filePath ) ) {
+			if( writer.WriteLengthAndData( dataToSave, (uint32_t)dataToSaveSize ) ) {
+				G_Printf( "Precomputed nav mesh has been saved successfully to %s\n", filePath );
+			} else {
+				G_Printf( S_COLOR_RED "Can't write precomputed nav mesh data to file %s\n", filePath );
+			}
+		} else {
+			G_Printf( S_COLOR_RED "Can't write precomputed nav mesh file header to file %s\n", filePath );
+		}
+
+		// Do not release an actual memory chunk referred from underlying nav mesh
+		// at this moment too, just prevent using of THIS pointer.
+		dataToSave = nullptr;
+	}
 
 	if( underlyingNavMesh ) {
 		dtFreeNavMesh( underlyingNavMesh );
@@ -972,14 +1014,41 @@ bool AiNavMeshManager::InitNavMeshFromData( unsigned char *data, int dataSize ) 
 }
 
 bool AiNavMeshManager::Load( const char *mapName ) {
-	NavMeshBuilder builder;
-	unsigned char *data;
-	int dataSize;
-
 	constexpr const char *tag = "AiNavMeshManager";
 
+	char filePath[MAX_QPATH];
+	MakePrecomputedFilePath( filePath, sizeof( filePath ), mapName );
+
+	unsigned char *data = nullptr;
+	int dataSize = 0;
+
+	constexpr const char *readerTag = "PrecomputedFileReader@AiNavMeshManager";
+	AiPrecomputedFileReader reader( readerTag, PRECOMPUTED_FILE_VERSION, PrecomputedIOAlloc, PrecomputedIOFree );
+	const auto loadingStatus = reader.BeginReading( filePath );
+	if( loadingStatus == AiPrecomputedFileReader::SUCCESS ) {
+		if( reader.ReadLengthAndData( (uint8_t **)&data, (uint32_t *)&dataSize ) ) {
+			if( this->InitNavMeshFromData( data, dataSize ) ) {
+				G_Printf( "%s: A precomputed mesh data for map %s has been loaded successfully\n", tag, mapName );
+				return true;
+			} else {
+				G_Printf( S_COLOR_RED "%s: Can't load nav mesh data from the read blob\n", tag );
+			}
+		} else {
+			G_Printf( S_COLOR_RED "%s: Can't read nav mesh data from the file\n", tag );
+		}
+	} else if( loadingStatus == AiPrecomputedFileReader::MISSING ) {
+		G_Printf( "%s: Looks like there is no precomputed nav mesh for map %s\n", tag, mapName );
+	} else if( loadingStatus == AiPrecomputedFileReader::VERSION_MISMATCH ) {
+		G_Printf( "%s: Looks like the precomputed nav mesh for map %s has a different version\n", tag, mapName );
+	} else if( loadingStatus == AiPrecomputedFileReader::FAILURE ) {
+		G_Printf( S_COLOR_RED "%s: An error has occurred while reading a nav mesh header for map %s\n", tag, mapName );
+	}
+
+	G_Printf( "%s: Building nav mesh data for map %s (it might take a while...)\n", tag, mapName );
+
+	NavMeshBuilder builder;
 	if( !builder.BuildMeshData( &data, &dataSize ) ) {
-		G_Printf( S_COLOR_RED "%s: Can't build Detour mesh data\n", tag );
+		G_Printf( S_COLOR_RED "%s: Can't build nav mesh data for map %s\n", tag, mapName );
 		return false;
 	}
 
@@ -987,10 +1056,14 @@ bool AiNavMeshManager::Load( const char *mapName ) {
 	builder.ForceClear();
 
 	if( !this->InitNavMeshFromData( data, dataSize ) ) {
-		G_Printf( S_COLOR_RED "%s: Can't load Detour data from the given blob\n", tag );
+		G_Printf( S_COLOR_RED "%s: Can't load nav mesh data from the computed blob for map %s\n", tag, mapName );
 		return false;
 	}
 
-	G_Printf( "%s: The mesh data has been initialized successfully\n", tag );
+	// Mark the data for saving
+	this->dataToSave = data;
+	this->dataToSaveSize = dataSize;
+
+	G_Printf( "%s: The nav mesh data has been initialized successfully\n", tag );
 	return true;
 }
