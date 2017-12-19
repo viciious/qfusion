@@ -102,48 +102,60 @@ inline bool IsInsideHugeArea( const float *origin, const aas_area_t &area, float
 	return true;
 }
 
-inline bool BotMovementPredictionContext::CanSafelyKeepHighSpeed() {
-	if( const bool *cachedValue = canSafelyKeepHighSpeedCachesStack.GetCached() ) {
-		return *cachedValue;
-	}
-
-	bool result = TestWhetherCanSafelyKeepHighSpeed();
-	canSafelyKeepHighSpeedCachesStack.SetCachedValue( result );
-	return result;
-}
-
-bool BotMovementPredictionContext::TestWhetherCanSafelyKeepHighSpeed() {
+bool Bot::TestWhetherCanSafelyKeepHighSpeed( BotMovementPredictionContext *context ) {
 	const auto *aasWorld = AiAasWorld::Instance();
 	const auto *aasAreas = aasWorld->Areas();
-	const auto *routeCache = self->ai->botRef->routeCache;
-	const auto &entityPhysicsState = movementState->entityPhysicsState;
 
-	const float offset = 20.0f + 48.0f * BoundedFraction( entityPhysicsState.HeightOverGround(), 32 );
-	int prevAreaNum = CurrGroundedAasAreaNum();
-	if( prevAreaNum && IsInsideHugeArea( entityPhysicsState.Origin(), aasAreas[prevAreaNum], offset ) ) {
+	const AiEntityPhysicsState *entityPhysicsState;
+	int prevAreaNum;
+	int startTravelTime = std::numeric_limits<int>::max();
+	if( context ) {
+		entityPhysicsState = &context->movementState->entityPhysicsState;
+		prevAreaNum = context->CurrGroundedAasAreaNum();
+		startTravelTime = context->TravelTimeToNavTarget();
+	} else {
+		entityPhysicsState = self->ai->botRef->EntityPhysicsState();
+		prevAreaNum = entityPhysicsState->DroppedToFloorAasAreaNum();
+		int startAreaNums[2] = { 0, 0 };
+		int numStartAreas = entityPhysicsState->PrepareRoutingStartAreas( startAreaNums );
+		int goalAreaNum = self->ai->botRef->NavTargetAasAreaNum();
+		for( int i = 0; i < numStartAreas; ++i ) {
+			for( int travelFlags: self->ai->botRef->TravelFlags() ) {
+				if( int travelTime = routeCache->TravelTimeToGoalArea( startAreaNums[i], goalAreaNum, travelFlags ) ) {
+					startTravelTime = travelTime;
+					break;
+				}
+			}
+		}
+		if( startTravelTime == std::numeric_limits<int>::max() ) {
+			return false;
+		}
+	}
+
+	const float offset = 20.0f + 48.0f * BoundedFraction( entityPhysicsState->HeightOverGround(), 32 );
+	if( prevAreaNum && IsInsideHugeArea( entityPhysicsState->Origin(), aasAreas[prevAreaNum], offset ) ) {
 		return true;
 	}
 
-	const int navTargetAreaNum = this->NavTargetAasAreaNum();
-	int startTravelTime = this->TravelTimeToNavTarget();
+	const int navTargetAreaNum = self->ai->botRef->NavTargetAasAreaNum();
 	int travelTime = 0;
 
-	Vec3 origin( entityPhysicsState.Origin() );
-	Vec3 velocity( entityPhysicsState.Velocity() );
+	Vec3 origin( entityPhysicsState->Origin() );
+	Vec3 velocity( entityPhysicsState->Velocity() );
 	Vec3 prevOrigin( origin );
 	float secondsAhead = 0.0f;
 	trace_t trace;
 	for(;; ) {
 		secondsAhead += 0.1f;
-		velocity.Set( entityPhysicsState.Velocity() );
-		velocity.Z() = entityPhysicsState.Velocity()[2] - secondsAhead * level.gravity;
+		velocity.Set( entityPhysicsState->Velocity() );
+		velocity.Z() = entityPhysicsState->Velocity()[2] - secondsAhead * level.gravity;
 		origin += secondsAhead * velocity;
 
 		// Try use cheap AAS area bounds tests
 		int areaNum = aasWorld->FindAreaNum( origin );
 		if( areaNum != prevAreaNum && areaNum ) {
 			if( aasWorld->AreaGrounded( areaNum ) ) {
-				if( IsInsideHugeArea( entityPhysicsState.Origin(), aasAreas[areaNum], offset ) ) {
+				if( IsInsideHugeArea( entityPhysicsState->Origin(), aasAreas[areaNum], offset ) ) {
 					return true;
 				}
 			}
@@ -173,7 +185,7 @@ bool BotMovementPredictionContext::TestWhetherCanSafelyKeepHighSpeed() {
 					return false;
 				}
 			}
-			return trace.endpos[2] + 8 - playerbox_stand_mins[2] >= entityPhysicsState.Origin()[2];
+			return trace.endpos[2] + 8 - playerbox_stand_mins[2] >= entityPhysicsState->Origin()[2];
 		}
 
 		// The ground is still not found
@@ -183,6 +195,16 @@ bool BotMovementPredictionContext::TestWhetherCanSafelyKeepHighSpeed() {
 
 		prevOrigin = origin;
 	}
+}
+
+inline bool BotMovementPredictionContext::CanSafelyKeepHighSpeed() {
+	if( const bool *cachedValue = canSafelyKeepHighSpeedCachesStack.GetCached() ) {
+		return *cachedValue;
+	}
+
+	bool result = self->ai->botRef->TestWhetherCanSafelyKeepHighSpeed( this );
+	canSafelyKeepHighSpeedCachesStack.SetCachedValue( result );
+	return result;
 }
 
 void BotMovementPredictionContext::NextReachNumAndTravelTimeToNavTarget( int *reachNum, int *travelTimeToNavTarget ) {
@@ -1844,7 +1866,9 @@ void BotDummyMovementAction::PlanPredictionStep( BotMovementPredictionContext *c
 	if( handledSpecialMovement ) {
 		botInput->SetAllowedRotationMask( BotInputRotation::NONE );
 	} else {
-		if( !nextReachNum || !context->NavTargetAasAreaNum() ) {
+		// We have started testing for water level there to avoid using "lost nav target" movement staying in lava
+		// TODO: Separate movement in liquid
+		if( ( !nextReachNum || !context->NavTargetAasAreaNum() ) && !entityPhysicsState.waterLevel ) {
 			SetupLostNavTargetMovement( context );
 		} else if( !entityPhysicsState.GroundEntity() ) {
 			// Fallback path movement is the last hope action, wait for landing
@@ -2672,7 +2696,35 @@ bool BotNavMeshQueryCache::InspectAasWorldTraceToPoly( const vec3_t polyOrigin )
 
 BotMovementFallback *BotDummyMovementAction::TryFindMovementFallback( BotMovementPredictionContext *context ) {
 	const auto &entityPhysicsState = context->movementState->entityPhysicsState;
-	// Check if the bot is standing on a ramp first
+
+	// First check for being in lava
+	// TODO: Inspect why waterType does not work as intended
+	if( entityPhysicsState.waterLevel >= 1 ) {
+		const auto *aasAreaSettings = AiAasWorld::Instance()->AreaSettings();
+		int currAreaNums[2] = { 0, 0 };
+		if( int numCurrAreas = entityPhysicsState.PrepareRoutingStartAreas( currAreaNums ) ) {
+			int i = 0;
+			// Try check whether there is really lava here
+			for( ; i < numCurrAreas; ++i ) {
+				if( aasAreaSettings[currAreaNums[i]].contents & ( AREACONTENTS_LAVA | AREACONTENTS_SLIME ) ) {
+					break;
+				}
+			}
+			// Start checking for jumping fallback only after that (do not fail with double computations!)
+			if( i != numCurrAreas ) {
+				if( auto *fallback = TryFindJumpFromLavaFallback( context ) ) {
+					return fallback;
+				}
+			}
+		}
+	}
+
+	// All the following checks require a valid nav target
+	if( !context->NavTargetAasAreaNum() ) {
+		return nullptr;
+	}
+
+	// Check if the bot is standing on a ramp
 	if( entityPhysicsState.GroundEntity() && entityPhysicsState.GetGroundNormalZ() < 0.999f ) {
 		if( int groundedAreaNum = context->CurrGroundedAasAreaNum() ) {
 			if( AiAasWorld::Instance()->AreaSettings()[groundedAreaNum].areaflags & AREA_INCLINED_FLOOR ) {
@@ -7181,4 +7233,358 @@ bool BotGenericGroundMovementFallback::TestActualWalkability( int targetAreaNum,
 	}
 
 	return true;
+}
+
+bool BotJumpToSpotMovementFallback::TryDeactivate( BotMovementPredictionContext *context ) {
+	assert( status == PENDING );
+
+	// If the fallback is still active, invalidate it
+	if ( level.time - activatedAt > 750 ) {
+		return DeactivateWithStatus( INVALID );
+	}
+
+	// If the fallback movement has just started, skip tests
+	if( level.time - activatedAt < 325 ) {
+		return false;
+	}
+
+	const AiEntityPhysicsState *entityPhysicsState;
+	if( context ) {
+		entityPhysicsState = &context->movementState->entityPhysicsState;
+	} else {
+		entityPhysicsState = self->ai->botRef->EntityPhysicsState();
+	}
+
+	// Wait until the target is reached
+	if( DistanceSquared( entityPhysicsState->Origin(), targetOrigin ) < reachRadius * reachRadius ) {
+		return false;
+	}
+
+	const auto *aasAreaSettings = AiAasWorld::Instance()->AreaSettings();
+
+	int currAreaNums[2] = { 0, 0 };
+	const int numCurrAreas = entityPhysicsState->PrepareRoutingStartAreas( currAreaNums );
+
+	// First, check whether we have entered any area with disabled flags
+	for( int i = 0; i < numCurrAreas; ++i ) {
+		const auto &areaSettings = aasAreaSettings[currAreaNums[i]];
+		if( ( areaSettings.contents & undesiredAasContents ) || ( areaSettings.areaflags & undesiredAasFlags ) ) {
+			return DeactivateWithStatus( INVALID );
+		}
+	}
+
+	// Second, check whether we have entered some area with satisfying flags
+	for( int i = 0; i < numCurrAreas; ++i ) {
+		const auto &areaSettings = aasAreaSettings[currAreaNums[i]];
+		if( ( areaSettings.contents & desiredAasContents ) || ( areaSettings.areaflags & desiredAasFlags ) ) {
+			if( entityPhysicsState->GroundEntity() ) {
+				return DeactivateWithStatus( COMPLETED );
+			} else if( context ) {
+				// Try reusing this value that is very likely to be cached
+				if( context->CanSafelyKeepHighSpeed() ) {
+					return DeactivateWithStatus( COMPLETED );
+				}
+			} else if( self->ai->botRef->TestWhetherCanSafelyKeepHighSpeed( nullptr ) ) {
+				return DeactivateWithStatus( COMPLETED );
+			}
+		}
+	}
+
+	return false;
+}
+
+void BotJumpToSpotMovementFallback::SetupMovement( BotMovementPredictionContext *context ) {
+	const auto &entityPhysicsState = context->movementState->entityPhysicsState;
+	auto *botInput = &context->record->botInput;
+
+	// Start Z is rather important, don't use entity origin as-is
+	Vec3 toTargetDir( entityPhysicsState.Origin() );
+	toTargetDir.Z() += self->viewheight;
+	toTargetDir -= targetOrigin;
+	toTargetDir *= -1.0f;
+	toTargetDir.Normalize();
+
+	botInput->SetIntendedLookDir( toTargetDir, true );
+
+	// Note: we do not check only 2D dot product but the dot product in all dimensions intentionally
+	// (a bot often has to look exactly at the spot that might be above).
+	const float targetDotView = toTargetDir.Dot( entityPhysicsState.ForwardDir() );
+	// Setting exact view angles is important
+	if( targetDotView < 0.99f ) {
+		botInput->SetTurnSpeedMultiplier( targetDotView < 0 ? 10.0f : 5.0f );
+		return;
+	}
+
+	botInput->SetForwardMovement( 1 );
+	if( entityPhysicsState.Speed2D() < context->GetRunSpeed() - 10 ) {
+		auto *traceCache = &context->EnvironmentTraceCache();
+		traceCache->TestForResultsMask( context, traceCache->FullHeightMask( BotEnvironmentTraceCache::FRONT ) );
+		if( traceCache->FullHeightFrontTrace().IsEmpty() ) {
+			// Try dashing in this case, or wait for accelerating on ground
+			if( entityPhysicsState.Origin()[2] >= targetOrigin[2] ) {
+				const auto *pmStats = context->currPlayerState->pmove.stats;
+				if( ( pmStats[PM_STAT_FEATURES] & PMFEAT_JUMP ) && !pmStats[PM_STAT_DASHTIME ] ) {
+					botInput->SetSpecialButton( true );
+				}
+			}
+			return;
+		}
+	}
+
+	if( entityPhysicsState.GroundEntity() ) {
+		botInput->SetUpMovement( 1 );
+	} else {
+		float frac = 0.7f - BoundedFraction( Distance( entityPhysicsState.Origin(), targetOrigin ) / 72.0f, 1.0f );
+		context->CheatingAccelerate( frac );
+		// Crouch in-air to reduce chances of hitting an obstacle
+		botInput->SetUpMovement( -1 );
+	}
+}
+
+// A very basic alternative to actual per-frame movement prediction
+// that uses the prediction context and PMove().
+// Assumes that the only thing that affects the velocity is the gravity
+// and the bot does not accelerate via any possible way.
+static bool PredictTrajectoryHit( vec3_t origin, const vec3_t velocity,
+								  const vec3_t mins, const vec3_t maxs,
+								  unsigned stepMillis, unsigned maxSteps = 4,
+								  int *hitContents = nullptr, float *hitNormal = nullptr ) {
+	vec3_t startOrigin, prevOrigin;
+	VectorCopy( origin, startOrigin );
+	VectorCopy( origin, prevOrigin );
+
+	trace_t trace;
+	const float gravity = level.gravity;
+	for( unsigned i = 1; i <= maxSteps; ++i ) {
+		const float t = i * 0.001f * stepMillis;
+		origin[0] = startOrigin[0] + velocity[0] * t;
+		origin[1] = startOrigin[1] + velocity[1] * t;
+		origin[2] = startOrigin[2] + velocity[2] * t - 0.5f * gravity * t * t;
+
+		// Hack: Ignore water/lava/slime while jumping from it, but consider it as a hit when falling into it
+		int mask = MASK_SOLID;
+		if( velocity[2] - gravity * t < 0 ) {
+			mask |= MASK_WATER;
+		}
+
+		StaticWorldTrace( &trace, prevOrigin, origin, mask, mins, maxs );
+		if( trace.fraction == 1.0f ) {
+			VectorCopy( origin, prevOrigin );
+			continue;
+		}
+
+		VectorCopy( trace.endpos, origin );
+		if( hitContents ) {
+			*hitContents = trace.contents;
+		}
+		if( hitNormal ) {
+			VectorCopy( trace.plane.normal, hitNormal );
+		}
+		return true;
+	}
+
+	// TODO: Extrapolate using a single ray if the last segment was almost vertical
+
+	return false;
+}
+
+struct SpotAndScore {
+	vec3_t origin;
+	float score;
+	SpotAndScore( const vec3_t origin_, float score_ ) {
+		VectorCopy( origin_, this->origin );
+		this->score = score_;
+	}
+	// Best by score item is the first in a sorted array
+	bool operator<( const SpotAndScore &that ) const { return score > that.score; }
+};
+
+// We make it static non-memeber function to avoid lifting SpotAndScore to headers
+// The function assumes that the range (spotsBegin, spotsEnd) points to a max-heap
+static const float *FindBestJumpableSpot( BotMovementPredictionContext *context,
+										  SpotAndScore *spotsBegin,
+										  SpotAndScore *spotsEnd ) {
+	const auto &entityPhysicsState = context->movementState->entityPhysicsState;
+	const auto *aasWorld = AiAasWorld::Instance();
+	const auto *aasAreaSettings = aasWorld->AreaSettings();
+
+	constexpr auto badAasContents = AREACONTENTS_LAVA | AREACONTENTS_SLIME | AREACONTENTS_DONOTENTER;
+	constexpr auto badCmContents = CONTENTS_LAVA | CONTENTS_SLIME | CONTENTS_DONOTENTER;
+
+	const float runSpeed = context->GetRunSpeed();
+	const float jumpSpeed = context->GetJumpSpeed();
+
+	// Make aliases to fit line width in call sites
+	const float *const mins = vec3_origin;
+	const float *const maxs = playerbox_stand_maxs;
+
+	while( spotsBegin != spotsEnd ) {
+		// Evict the best candidate from the heap
+		std::pop_heap( spotsBegin, spotsEnd );
+		const SpotAndScore *spotAndScore = spotsEnd - 1;
+		spotsEnd--;
+
+		// Note: We now are aiming at the area center intentionally to avoid hitting an edge
+		Vec3 velocity( spotAndScore->origin );
+		velocity -= entityPhysicsState.Origin();
+		velocity.Z() = 0;
+		velocity.Normalize();
+		velocity *= runSpeed;
+		velocity.Z() = jumpSpeed;
+
+		vec3_t predictedOrigin;
+		VectorCopy( entityPhysicsState.Origin(), predictedOrigin );
+		// Add some delta, it's important
+		predictedOrigin[2] += 8.0f;
+		cplane_t tmpPlane;
+		int hitContents = 0;
+		if( PredictTrajectoryHit( predictedOrigin, velocity.Data(), mins, maxs, 96, 6, &hitContents, tmpPlane.normal ) ) {
+			if( !ISWALKABLEPLANE( &tmpPlane ) ) {
+				continue;
+			}
+			if( hitContents & badCmContents ) {
+				continue;
+			}
+		} else {
+			if( trap_CM_TransformedPointContents( predictedOrigin, nullptr, nullptr, nullptr ) & badCmContents ) {
+				continue;
+			}
+
+			// Do a ground sampling
+			trace_t trace;
+			Vec3 traceEnd( predictedOrigin );
+			traceEnd.Z() -= 64.0f;
+			StaticWorldTrace( &trace, predictedOrigin, traceEnd.Data(), MASK_SOLID | MASK_WATER );
+			if( trace.fraction == 1.0f ) {
+				continue;
+			}
+			if( !ISWALKABLEPLANE( &trace.plane ) ) {
+				continue;
+			}
+			if( trace.contents & badCmContents ) {
+				continue;
+			}
+		}
+
+		const int predictedAreaNum = aasWorld->FindAreaNum( predictedOrigin );
+		if( !predictedAreaNum ) {
+			continue;
+		}
+		if( aasAreaSettings[predictedAreaNum].contents & badAasContents ) {
+			continue;
+		}
+		if( aasAreaSettings[predictedAreaNum].areaflags & AREA_DISABLED ) {
+			continue;
+		}
+
+		// Don't check whether the area has AREA_GROUND flags, it is enough it is not a hazard area.
+		// We have sampled a ground using a real collision trace.
+
+		// Returning this pointer is legal assuming spots array lifetime spans the origin usage
+		return spotAndScore->origin;
+	}
+
+	return nullptr;
+}
+
+static void FindAasCandidateJumpableSpots( BotMovementPredictionContext *context,
+										   StaticVector<SpotAndScore, 64> &feasibleSpots ) {
+	feasibleSpots.clear();
+
+	const auto &entityPhysicsState = context->movementState->entityPhysicsState;
+	const auto *aasWorld = AiAasWorld::Instance();
+	const auto *aasAreas = aasWorld->Areas();
+	const auto *aasAreaSettings = aasWorld->AreaSettings();
+
+	int boxAreaNums[64];
+	Vec3 boxMins( -128, -128, -32 );
+	Vec3 boxMaxs( +128, +128, +64 );
+	boxMins += entityPhysicsState.Origin();
+	boxMaxs += entityPhysicsState.Origin();
+
+	const float areaPointZOffset = 1.0f - playerbox_stand_mins[2];
+	constexpr auto badAasContents = AREACONTENTS_LAVA | AREACONTENTS_SLIME | AREACONTENTS_DONOTENTER;
+	const int numBoxAreas = aasWorld->BBoxAreas( boxMins, boxMaxs, boxAreaNums, 64 );
+	for( int i = 0; i < numBoxAreas; ++i ) {
+		const int areaNum = boxAreaNums[i];
+		const auto &areaSettings = aasAreaSettings[areaNum];
+		if( !( areaSettings.areaflags & ( AREA_GROUNDED ) ) ) {
+			continue;
+		}
+		if( areaSettings.areaflags & ( AREA_DISABLED | AREA_JUNK ) ) {
+			continue;
+		}
+		if( areaSettings.contents & badAasContents ) {
+			continue;
+		}
+		const auto &area = aasAreas[areaNum];
+		Vec3 areaPoint( area.center );
+		areaPoint.Z() = area.mins[2] + areaPointZOffset;
+		float squareDistance = areaPoint.SquareDistanceTo( entityPhysicsState.Origin() );
+		// Make sure closest areas come are selected as "greatest" ones in the heap
+		new( feasibleSpots.unsafe_grow_back() )SpotAndScore( area.center, -squareDistance );
+		std::push_heap( feasibleSpots.begin(), feasibleSpots.end() );
+	}
+}
+
+static void FindNavMeshCandidateJumpableSpots( BotMovementPredictionContext *context,
+											   AiNavMeshQuery *navMeshQuery,
+											   StaticVector<SpotAndScore, 64> &feasibleSpots ) {
+	feasibleSpots.clear();
+
+	const auto &entityPhysicsState = context->movementState->entityPhysicsState;
+
+	Vec3 polySearchMins( -24, -24, playerbox_stand_mins[2] );
+	Vec3 polySearchMaxs( +24, +24, playerbox_stand_maxs[2] );
+	polySearchMins += entityPhysicsState.Origin();
+	polySearchMaxs += entityPhysicsState.Origin();
+	uint32_t startPolyRef = navMeshQuery->FindNearestPoly( polySearchMins.Data(), polySearchMaxs.Data() );
+	if( !startPolyRef ) {
+		return;
+	}
+
+	const auto *navMeshManager = AiNavMeshManager::Instance();
+
+	uint32_t polyRefs[64];
+	int numPolysInRadius = navMeshQuery->FindPolysInRadius( startPolyRef, 96.0f, polyRefs, 64 );
+
+	feasibleSpots.clear();
+	for( int i = 0; i < numPolysInRadius; ++i ) {
+		vec3_t targetOrigin;
+		navMeshManager->GetPolyCenter( polyRefs[i], targetOrigin );
+		// Poly center corresponds to the center of the grounded poly.
+		// Add some height above ground
+		targetOrigin[2] += -playerbox_stand_mins[2] + playerbox_stand_maxs[2];
+		float squareDistance = DistanceSquared( targetOrigin, entityPhysicsState.Origin() );
+		new( feasibleSpots.unsafe_grow_back() )SpotAndScore( targetOrigin, -squareDistance );
+	}
+}
+
+BotMovementFallback *BotDummyMovementAction::TryFindJumpFromLavaFallback( BotMovementPredictionContext *context ) {
+	// Cut off these extremely expensive computations
+	if( self != level.think_client_entity ) {
+		return nullptr;
+	}
+
+	auto *const fallback = &self->ai->botRef->jumpToSpotMovementFallback;
+
+	StaticVector<SpotAndScore, 64> feasibleSpots;
+	FindAasCandidateJumpableSpots( context, feasibleSpots );
+	if( const float *spotOrigin = FindBestJumpableSpot( context, feasibleSpots.begin(), feasibleSpots.end() ) ) {
+		fallback->Activate( spotOrigin );
+		return fallback;
+	}
+
+	// We have found nothing.. Try polys
+	if( !self->ai->botRef->navMeshQuery ) {
+		self->ai->botRef->navMeshQuery = AiNavMeshManager::Instance()->AllocQuery( self->r.client );
+	}
+
+	FindNavMeshCandidateJumpableSpots( context, self->ai->botRef->navMeshQuery, feasibleSpots );
+	if( const float *spotOrigin = FindBestJumpableSpot( context, feasibleSpots.begin(), feasibleSpots.end() ) ) {
+		fallback->Activate( spotOrigin );
+		return fallback;
+	}
+
+	return nullptr;
 }

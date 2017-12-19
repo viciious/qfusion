@@ -1093,7 +1093,6 @@ public:
 	inline int NavTargetAasAreaNum() const;
 	inline bool IsInNavTargetArea() const;
 
-	bool TestWhetherCanSafelyKeepHighSpeed();
 	inline bool CanSafelyKeepHighSpeed();
 
 	const Ai::ReachChainVector &NextReachChain();
@@ -1419,6 +1418,7 @@ class BotDummyMovementAction : public BotBaseMovementAction
 	BotMovementFallback *TryFindRampFallback( BotMovementPredictionContext *context, int rampAreaNum, int forbiddenAreaNum = 0 );
 	BotMovementFallback *TryFindNearbyRampAreasFallback( BotMovementPredictionContext *context );
 	BotMovementFallback *TryFindWalkableTriggerFallback( BotMovementPredictionContext *context );
+	BotMovementFallback *TryFindJumpFromLavaFallback( BotMovementPredictionContext *context );
 public:
 	DECLARE_MOVEMENT_ACTION_CONSTRUCTOR( BotDummyMovementAction, COLOR_RGB( 0, 0, 0 ) ) {}
 	void PlanPredictionStep( BotMovementPredictionContext *context ) override;
@@ -1445,6 +1445,13 @@ protected:
 	void Activate() {
 		activatedAt = level.time;
 		status = PENDING;
+	}
+
+	// A convenient shorthand for returning from TryDeactivate()
+	bool DeactivateWithStatus( Status status_ ) {
+		assert( status_ != PENDING );
+		this->status = status_;
+		return true;
 	}
 public:
 	BotMovementFallback( const edict_t *self_, int debugColor_ )
@@ -1601,6 +1608,34 @@ public:
 	}
 
 	bool TryDeactivate( BotMovementPredictionContext *context = nullptr ) override;
+};
+
+class BotJumpToSpotMovementFallback: public BotMovementFallback {
+protected:
+	vec3_t targetOrigin;
+	float reachRadius;
+public:
+	int undesiredAasContents;
+	int undesiredAasFlags;
+	int desiredAasContents;
+	int desiredAasFlags;
+
+	BotJumpToSpotMovementFallback( const edict_t *self_ )
+		: BotMovementFallback( self_, COLOR_RGB( 255, 0, 128 ) ),
+		  undesiredAasContents( AREACONTENTS_LAVA | AREACONTENTS_SLIME | AREACONTENTS_DONOTENTER ),
+		  undesiredAasFlags( AREA_DISABLED ),
+		  desiredAasContents( 0 ),
+		  desiredAasFlags( AREA_GROUNDED ) {}
+
+	void Activate( const vec3_t origin, float reachRadius_ = 32.0f ) {
+		VectorCopy( origin, this->targetOrigin );
+		this->reachRadius = reachRadius_;
+		BotMovementFallback::Activate();
+	}
+
+	bool TryDeactivate( BotMovementPredictionContext *context = nullptr ) override;
+
+	void SetupMovement( BotMovementPredictionContext *context ) override;
 };
 
 class BotHandleTriggeredJumppadMovementAction : public BotBaseMovementAction

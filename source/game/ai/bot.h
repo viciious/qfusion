@@ -226,6 +226,8 @@ public:
 		return entityPhysicsState;
 	}
 
+	bool TestWhetherCanSafelyKeepHighSpeed( BotMovementPredictionContext *context = nullptr );
+
 	// The movement code should use this method if there really are no
 	// feasible ways to continue traveling to the nav target.
 	void OnMovementToNavTargetBlocked();
@@ -339,6 +341,8 @@ private:
 	BotUseRampExitMovementFallback useRampExitMovementFallback;
 	BotUseStairsExitMovementFallback useStairsExitMovementFallback;
 	BotUseWalkableTriggerMovementFallback useWalkableTriggerMovementFallback;
+
+	BotJumpToSpotMovementFallback jumpToSpotMovementFallback;
 
 	BotMovementFallback *activeMovementFallback;
 
