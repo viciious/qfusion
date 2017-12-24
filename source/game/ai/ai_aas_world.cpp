@@ -1307,13 +1307,30 @@ struct ClassifyStairsArea {
 
 class StairsClusterBuilder: public AreasClusterBuilder<ClassifyStairsArea>
 {
+	int firstAreaIndex;
+	int lastAreaIndex;
+	vec2_t averageDimensions;
+
+	inline bool ConformsToDimensions( const aas_area_t &area, float conformanceRatio ) {
+		for( int j = 0; j < 2; ++j ) {
+			float dimension = area.maxs[j] - area.mins[j];
+			float avg = averageDimensions[j];
+			if( dimension < ( 1.0f / conformanceRatio ) * avg || dimension > conformanceRatio * avg ) {
+				return false;
+			}
+		}
+		return true;
+	}
 public:
 	StaticVector<AreaAndScore, 128> areasAndHeights;
 
 	StairsClusterBuilder( bool *isFloodedBuffer, uint16_t *resultsBuffer, AiAasWorld *aasWorld_ )
-		: AreasClusterBuilder( isFloodedBuffer, resultsBuffer, aasWorld_ ) {}
+		: AreasClusterBuilder( isFloodedBuffer, resultsBuffer, aasWorld_ ), firstAreaIndex(0), lastAreaIndex(0) {}
 
 	bool Build( int startAreaNum );
+
+	const AreaAndScore *begin() const { return &areasAndHeights.front() + firstAreaIndex; }
+	const AreaAndScore *end() const { return &areasAndHeights.front() + lastAreaIndex + 1; }
 };
 
 bool StairsClusterBuilder::Build( int startAreaNum ) {
@@ -1344,23 +1361,81 @@ bool StairsClusterBuilder::Build( int startAreaNum ) {
 
 	const auto *areaNums = ResultAreas();
 	areasAndHeights.clear();
+	Vector2Set( averageDimensions, 0, 0 );
 	for( int i = 0; i < numAreas; ++i) {
 		const int areaNum = areaNums[i];
 		// Negate the "score" so lowest areas (having the highest "score") are first after sorting
-		new( areasAndHeights.unsafe_grow_back() )AreaAndScore( areaNum, -aasAreas[areaNum].mins[2] );
+		const auto &area = aasAreas[areaNum];
+		new( areasAndHeights.unsafe_grow_back() )AreaAndScore( areaNum, -area.mins[2] );
+		for( int j = 0; j < 2; ++j ) {
+			averageDimensions[j] += area.maxs[j] - area.mins[j];
+		}
+	}
+
+	for( int j = 0; j < 2; ++j ) {
+		averageDimensions[j] *= 1.0f / areasAndHeights.size();
 	}
 
 	std::sort( areasAndHeights.begin(), areasAndHeights.end() );
 
+	// Chop first/last areas if they do not conform to average dimensions
+	// This prevents inclusion of huge entrance/exit areas to the cluster
+	// Ideally some size filter should be applied to cluster areas too,
+	// but it has shown to produce bad results rejecting many feasible clusters.
+
+	this->firstAreaIndex = 0;
+	if( !ConformsToDimensions( aasAreas[areasAndHeights[this->firstAreaIndex].areaNum], 1.25f ) ) {
+		this->firstAreaIndex++;
+	}
+
+	this->lastAreaIndex = areasAndHeights.size() - 1;
+	if( !ConformsToDimensions( aasAreas[areasAndHeights[this->lastAreaIndex].areaNum], 1.25f ) ) {
+		this->lastAreaIndex--;
+	}
+
+	if( end() - begin() < 3 ) {
+		return false;
+	}
+
 	// Check monotone height increase ("score" decrease)
-	float prevScore = areasAndHeights[0].score;
-	for( int i = 1, end = (int)areasAndHeights.size(); i < end; ++i ) {
+	float prevScore = areasAndHeights[firstAreaIndex].score;
+	for( int i = firstAreaIndex + 1; i < lastAreaIndex; ++i ) {
 		float currScore = areasAndHeights[i].score;
 		if( fabsf( currScore - prevScore ) <= 1.0f ) {
 			return false;
 		}
 		assert( currScore < prevScore );
 		prevScore = currScore;
+	}
+
+	// Now add protection against Greek/Cyrillic Gamma-like stairs
+	// that include an intermediate platform (like wbomb1 water stairs)
+	// Check whether an addition of an area does not lead to unexpected 2D area growth.
+	// (this kind of stairs should be split in two or more clusters)
+	// This test should split curved stairs like on wdm4 as well.
+
+	vec3_t boundsMins, boundsMaxs;
+	ClearBounds( boundsMins, boundsMaxs );
+	AddPointToBounds( aasAreas[areasAndHeights[firstAreaIndex].areaNum].mins, boundsMins, boundsMaxs );
+	AddPointToBounds( aasAreas[areasAndHeights[firstAreaIndex].areaNum].maxs, boundsMins, boundsMaxs );
+
+	float oldTotal2DArea = ( boundsMaxs[0] - boundsMins[0] ) * ( boundsMaxs[1] - boundsMins[1] );
+	const float areaStepGrowthThreshold = 1.25f * averageDimensions[0] * averageDimensions[1];
+	for( int areaIndex = firstAreaIndex + 1; areaIndex < lastAreaIndex; ++areaIndex ) {
+		const auto &currAasArea = aasAreas[areasAndHeights[areaIndex].areaNum];
+		AddPointToBounds( currAasArea.mins, boundsMins, boundsMaxs );
+		AddPointToBounds( currAasArea.maxs, boundsMins, boundsMaxs );
+		const float newTotal2DArea = ( boundsMaxs[0] - boundsMins[0] ) * ( boundsMaxs[1] - boundsMins[1] );
+		// If there was a significant total 2D area growth
+		if( newTotal2DArea - oldTotal2DArea > areaStepGrowthThreshold ) {
+			lastAreaIndex = areaIndex - 1;
+			break;
+		}
+		oldTotal2DArea = newTotal2DArea;
+	}
+
+	if( end() - begin() < 3 ) {
+		return false;
 	}
 
 	// Check connectivity between adjacent stair steps, it should not be broken after sorting for real stairs
@@ -1381,7 +1456,7 @@ bool StairsClusterBuilder::Build( int startAreaNum ) {
 	// (there are no mutual walk reachabilities connecting some of steps of these false stairs)
 
 	const auto *aasReach = aasWorld->Reachabilities();
-	for( int i = 0, end = (int)areasAndHeights.size() - 1; i < end; ++i ) {
+	for( int i = firstAreaIndex; i < lastAreaIndex - 1; ++i ) {
 		const int prevAreaNum = areasAndHeights[i + 0].areaNum;
 		const int currAreaNum = areasAndHeights[i + 1].areaNum;
 		const auto &currAreaSettings = aasAreaSettings[currAreaNum];
@@ -1470,16 +1545,18 @@ void AiAasWorld::ComputeLogicalAreaClusters() {
 		}
 
 		// Important: Mark all areas in the built cluster
-		for( auto areaAndHeight: stairsClusterBuilder.areasAndHeights ) {
-			areaFloorClusterNums[areaAndHeight.areaNum] = (uint16_t)numStairsClusters;
+		for( auto iter = stairsClusterBuilder.begin(), end = stairsClusterBuilder.end(); iter != end; ++iter ) {
+			areaStairsClusterNums[iter->areaNum] = (uint16_t)numStairsClusters;
 		}
 
 		numStairsClusters++;
+		// Add the current stairs data size to the offsets array
 		stairsDataOffsets.Add( stairsData.Size() );
-		stairsData.Add( (uint16_t)stairsClusterBuilder.ResultSize() );
+		// Add the actual stairs data length for the current cluster
+		stairsData.Add( (uint16_t)( stairsClusterBuilder.end() - stairsClusterBuilder.begin() ) );
 		// Save areas preserving sorting by height
-		for( auto areaAndHeight: stairsClusterBuilder.areasAndHeights ) {
-			stairsData.Add( (uint16_t)areaAndHeight.areaNum );
+		for( auto iter = stairsClusterBuilder.begin(), end = stairsClusterBuilder.end(); iter != end; ++iter ) {
+			stairsData.Add( (uint16_t)( iter->areaNum ) );
 		}
 	}
 
