@@ -703,7 +703,7 @@ void TacticalSpotsBuilder::TryAddSpotFromPoint( const Vec3 &point ) {
 	gridBuilder.AddSpot( bestSpotOrigin.Data(), (uint16_t)( numSpots - 1 ) );
 }
 
-static constexpr float SPOT_SQUARE_PROXIMITY_THRESHOLD = 96.0f * 96.0f;
+static constexpr float SPOT_SQUARE_PROXIMITY_THRESHOLD = ( 128 + 32 ) * ( 128 + 32 );
 
 int TacticalSpotsBuilder::TestPointForGoodAreaNum( const vec3_t point ) {
 	const auto *aasWorld = AiAasWorld::Instance();
