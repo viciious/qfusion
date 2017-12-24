@@ -162,7 +162,7 @@ bool Bot::TestWhetherCanSafelyKeepHighSpeed( BotMovementPredictionContext *conte
 		}
 		prevAreaNum = areaNum;
 
-		SolidWorldTrace( &trace, prevOrigin.Data(), origin.Data(), playerbox_stand_mins, playerbox_stand_maxs );
+		StaticWorldTrace( &trace, prevOrigin.Data(), origin.Data(), MASK_SOLID | MASK_WATER, playerbox_stand_mins, playerbox_stand_maxs );
 		if( trace.fraction != 1.0f ) {
 			// No area is found on landing
 			if( !areaNum ) {
@@ -2523,7 +2523,8 @@ bool BotNavMeshQueryCache::TryNavMeshWalkabilityTests( BotMovementPredictionCont
 				// We have to check a real trace as well since Detour raycast ignores height
 				navMeshManager->GetPolyCenter( pathPolyRefs[pathPolyIndex], resultPoint );
 				resultPoint[2] += 1.0f - playerbox_stand_mins[2];
-				SolidWorldTrace( &trace, startOrigin.Data(), resultPoint, walkabilityTraceMins, walkabilityTraceMaxs );
+				StaticWorldTrace( &trace, startOrigin.Data(), resultPoint, MASK_SOLID | MASK_WATER,
+								  walkabilityTraceMins, walkabilityTraceMaxs );
 				if( trace.fraction == 1.0f ) {
 					return true;
 				}
@@ -2587,7 +2588,8 @@ bool BotNavMeshQueryCache::TryTraceAndAasWalkabilityTests( BotMovementPrediction
 				continue;
 			}
 
-			SolidWorldTrace( &trace, startOrigin.Data(), pathPolyOrigin, walkabilityTraceMins, walkabilityTraceMaxs );
+			StaticWorldTrace( &trace, startOrigin.Data(), pathPolyOrigin, MASK_SOLID | MASK_WATER,
+							  walkabilityTraceMins, walkabilityTraceMaxs );
 			if( trace.fraction == 1.0f ) {
 				VectorCopy( pathPolyOrigin, resultPoint );
 				return true;
@@ -5020,7 +5022,7 @@ AreaAndScore *BotBunnyStraighteningReachChainMovementAction::SelectCandidateArea
 		}
 
 		// Make sure the bot can see the ground
-		SolidWorldTrace( &trace, traceStartPoint.Data(), areaPoint.Data() );
+		StaticWorldTrace( &trace, traceStartPoint.Data(), areaPoint.Data(), MASK_SOLID | MASK_WATER );
 		if( trace.fraction != 1.0f ) {
 			// Restore minScore (it might have been set to the value of the rejected area score on this loop step)
 			minScore = prevMinScore;
@@ -5276,7 +5278,7 @@ void BotWalkCarefullyMovementAction::PlanPredictionStep( BotMovementPredictionCo
 	frontTestPoint.Z() += zOffset;
 
 	trace_t trace;
-	SolidWorldTrace( &trace, entityPhysicsState.Origin(), frontTestPoint.Data() );
+	StaticWorldTrace( &trace, entityPhysicsState.Origin(), frontTestPoint.Data(), MASK_SOLID | MASK_WATER );
 	if( trace.fraction == 1.0f ) {
 		context->cannotApplyAction = true;
 		context->actionSuggestedByAction = suggestedAction;
@@ -5300,7 +5302,7 @@ void BotWalkCarefullyMovementAction::PlanPredictionStep( BotMovementPredictionCo
 		sidePoints[i] *= sideOffset;
 		sidePoints[i] += entityPhysicsState.Origin();
 		sidePoints[i].Z() += zOffset;
-		SolidWorldTrace( &trace, entityPhysicsState.Origin(), sidePoints[i].Data() );
+		StaticWorldTrace( &trace, entityPhysicsState.Origin(), sidePoints[i].Data(), MASK_SOLID | MASK_WATER );
 		// Put likely case first
 		if( trace.fraction != 1.0f ) {
 			// Put likely case first
@@ -6097,7 +6099,8 @@ void BotGenericRunBunnyingMovementAction::CheckPredictionStepResults( BotMovemen
 	predictedOrigin.Data()[2] -= 0.5f * level.gravity * predictionSeconds * predictionSeconds;
 
 	trace_t trace;
-	SolidWorldTrace( &trace, newEntityPhysicsState.Origin(), predictedOrigin.Data(), playerbox_stand_mins );
+	StaticWorldTrace( &trace, newEntityPhysicsState.Origin(), predictedOrigin.Data(),
+					  MASK_WATER| MASK_SOLID, vec3_origin, playerbox_stand_maxs );
 	constexpr auto badContents = CONTENTS_LAVA | CONTENTS_SLIME | CONTENTS_NODROP | CONTENTS_DONOTENTER;
 	if( trace.fraction == 1.0f || !ISWALKABLEPLANE( &trace.plane ) || ( trace.contents & badContents ) ) {
 		// Can't say much. The test is very coarse, continue prediction.
@@ -6886,14 +6889,14 @@ bool BotEnvironmentTraceCache::TrySkipTracingForCurrOrigin( BotMovementPredictio
 
 	trace_t trace;
 	mins.Z() += 0.25f;
-	SolidWorldTrace( &trace, origin, origin, mins.Data(), maxs.Data() );
+	StaticWorldTrace( &trace, origin, origin, MASK_SOLID | MASK_WATER, mins.Data(), maxs.Data() );
 	if( trace.fraction == 1.0f ) {
 		SetFullHeightCachedTracesEmpty( front2DDir, right2DDir );
 		return true;
 	}
 
 	mins.Z() += AI_JUMPABLE_HEIGHT - 1.0f;
-	SolidWorldTrace( &trace, origin, origin, mins.Data(), maxs.Data() );
+	StaticWorldTrace( &trace, origin, origin, MASK_SOLID | MASK_WATER, mins.Data(), maxs.Data() );
 	if( trace.fraction == 1.0f ) {
 		SetJumpableHeightCachedTracesEmpty( front2DDir, right2DDir );
 		// We might still need to perform full height traces in TestForResultsMask()
@@ -6946,7 +6949,8 @@ void BotEnvironmentTraceCache::TestForResultsMask( BotMovementPredictionContext 
 			// Convert from a direction to the end point
 			VectorScale( traceEnd, TRACE_DEPTH, traceEnd );
 			VectorAdd( traceEnd, origin, traceEnd );
-			SolidWorldTrace( &fullResult.trace, origin, traceEnd, playerbox_stand_mins, playerbox_stand_maxs );
+			StaticWorldTrace( &fullResult.trace, origin, traceEnd, MASK_SOLID | MASK_WATER,
+							  playerbox_stand_mins, playerbox_stand_maxs );
 			this->resultsMask |= mask;
 			// If full trace is empty, we can set partial trace as empty too
 			if( fullResult.trace.fraction == 1.0f ) {
@@ -6976,7 +6980,7 @@ void BotEnvironmentTraceCache::TestForResultsMask( BotMovementPredictionContext 
 			// Convert from a direction to the end point
 			VectorScale( traceEnd, TRACE_DEPTH, traceEnd );
 			VectorAdd( traceEnd, origin, traceEnd );
-			SolidWorldTrace( &result.trace, origin, traceEnd, mins.Data(), playerbox_stand_maxs );
+			StaticWorldTrace( &result.trace, origin, traceEnd, MASK_SOLID | MASK_WATER, mins.Data(), playerbox_stand_maxs );
 			this->resultsMask |= mask;
 		}
 	}
