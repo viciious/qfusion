@@ -74,6 +74,8 @@ Bot::Bot( edict_t *self_, float skillLevel_ )
 	useStairsExitMovementFallback( self_ ),
 	useWalkableTriggerMovementFallback( self_ ),
 	jumpToSpotMovementFallback( self_ ),
+	fallDownMovementFallback( self_ ),
+	jumpOverBarrierMovementFallback( self_ ),
 	activeMovementFallback( nullptr ),
 	vsayTimeout( level.time + 10000 ),
 	isInSquad( false ),

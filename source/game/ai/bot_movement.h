@@ -1374,13 +1374,6 @@ class BotMovementFallback;
 
 class BotDummyMovementAction : public BotBaseMovementAction
 {
-	bool HandleSpecialReachability( BotMovementPredictionContext *context, int nextReachNum );
-	bool HandleWalkOrFallReachability( BotMovementPredictionContext *context,
-									   const aas_reachability_t &reach,
-									   float zNoBendScale );
-	bool HandleLongJumpReachability( BotMovementPredictionContext *context, const aas_reachability_t &reach );
-	bool HandleClimbJumpReachability( BotMovementPredictionContext *context, const aas_reachability_t &reach );
-
 	struct ClosestTriggerProblemParams {
 	private:
 		vec3_t origin;
@@ -1412,6 +1405,17 @@ class BotDummyMovementAction : public BotBaseMovementAction
 	void SetupNavTargetAreaMovement( BotMovementPredictionContext *context );
 	void SetupLostNavTargetMovement( BotMovementPredictionContext *context );
 	BotMovementFallback *TryFindMovementFallback( BotMovementPredictionContext *context );
+	BotMovementFallback *TryFindAasBasedFallback( BotMovementPredictionContext *context );
+
+	BotMovementFallback *TryFindWalkReachFallback( BotMovementPredictionContext *context,
+												   const aas_reachability_t &nextReach );
+
+	BotMovementFallback *TryFindWalkOffLedgeReachFallback( BotMovementPredictionContext *context,
+														   const aas_reachability_t &nextReach );
+
+	BotMovementFallback *TryFindJumpLikeReachFallback( BotMovementPredictionContext *context,
+													   const aas_reachability_t &nextReach );
+
 	BotMovementFallback *TryFindStairsFallback( BotMovementPredictionContext *context );
 	bool TrySetupRampMovement( BotMovementPredictionContext *context, int rampAreaNum );
 	const int *TryFindBestRampExitArea( BotMovementPredictionContext *context, int rampAreaNum, int forbiddenAreaNum = 0 );
@@ -1523,6 +1527,7 @@ protected:
 	vec3_t nodeOrigin;
 	int nodeAasAreaNum;
 	float reachRadius;
+	unsigned timeout;
 
 	void GetSteeringTarget( vec3_t target ) override {
 		VectorCopy( nodeOrigin, target );
@@ -1531,10 +1536,11 @@ public:
 	BotUseWalkableNodeMovementFallback( const edict_t *self_ )
 		: BotGenericGroundMovementFallback( self_, COLOR_RGB( 0, 192, 0 ) ) {}
 
-	void Activate( vec3_t nodeOrigin_, float reachRadius_, int nodeAasAreaNum_ = 0 ) {
+	void Activate( const vec3_t nodeOrigin_, float reachRadius_, int nodeAasAreaNum_ = 0, unsigned timeout_ = 750 ) {
 		VectorCopy( nodeOrigin_, this->nodeOrigin );
 		this->reachRadius = reachRadius_;
 		this->nodeAasAreaNum = nodeAasAreaNum_;
+		this->timeout = timeout_;
 		if( !nodeAasAreaNum ) {
 			nodeAasAreaNum = AiAasWorld::Instance()->FindAreaNum( nodeOrigin_ );
 		}
@@ -1613,7 +1619,13 @@ public:
 class BotJumpToSpotMovementFallback: public BotMovementFallback {
 protected:
 	vec3_t targetOrigin;
+	vec3_t startOrigin;
 	float reachRadius;
+	float startAirAccelFrac;
+	float endAirAccelFrac;
+	float jumpBoostSpeed;
+	bool hasAppliedJumpBoost;
+	bool allowCorrection;
 public:
 	int undesiredAasContents;
 	int undesiredAasFlags;
@@ -1622,14 +1634,68 @@ public:
 
 	BotJumpToSpotMovementFallback( const edict_t *self_ )
 		: BotMovementFallback( self_, COLOR_RGB( 255, 0, 128 ) ),
+		  startAirAccelFrac( 0 ),
+		  endAirAccelFrac( 0 ),
+		  jumpBoostSpeed( 0 ),
+		  hasAppliedJumpBoost( false ),
+		  allowCorrection( false ),
 		  undesiredAasContents( AREACONTENTS_LAVA | AREACONTENTS_SLIME | AREACONTENTS_DONOTENTER ),
 		  undesiredAasFlags( AREA_DISABLED ),
 		  desiredAasContents( 0 ),
 		  desiredAasFlags( AREA_GROUNDED ) {}
 
-	void Activate( const vec3_t origin, float reachRadius_ = 32.0f ) {
+	void Activate( const vec3_t startOrigin_,
+				   const vec3_t targetOrigin_,
+				   float reachRadius_ = 32.0f,
+				   float startAirAccelFrac_ = 0.0f,
+				   float endAirAccelFrac_ = 0.0f,
+				   float jumpBoostSpeed_ = 0.0f );
+
+	bool TryDeactivate( BotMovementPredictionContext *context = nullptr ) override;
+
+	void SetupMovement( BotMovementPredictionContext *context ) override;
+};
+
+class BotFallDownMovementFallback: public BotMovementFallback
+{
+	vec3_t targetOrigin;
+	unsigned timeout;
+	float reachRadius;
+public:
+	BotFallDownMovementFallback( const edict_t *self_ ): BotMovementFallback( self_, COLOR_RGB( 128, 0, 0 ) ) {}
+
+	// Note: It is expected that bot origin Z should be <= target origin Z
+	// after completion of the fallback, so target Z matters a lot!
+	// Timeout is variable and should be set according to estimated sum of traveling to the ledge and falling
+	void Activate( const vec3_t origin, unsigned timeout_, float reachRadius_ = 32.0f ) {
 		VectorCopy( origin, this->targetOrigin );
+		this->timeout = timeout_;
 		this->reachRadius = reachRadius_;
+		BotMovementFallback::Activate();
+	}
+
+	bool TryDeactivate( BotMovementPredictionContext *context = nullptr ) override;
+
+	void SetupMovement( BotMovementPredictionContext *context ) override;
+};
+
+class BotJumpOverBarrierMovementFallback: public BotMovementFallback
+{
+	vec3_t start;
+	vec3_t top;
+	bool hasReachedStart;
+	bool allowWalljumping;
+public:
+	BotJumpOverBarrierMovementFallback( const edict_t *self_ )
+		: BotMovementFallback( self_, COLOR_RGB( 128, 0, 128 ) ),
+		  hasReachedStart( false ),
+		  allowWalljumping( false ) {}
+
+	void Activate( const vec3_t start_, const vec3_t top_, bool allowWalljumping_ = true ) {
+		VectorCopy( start_, start );
+		VectorCopy( top_, top );
+		hasReachedStart = false;
+		allowWalljumping = allowWalljumping_;
 		BotMovementFallback::Activate();
 	}
 

@@ -1700,123 +1700,168 @@ inline float Distance2DSquared( const vec3_t a, const vec3_t b ) {
 #define SQUARE( x ) ( ( x ) * ( x ) )
 #endif
 
-bool BotDummyMovementAction::HandleWalkOrFallReachability( BotMovementPredictionContext *context,
-														   const aas_reachability_t &reach,
-														   float zNoBendScale ) {
-	const auto &entityPhysicsState = context->movementState->entityPhysicsState;
-	float squareDistance2D = Distance2DSquared( entityPhysicsState.Origin(), reach.start );
-	if( squareDistance2D > SQUARE( 20.0f ) ) {
+bool BotFallDownMovementFallback::TryDeactivate( BotMovementPredictionContext *context ) {
+	assert( status == PENDING );
+
+	if( level.time - activatedAt > timeout ) {
+		status = INVALID;
+		return true;
+	}
+
+	const AiEntityPhysicsState *entityPhysicsState;
+	if( context ) {
+		entityPhysicsState = &context->movementState->entityPhysicsState;
+	} else {
+		entityPhysicsState = self->ai->botRef->EntityPhysicsState();
+	}
+
+	// Wait for touching any ground
+	if( !entityPhysicsState->GroundEntity() ) {
 		return false;
 	}
 
-	Vec3 reachDir( reach.start );
-	reachDir -= entityPhysicsState.Origin();
-	reachDir.NormalizeFast();
-
-	if( reachDir.Z() < 0.5f ) {
-		reachDir.Z() *= zNoBendScale;
-		reachDir.NormalizeFast();
+	if( DistanceSquared( entityPhysicsState->Origin(), targetOrigin ) > reachRadius * reachRadius ) {
+		return false;
 	}
 
-	context->record->botInput.SetIntendedLookDir( reachDir, true );
-	context->record->botInput.SetForwardMovement( 1 );
-	if( reachDir.Dot( entityPhysicsState.ForwardDir() ) < 0.7f ) {
-		context->record->botInput.SetWalkButton( true );
-	} else {
-		if( !entityPhysicsState.GroundEntity() ) {
-			context->record->botInput.SetForwardMovement( 0 );
-		} else if( squareDistance2D < SQUARE( 12.0f ) ) {
-			context->record->botInput.SetWalkButton( true );
-		}
-	}
-
-	return true;
+	return entityPhysicsState->Origin()[2] < targetOrigin[2];
 }
 
-bool BotDummyMovementAction::HandleLongJumpReachability( BotMovementPredictionContext *context,
-														 const aas_reachability_t &reach ) {
+void BotFallDownMovementFallback::SetupMovement( BotMovementPredictionContext *context ) {
 	const auto &entityPhysicsState = context->movementState->entityPhysicsState;
-	float squareDistance2D = Distance2DSquared( entityPhysicsState.Origin(), reach.start );
-	if( squareDistance2D > SQUARE( 24.0f ) ) {
-		return false;
-	}
+	auto *botInput = &context->record->botInput;
 
-	Vec3 startDir( reach.start );
-	startDir -= entityPhysicsState.Origin();
-	startDir.NormalizeFast();
+	// Start Z is rather important, don't use entity origin as-is
+	Vec3 intendedLookDir( entityPhysicsState.Origin() );
+	intendedLookDir.Z() += self->viewheight;
+	intendedLookDir -= targetOrigin;
+	intendedLookDir *= -1.0f;
+	intendedLookDir.Normalize();
 
-	context->record->botInput.SetIntendedLookDir( startDir, true );
-	context->record->botInput.SetForwardMovement( 1 );
-	if( startDir.Dot( entityPhysicsState.ForwardDir() ) > 0.9f ) {
-		if( squareDistance2D < SQUARE( 14.0f ) ) {
-			context->record->botInput.SetUpMovement( 1 );
-		}
-	} else if( !entityPhysicsState.GroundEntity() ) {
-		context->record->botInput.SetForwardMovement( 0 );
-		// The bot has just jumped. Try using aircontrol to hit the reach end.
-		if( entityPhysicsState.Velocity()[2] > 0 ) {
-			Vec3 endDir( reach.end );
-			endDir -= entityPhysicsState.Origin();
-			endDir.NormalizeFast();
-			context->record->botInput.SetIntendedLookDir( endDir, true );
-			float dotRight = endDir.Dot( entityPhysicsState.Origin() );
-			if( dotRight > 0.1f ) {
-				context->record->botInput.SetRightMovement( +1 );
-			} else if( dotRight < -0.1f ) {
-				context->record->botInput.SetRightMovement( -1 );
+	botInput->SetIntendedLookDir( intendedLookDir, true );
+
+	const float viewDot = intendedLookDir.Dot( entityPhysicsState.ForwardDir() );
+	if( viewDot < 0 ) {
+		botInput->SetTurnSpeedMultiplier( 10.0f );
+	} else if( viewDot < 0.9f ) {
+		if( viewDot < 0.7f ) {
+			botInput->SetWalkButton( true );
+			botInput->SetTurnSpeedMultiplier( 5.0f );
+		} else {
+			// Apply air-control being in air, so turn rather slowly.
+			// We might consider using CheatingCorrectVelocity()
+			// but it currently produces weird results on vertical trajectories.
+			if( !entityPhysicsState.GroundEntity() ) {
+				botInput->SetForwardMovement( 1 );
+			} else {
+				botInput->SetTurnSpeedMultiplier( 3.0f );
 			}
 		}
 	} else {
-		if( squareDistance2D < SQUARE( 14.0f ) ) {
-			context->record->botInput.SetWalkButton( true );
-		}
+		botInput->SetForwardMovement( 1 );
 	}
-
-	return true;
 }
 
-bool BotDummyMovementAction::HandleClimbJumpReachability( BotMovementPredictionContext *context,
-														  const aas_reachability_t &reach ) {
-	const auto &entityPhysicsState = context->movementState->entityPhysicsState;
-	float squareDistance2D = Distance2DSquared( entityPhysicsState.Origin(), reach.start );
-	if( squareDistance2D > SQUARE( 24.0f ) ) {
+bool BotJumpOverBarrierMovementFallback::TryDeactivate( BotMovementPredictionContext *context ) {
+	assert( status == PENDING );
+
+	if( level.time - activatedAt > 750 ) {
+		status = INVALID;
+		return true;
+	}
+
+	// TODO: Eliminate this boilerplate
+	const AiEntityPhysicsState *entityPhysicsState;
+	if( context ) {
+		entityPhysicsState = &context->movementState->entityPhysicsState;
+	} else {
+		entityPhysicsState = self->ai->botRef->EntityPhysicsState();
+	}
+
+	// Wait for touching any ground
+	if( !entityPhysicsState->GroundEntity() ) {
 		return false;
 	}
 
-	if( squareDistance2D < SQUARE( 14.0f ) ) {
-		// Jump and press special when start falling
-		if( entityPhysicsState.GroundEntity() ) {
-			context->record->botInput.SetUpMovement( 1 );
-		} else if( entityPhysicsState.Velocity()[2] < 35.0f ) {
-			context->record->botInput.SetSpecialButton( true );
-		} else if( entityPhysicsState.Velocity()[2] > 0.66f * DEFAULT_JUMPSPEED ) {
-			float heightOverGround = entityPhysicsState.HeightOverGround();
-			// Hack! boost jump Z speed for bots at jump start
-			if( heightOverGround < 12.0f ) {
-				Vec3 newVelocity( entityPhysicsState.Velocity() );
-				newVelocity.Z() = DEFAULT_JUMPSPEED + 30.0f;
-				context->record->SetModifiedVelocity( newVelocity );
+	return entityPhysicsState->Origin()[2] >= top[2];
+}
+
+void BotJumpOverBarrierMovementFallback::SetupMovement( BotMovementPredictionContext *context ) {
+	const auto &entityPhysicsState = context->movementState->entityPhysicsState;
+	auto *botInput = &context->record->botInput;
+
+	// View Z really matters a lot in this case, don't use the entity origin as-is.
+	// Don't forget to negate the vector after target subtraction.
+	Vec3 intendedLookDir( entityPhysicsState.Origin() );
+	intendedLookDir.Z() += self->viewheight;
+
+	if( !hasReachedStart ) {
+		float squareDistance = Distance2DSquared( start, entityPhysicsState.Origin() );
+		if( squareDistance > SQUARE( 16.0f ) ) {
+			intendedLookDir -= start;
+			intendedLookDir *= -1.0f / intendedLookDir.LengthFast();
+
+			botInput->SetIntendedLookDir( intendedLookDir, true );
+
+			const float viewDot = intendedLookDir.Dot( entityPhysicsState.ForwardDir() );
+			if( viewDot < 0.9f ) {
+				botInput->SetTurnSpeedMultiplier( viewDot < 0 ? 10.0f : 5.0f );
+				return;
 			}
+
+			botInput->SetForwardMovement( 1 );
+
+			// Try dashing in case when the distance is significant (this should be a rare case)
+			if( self->ai->botRef->ShouldMoveCarefully() || self->ai->botRef->ShouldBeSilent() ) {
+				return;
+			}
+			// Note that the distance threshold is lower than usual for fallbacks,
+			// since we're going to be stopped by a barrier anyway and shouldn't miss it
+			if( !entityPhysicsState.GroundEntity() || squareDistance < SQUARE( 48.0f ) ) {
+				return;
+			}
+
+			const auto *pmStats = context->currPlayerState->pmove.stats;
+			if( ( pmStats[PM_STAT_FEATURES] & PMFEAT_DASH ) && !pmStats[PM_STAT_DASHTIME] ) {
+				botInput->SetSpecialButton( true );
+			}
+
+			return;
 		}
-
-		Vec3 reachVec( reach.end );
-		reachVec -= reach.start;
-		context->record->botInput.SetIntendedLookDir( reachVec, false );
-		context->record->botInput.SetTurnSpeedMultiplier( 2.0f );
-	} else {
-		Vec3 reachDir( reach.start );
-		reachDir -= entityPhysicsState.Origin();
-		reachDir.NormalizeFast();
-
-		context->record->botInput.SetForwardMovement( 1 );
-		if( reachDir.Dot( entityPhysicsState.ForwardDir() ) < 0.7f ) {
-			context->record->botInput.SetWalkButton( true );
-		}
-
-		context->record->botInput.SetIntendedLookDir( reachDir, true );
+		hasReachedStart = true;
 	}
 
-	return true;
+	intendedLookDir -= top;
+	intendedLookDir *= -1.0f / intendedLookDir.LengthFast();
+
+	botInput->SetIntendedLookDir( intendedLookDir, true );
+
+	const float viewDot = intendedLookDir.Dot( entityPhysicsState.ForwardDir() );
+	if( viewDot < 0.9f ) {
+		botInput->SetTurnSpeedMultiplier( viewDot < 0 ? 10.0f : 5.0f );
+		return;
+	}
+
+	botInput->SetForwardMovement( 1 );
+	botInput->SetUpMovement( 1 );
+
+	if( !allowWalljumping ) {
+		return;
+	}
+
+	// Try WJ having reached the peak point
+	const auto *pmStats = context->currPlayerState->pmove.stats;
+	if( !( pmStats[PM_STAT_FEATURES] & PMFEAT_WALLJUMP ) ) {
+		return;
+	}
+
+	if( pmStats[PM_STAT_WJTIME] || pmStats[PM_STAT_STUN] ) {
+		return;
+	}
+
+	if( !entityPhysicsState.GroundEntity() && fabsf( entityPhysicsState.Velocity()[2] ) < 50 ) {
+		botInput->SetSpecialButton( true );
+	}
 }
 
 static inline bool ShouldCrouchSlideNow( BotMovementPredictionContext *context ) {
@@ -1838,17 +1883,13 @@ static inline bool ShouldCrouchSlideNow( BotMovementPredictionContext *context )
 }
 
 void BotDummyMovementAction::PlanPredictionStep( BotMovementPredictionContext *context ) {
-	int nextReachNum = 0;
 	bool handledSpecialMovement = false;
-
 	if( auto *fallback = self->ai->botRef->activeMovementFallback ) {
 		fallback->SetupMovement( context );
 		handledSpecialMovement = true;
 	} else if( context->IsInNavTargetArea() ) {
 		SetupNavTargetAreaMovement( context );
 		handledSpecialMovement = true;
-	} else if( ( nextReachNum = context->NextReachNum() ) ) {
-		handledSpecialMovement = HandleSpecialReachability( context, nextReachNum );
 	}
 
 	const auto &entityPhysicsState = context->movementState->entityPhysicsState;
@@ -1868,7 +1909,8 @@ void BotDummyMovementAction::PlanPredictionStep( BotMovementPredictionContext *c
 	} else {
 		// We have started testing for water level there to avoid using "lost nav target" movement staying in lava
 		// TODO: Separate movement in liquid
-		if( ( !nextReachNum || !context->NavTargetAasAreaNum() ) && !entityPhysicsState.waterLevel ) {
+		// TODO: Does !context->NavTargetAreaNum() imply !context->NextReachNum() and vice versa?
+		if( ( !context->NextReachNum() || !context->NavTargetAasAreaNum() ) && !entityPhysicsState.waterLevel ) {
 			SetupLostNavTargetMovement( context );
 		} else if( !entityPhysicsState.GroundEntity() ) {
 			// Fallback path movement is the last hope action, wait for landing
@@ -1924,22 +1966,6 @@ void BotDummyMovementAction::SetupNavTargetAreaMovement( BotMovementPredictionCo
 			}
 		}
 	}
-}
-
-bool BotDummyMovementAction::HandleSpecialReachability( BotMovementPredictionContext *context, int nextReachNum ) {
-	const auto &nextReach = AiAasWorld::Instance()->Reachabilities()[nextReachNum];
-	switch( nextReach.traveltype & TRAVELTYPE_MASK ) {
-		case TRAVEL_WALKOFFLEDGE:
-			return HandleWalkOrFallReachability( context, nextReach, 1.00f );
-		case TRAVEL_JUMP:
-		case TRAVEL_STRAFEJUMP:
-			return HandleLongJumpReachability( context, nextReach );
-		case TRAVEL_BARRIERJUMP:
-		case TRAVEL_DOUBLEJUMP:
-			return HandleClimbJumpReachability( context, nextReach );
-	}
-
-	return false;
 }
 
 void BotDummyMovementAction::SetupLostNavTargetMovement( BotMovementPredictionContext *context ) {
@@ -2737,6 +2763,10 @@ BotMovementFallback *BotDummyMovementAction::TryFindMovementFallback( BotMovemen
 		}
 	}
 
+	if( auto *fallback = TryFindAasBasedFallback( context ) ) {
+		return fallback;
+	}
+
 	// Check for stairs
 	if( auto *fallback = TryFindStairsFallback( context ) ) {
 		return fallback;
@@ -2790,6 +2820,136 @@ BotMovementFallback *BotDummyMovementAction::TryFindMovementFallback( BotMovemen
 	}
 
 	return nullptr;
+}
+
+BotMovementFallback *BotDummyMovementAction::TryFindAasBasedFallback( BotMovementPredictionContext *context ) {
+	const int nextReachNum = context->NextReachNum();
+	if( !nextReachNum ) {
+		return nullptr;
+	}
+
+	const auto &nextReach = AiAasWorld::Instance()->Reachabilities()[nextReachNum];
+	const int traveltype = nextReach.traveltype & TRAVELTYPE_MASK;
+
+	if( traveltype == TRAVEL_WALK ) {
+		return TryFindWalkReachFallback( context, nextReach );
+	}
+
+	if( traveltype == TRAVEL_JUMPPAD || traveltype == TRAVEL_TELEPORT || traveltype == TRAVEL_ELEVATOR ) {
+		// Always follow these reachabilities
+		auto *fallback = &self->ai->botRef->useWalkableNodeMovementFallback;
+		// Note: We have to add several units to the target Z, otherwise a collision test
+		// on next frame is very likely to immediately deactivate it
+		fallback->Activate( ( Vec3( 0, 0, -playerbox_stand_mins[2] ) + nextReach.start ).Data(), 16.0f );
+		return fallback;
+	}
+
+	if( traveltype == TRAVEL_WALKOFFLEDGE ) {
+		return TryFindWalkOffLedgeReachFallback( context, nextReach );
+	}
+
+	if( traveltype == TRAVEL_JUMP || traveltype == TRAVEL_STRAFEJUMP ) {
+		return TryFindJumpLikeReachFallback( context, nextReach );
+	}
+
+	// The only possible fallback left
+	auto *fallback = &self->ai->botRef->jumpOverBarrierMovementFallback;
+	if( traveltype == TRAVEL_BARRIERJUMP || traveltype == TRAVEL_WATERJUMP ) {
+		fallback->Activate( nextReach.start, nextReach.end );
+		return fallback;
+	}
+
+	// Disallow WJ attempts for TRAVEL_DOUBLEJUMP reachabilities
+	if( traveltype == TRAVEL_DOUBLEJUMP ) {
+		fallback->Activate( nextReach.start, nextReach.end, false );
+		return fallback;
+	}
+
+	return nullptr;
+}
+
+BotMovementFallback *BotDummyMovementAction::TryFindWalkReachFallback( BotMovementPredictionContext *context,
+																	   const aas_reachability_t &nextReach ) {
+	const auto &entityPhysicsState = context->movementState->entityPhysicsState;
+
+	// Allow following WALK reachabilities but make sure
+	// they do not lead to junk areas and are fairly far away to prevent looping.
+	float squareDistance = DistanceSquared( entityPhysicsState.Origin(), nextReach.end );
+	if( squareDistance < SQUARE( 72.0f ) ) {
+		return nullptr;
+	}
+
+	const auto &areaSettings = AiAasWorld::Instance()->AreaSettings()[nextReach.areanum];
+	if( areaSettings.areaflags & AREA_JUNK ) {
+		return nullptr;
+	}
+
+	auto *fallback = &self->ai->botRef->useWalkableNodeMovementFallback;
+	unsigned timeout = (unsigned)( 1000.0f * sqrtf( squareDistance ) / context->GetRunSpeed() );
+	// Note: We have to add several units to the target Z, otherwise a collision test
+	// on next frame is very likely to immediately deactivate it
+	Vec3 target( nextReach.end );
+	target.Z() += -playerbox_stand_mins[2];
+	fallback->Activate( target.Data(), 16.0f, AiAasWorld::Instance()->FindAreaNum( target ), timeout );
+	return fallback;
+}
+
+BotMovementFallback *BotDummyMovementAction::TryFindWalkOffLedgeReachFallback( BotMovementPredictionContext *context,
+																			   const aas_reachability_t &nextReach ) {
+	const auto &entityPhysicsState = context->movementState->entityPhysicsState;
+
+	// If the falling distance is really low, treat is just as walking to a node
+	const float squareFallingHeight = DistanceSquared( nextReach.start, nextReach.end );
+	if( squareFallingHeight < SQUARE( 40.0f ) ) {
+		auto *fallback = &self->ai->botRef->useWalkableNodeMovementFallback;
+		float squareDistance = DistanceSquared( entityPhysicsState.Origin(), nextReach.start );
+		unsigned timeout = 100 + (unsigned)( 1000.0f * sqrtf( squareDistance ) / context->GetRunSpeed() );
+		Vec3 target( nextReach.start );
+		target.Z() += 1.0f - playerbox_stand_mins[2];
+		fallback->Activate( target.Data(), 16.0f, nextReach.areanum, timeout );
+		return fallback;
+	}
+
+	auto *fallback = &self->ai->botRef->fallDownMovementFallback;
+	Vec3 targetOrigin( nextReach.end );
+	// Setting the proper Z (should be greater than an origin of bot standing at destination) is important!
+	targetOrigin.Z() = AiAasWorld::Instance()->Areas()[nextReach.areanum].mins[2] + 4.0f - playerbox_stand_mins[2];
+	// Compute the proper timeout
+	float distanceToReach = sqrtf( Distance( entityPhysicsState.Origin(), nextReach.start ) );
+	unsigned travelTimeToLedgeMillis = (unsigned)( 1000.0f * distanceToReach / context->GetRunSpeed() );
+	unsigned fallingTimeMillis = (unsigned)( 1000.0f * sqrtf( 2.0f * sqrtf( squareFallingHeight ) / level.gravity ) );
+	fallback->Activate( targetOrigin.Data(), travelTimeToLedgeMillis + fallingTimeMillis + 250, 24.0f );
+	return fallback;
+}
+
+BotMovementFallback *BotDummyMovementAction::TryFindJumpLikeReachFallback( BotMovementPredictionContext *context,
+																		   const aas_reachability_t &nextReach ) {
+	const auto &entityPhysicsState = context->movementState->entityPhysicsState;
+	auto *fallback = &self->ai->botRef->jumpToSpotMovementFallback;
+
+	float startAirAccelFrac, endAirAccelFrac;
+	float jumpBoostSpeed = 0.0f;
+	if( ( nextReach.traveltype & TRAVELTYPE_MASK ) == TRAVEL_JUMP ) {
+		if( nextReach.start[2] > nextReach.end[2] ) {
+			if( DistanceSquared( nextReach.start, nextReach.end ) < SQUARE( 72.0f ) ) {
+				startAirAccelFrac = endAirAccelFrac = 0.0f;
+			} else {
+				startAirAccelFrac = endAirAccelFrac = 0.3f;
+			}
+		} else {
+			startAirAccelFrac = 0.7f;
+			endAirAccelFrac = 0.4f;
+		}
+	} else {
+		startAirAccelFrac = endAirAccelFrac = 1.0f;
+		jumpBoostSpeed = 35.0f;
+	}
+
+	Vec3 targetOrigin( nextReach.end );
+	targetOrigin.Z() += -playerbox_stand_mins[2] + self->viewheight;
+	fallback->Activate( entityPhysicsState.Origin(), targetOrigin.Data(), 24.0f,
+						startAirAccelFrac, endAirAccelFrac, jumpBoostSpeed );
+	return fallback;
 }
 
 BotMovementFallback *BotDummyMovementAction::TryFindStairsFallback( BotMovementPredictionContext *context ) {
@@ -7175,7 +7335,7 @@ bool BotUseWalkableNodeMovementFallback::TryDeactivate( BotMovementPredictionCon
 		return false;
 	}
 
-	if( level.time - activatedAt > 750 ) {
+	if( level.time - activatedAt > timeout ) {
 		status = INVALID;
 		return true;
 	}
@@ -7237,6 +7397,34 @@ bool BotGenericGroundMovementFallback::TestActualWalkability( int targetAreaNum,
 	}
 
 	return true;
+}
+
+void BotJumpToSpotMovementFallback::Activate( const vec3_t startOrigin_,
+											  const vec3_t targetOrigin_,
+											  float reachRadius_,
+											  float startAirAccelFrac_,
+											  float endAirAccelFrac_,
+											  float jumpBoostSpeed_ ) {
+	VectorCopy( targetOrigin_, this->targetOrigin );
+	VectorCopy( startOrigin_, this->startOrigin );
+	this->reachRadius = reachRadius_;
+	clamp( startAirAccelFrac_, 0.0f, 1.0f );
+	clamp( endAirAccelFrac_, 0.0f, 1.0f );
+	this->startAirAccelFrac = startAirAccelFrac_;
+	this->endAirAccelFrac = endAirAccelFrac_;
+	this->jumpBoostSpeed = jumpBoostSpeed_;
+	this->hasAppliedJumpBoost = false;
+
+	// Check whether there is no significant difference in start and target height
+	// (velocity correction looks weird in that case)
+	this->allowCorrection = false;
+	Vec3 jumpVec( targetOrigin );
+	jumpVec -= startOrigin;
+	if( fabsf( jumpVec.Z() ) / sqrtf( jumpVec.X() * jumpVec.X() + jumpVec.Y() * jumpVec.Y() ) < 0.2f ) {
+		this->allowCorrection = true;
+	}
+
+	BotMovementFallback::Activate();
 }
 
 bool BotJumpToSpotMovementFallback::TryDeactivate( BotMovementPredictionContext *context ) {
@@ -7312,37 +7500,104 @@ void BotJumpToSpotMovementFallback::SetupMovement( BotMovementPredictionContext 
 
 	// Note: we do not check only 2D dot product but the dot product in all dimensions intentionally
 	// (a bot often has to look exactly at the spot that might be above).
-	const float targetDotView = toTargetDir.Dot( entityPhysicsState.ForwardDir() );
 	// Setting exact view angles is important
-	if( targetDotView < 0.99f ) {
-		botInput->SetTurnSpeedMultiplier( targetDotView < 0 ? 10.0f : 5.0f );
+	if( toTargetDir.Dot( entityPhysicsState.ForwardDir() ) < 0.99f ) {
+		// This huge value is important, otherwise bot falls down in some cases
+		botInput->SetTurnSpeedMultiplier( 15.0f );
 		return;
 	}
 
 	botInput->SetForwardMovement( 1 );
-	if( entityPhysicsState.Speed2D() < context->GetRunSpeed() - 10 ) {
+
+	if( !entityPhysicsState.GroundEntity() ) {
+		if( !hasAppliedJumpBoost ) {
+			hasAppliedJumpBoost = true;
+			// Avoid weird-looking behavior, only boost jumping in case when bot has just started a jump
+			if( jumpBoostSpeed > 0 && entityPhysicsState.Velocity()[2] > context->GetJumpSpeed() - 30 ) {
+				Vec3 modifiedVelocity( entityPhysicsState.Velocity() );
+				modifiedVelocity.Z() += jumpBoostSpeed;
+				context->record->SetModifiedVelocity( modifiedVelocity );
+				return;
+			}
+		}
+
+		float jumpDistance2D = sqrtf( Distance2DSquared( this->startOrigin, this->targetOrigin ) );
+		if( jumpDistance2D < 16.0f ) {
+			return;
+		}
+
+		float distanceToTarget2D = sqrtf( Distance2DSquared( entityPhysicsState.Origin(), this->targetOrigin ) );
+		float distanceFrac = distanceToTarget2D / jumpDistance2D;
+
+		float accelFrac = startAirAccelFrac + distanceFrac * ( endAirAccelFrac - startAirAccelFrac );
+		if( accelFrac > 0 ) {
+			clamp_high( accelFrac, 1.0f );
+			context->CheatingAccelerate( accelFrac );
+			// Don't press forward when using cheating acceleration
+			botInput->SetForwardMovement( 0 );
+		}
+
+		if( allowCorrection && entityPhysicsState.Speed2D() > 100 ) {
+			// Check whether a correction should be really applied
+			// Otherwise it looks weird (a bot starts fly ghosting near the target like having a jetpack).
+			Vec3 toTargetDir2D( targetOrigin );
+			toTargetDir2D -= entityPhysicsState.Origin();
+			toTargetDir2D.Z() = 0;
+			toTargetDir2D *= 1.0f / distanceToTarget2D;
+
+			Vec3 velocity2D( entityPhysicsState.Velocity() );
+			velocity2D.Z() = 0;
+			velocity2D *= 1.0f / entityPhysicsState.Speed2D();
+
+			float velocity2DDotToTargetDir2D = velocity2D.Dot( toTargetDir2D );
+			if( velocity2DDotToTargetDir2D < 0.9f ) {
+				context->CheatingCorrectVelocity( velocity2DDotToTargetDir2D, toTargetDir2D );
+			}
+		}
+
+		// Crouch in-air to reduce chances of hitting an obstacle
+		botInput->SetUpMovement( -1 );
+		return;
+	}
+
+	// Wait for accelerating on ground, except there is an obstacle or a gap
+	if( entityPhysicsState.Speed2D() < context->GetRunSpeed() - 30 ) {
+		// First, utilize the obstacles cache used in prediction
 		auto *traceCache = &context->EnvironmentTraceCache();
 		traceCache->TestForResultsMask( context, traceCache->FullHeightMask( BotEnvironmentTraceCache::FRONT ) );
-		if( traceCache->FullHeightFrontTrace().IsEmpty() ) {
-			// Try dashing in this case, or wait for accelerating on ground
-			if( entityPhysicsState.Origin()[2] >= targetOrigin[2] ) {
-				const auto *pmStats = context->currPlayerState->pmove.stats;
-				if( ( pmStats[PM_STAT_FEATURES] & PMFEAT_JUMP ) && !pmStats[PM_STAT_DASHTIME ] ) {
-					botInput->SetSpecialButton( true );
-				}
-			}
+		// Try jumping over an obstacle
+		if( !traceCache->FullHeightFrontTrace().IsEmpty() ) {
+			botInput->SetUpMovement( 1 );
+			return;
+		}
+
+		// Check whether there is a gap in front of the bot
+		trace_t trace;
+		Vec3 traceStart( entityPhysicsState.ForwardDir() );
+		traceStart *= 24.0f;
+		traceStart += entityPhysicsState.Origin();
+		Vec3 traceEnd( traceStart );
+		traceEnd.Z() -= 40.0f;
+		edict_t *ignore = const_cast<edict_t *>( self );
+		G_Trace( &trace, traceStart.Data(), nullptr, nullptr, traceEnd.Data(), ignore, MASK_PLAYERSOLID );
+		// If there is no gap or hazard in front of the bot, wait for accelerating on ground
+		if( trace.fraction != 1.0f && !( trace.contents & ( CONTENTS_LAVA | CONTENTS_SLIME | CONTENTS_NODROP ) ) ) {
 			return;
 		}
 	}
 
-	if( entityPhysicsState.GroundEntity() ) {
-		botInput->SetUpMovement( 1 );
-	} else {
-		float frac = 0.7f - BoundedFraction( Distance( entityPhysicsState.Origin(), targetOrigin ) / 72.0f, 1.0f );
-		context->CheatingAccelerate( frac );
-		// Crouch in-air to reduce chances of hitting an obstacle
-		botInput->SetUpMovement( -1 );
+	// Try dashing
+	if( entityPhysicsState.Origin()[2] >= targetOrigin[2] ) {
+		const auto *pmStats = context->currPlayerState->pmove.stats;
+		// If a dash can succeed, return
+		if( ( pmStats[PM_STAT_FEATURES] & PMFEAT_JUMP ) && !pmStats[PM_STAT_DASHTIME] ) {
+			botInput->SetSpecialButton( true );
+			return;
+		}
 	}
+
+	// Jump in all other cases
+	botInput->SetUpMovement( 1 );
 }
 
 // A very basic alternative to actual per-frame movement prediction
@@ -7570,12 +7825,13 @@ BotMovementFallback *BotDummyMovementAction::TryFindJumpFromLavaFallback( BotMov
 		return nullptr;
 	}
 
+	const auto &entityPhysicsState = context->movementState->entityPhysicsState;
 	auto *const fallback = &self->ai->botRef->jumpToSpotMovementFallback;
 
 	StaticVector<SpotAndScore, 64> feasibleSpots;
 	FindAasCandidateJumpableSpots( context, feasibleSpots );
 	if( const float *spotOrigin = FindBestJumpableSpot( context, feasibleSpots.begin(), feasibleSpots.end() ) ) {
-		fallback->Activate( spotOrigin );
+		fallback->Activate( entityPhysicsState.Origin(), spotOrigin );
 		return fallback;
 	}
 
@@ -7586,7 +7842,7 @@ BotMovementFallback *BotDummyMovementAction::TryFindJumpFromLavaFallback( BotMov
 
 	FindNavMeshCandidateJumpableSpots( context, self->ai->botRef->navMeshQuery, feasibleSpots );
 	if( const float *spotOrigin = FindBestJumpableSpot( context, feasibleSpots.begin(), feasibleSpots.end() ) ) {
-		fallback->Activate( spotOrigin );
+		fallback->Activate( entityPhysicsState.Origin(), spotOrigin );
 		return fallback;
 	}
 
