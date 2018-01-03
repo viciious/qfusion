@@ -237,6 +237,14 @@ void BotMovementPredictionContext::NextReachNumAndTravelTimeToNavTarget( int *re
 	}
 }
 
+inline const AiAasRouteCache *BotMovementPredictionContext::RouteCache() const {
+	return self->ai->botRef->routeCache;
+}
+
+inline const ArrayRange<int> BotMovementPredictionContext::TravelFlags() const {
+	return self->ai->botRef->TravelFlags();
+}
+
 #define CHECK_STATE_FLAG( state, bit )                                                    \
 	if( ( expectedStatesMask & ( 1 << bit ) ) != ( ( (unsigned)state.IsActive() ) << ( 1 << bit ) ) )  \
 	{                                                                                       \
@@ -2952,30 +2960,20 @@ BotMovementFallback *BotDummyMovementAction::TryFindJumpLikeReachFallback( BotMo
 	return fallback;
 }
 
-BotMovementFallback *BotDummyMovementAction::TryFindStairsFallback( BotMovementPredictionContext *context ) {
+static const uint16_t *TryFindBestStairsExitArea( BotMovementPredictionContext *context, int stairsClusterNum ) {
 	const int toAreaNum = context->NavTargetAasAreaNum();
-	Assert( toAreaNum );
+	if( !toAreaNum ) {
+		return nullptr;
+	}
 
-	int currTravelTimeToTarget = context->TravelTimeToNavTarget();
+	const int currTravelTimeToTarget = context->TravelTimeToNavTarget();
 	if( !currTravelTimeToTarget ) {
 		return nullptr;
 	}
 
 	const auto *aasWorld = AiAasWorld::Instance();
-
-	int currAreaNums[2] = { 0, 0 };
-	const int numCurrAreas = context->movementState->entityPhysicsState.PrepareRoutingStartAreas( currAreaNums );
-
-	int stairsClusterNum = 0;
-	for( int i = 0; i < numCurrAreas; ++i ) {
-		if( ( stairsClusterNum = aasWorld->StairsClusterNum( currAreaNums[i ] ) ) ) {
-			break;
-		}
-	}
-
-	if( !stairsClusterNum ) {
-		return nullptr;
-	}
+	const auto *routeCache = context->RouteCache();
+	const auto &travelFlags = context->TravelFlags();
 
 	const uint16_t *stairsClusterAreaNums = aasWorld->StairsClusterData( stairsClusterNum ) + 1;
 	int numAreasInStairsCluster = stairsClusterAreaNums[-1];
@@ -2983,15 +2981,16 @@ BotMovementFallback *BotDummyMovementAction::TryFindStairsFallback( BotMovementP
 	// TODO: Support curved stairs, here and from StairsClusterBuilder side
 
 	// Determine whether highest or lowest area is closer to the nav target
-	const auto *routeCache = self->ai->botRef->routeCache;
-	const int stairsBoundaryAreas[] = { stairsClusterAreaNums[0], stairsClusterAreaNums[numAreasInStairsCluster - 1] };
+	const uint16_t *stairsBoundaryAreas[2];
+	stairsBoundaryAreas[0] = &stairsClusterAreaNums[0];
+	stairsBoundaryAreas[1] = &stairsClusterAreaNums[numAreasInStairsCluster - 1];
 
 	int bestStairsAreaIndex = -1;
 	int bestTravelTimeOfStairsAreas = std::numeric_limits<int>::max();
 	for( int i = 0; i < 2; ++i ) {
 		int bestAreaTravelTime = std::numeric_limits<int>::max();
-		for( int travelFlags: self->ai->botRef->TravelFlags() ) {
-			int travelTime = routeCache->TravelTimeToGoalArea( stairsBoundaryAreas[i], toAreaNum, travelFlags );
+		for( int flags: travelFlags ) {
+			int travelTime = routeCache->TravelTimeToGoalArea( *stairsBoundaryAreas[i], toAreaNum, flags );
 			if( travelTime && travelTime < bestAreaTravelTime ) {
 				bestAreaTravelTime = travelTime;
 			}
@@ -3013,40 +3012,41 @@ BotMovementFallback *BotDummyMovementAction::TryFindStairsFallback( BotMovementP
 		return nullptr;
 	}
 
+	// The value points to the cluster data that is persistent in memory
+	// during the entire match, so returning this address is legal.
+	return stairsBoundaryAreas[bestStairsAreaIndex];
+}
+
+BotMovementFallback *BotDummyMovementAction::TryFindStairsFallback( BotMovementPredictionContext *context ) {
+	const auto *aasWorld = AiAasWorld::Instance();
+
+	int currAreaNums[2] = { 0, 0 };
+	const int numCurrAreas = context->movementState->entityPhysicsState.PrepareRoutingStartAreas( currAreaNums );
+
+	int stairsClusterNum = 0;
+	for( int i = 0; i < numCurrAreas; ++i ) {
+		if( ( stairsClusterNum = aasWorld->StairsClusterNum( currAreaNums[i] ))) {
+			break;
+		}
+	}
+
+	if( !stairsClusterNum ) {
+		return nullptr;
+	}
+
+	const auto *bestAreaNum = TryFindBestStairsExitArea( context, stairsClusterNum );
+	if( !bestAreaNum ) {
+		return nullptr;
+	}
+
 	auto *fallback = &self->ai->botRef->useStairsExitMovementFallback;
-	fallback->Activate( stairsClusterNum, stairsBoundaryAreas[bestStairsAreaIndex] );
+	fallback->Activate( stairsClusterNum, *bestAreaNum );
 	return fallback;
 }
 
-bool BotDummyMovementAction::TrySetupRampMovement( BotMovementPredictionContext *context, int rampAreaNum ) {
-	const auto *aasWorld = AiAasWorld::Instance();
-	const auto *aasAreas = aasWorld->Areas();
-	if( const int *bestAreaNum = TryFindBestRampExitArea( context, rampAreaNum ) ) {
-		const auto &entityPhysicsState = context->movementState->entityPhysicsState;
-		Vec3 intendedLookDir( aasAreas[*bestAreaNum].center );
-		intendedLookDir -= entityPhysicsState.Origin();
-		intendedLookDir.NormalizeFast();
-
-		context->record->botInput.SetIntendedLookDir( intendedLookDir, true );
-		float dot = intendedLookDir.Dot( entityPhysicsState.ForwardDir() );
-		if( dot > 0.5f ) {
-			context->record->botInput.SetForwardMovement( 1 );
-			if( dot > 0.9f && entityPhysicsState.Speed2D() < context->GetDashSpeed() - 10 ) {
-				const auto *stats = context->currPlayerState->pmove.stats;
-				if( ( stats[PM_STAT_FEATURES] & PMFEAT_DASH ) && !stats[PM_STAT_DASHTIME] ) {
-					context->record->botInput.SetSpecialButton( true );
-				}
-			}
-		}
-
-		return true;
-	}
-
-	return false;
-}
-
-const int *BotDummyMovementAction::TryFindBestRampExitArea( BotMovementPredictionContext *context,
-															int rampAreaNum, int forbiddenAreaNum ) {
+static const int *TryFindBestRampExitArea( BotMovementPredictionContext *context,
+										   int rampAreaNum,
+										   int forbiddenAreaNum = 0 ) {
 	const auto *aasWorld = AiAasWorld::Instance();
 	const auto *aasAreas = aasWorld->Areas();
 	const auto *aasAreaSettings = aasWorld->AreaSettings();
@@ -3111,13 +3111,14 @@ const int *BotDummyMovementAction::TryFindBestRampExitArea( BotMovementPredictio
 	int toAreaNum = context->NavTargetAasAreaNum();
 	int bestIndex = -1;
 	int bestTravelTime = std::numeric_limits<int>::max();
-	const auto *routeCache = self->ai->botRef->routeCache;
+	const auto *routeCache = context->RouteCache();
+	const auto &travelFlags = context->TravelFlags();
 	for( int i = 0; i < 2; ++i ) {
 		if( fromAreaNums[i] == forbiddenAreaNum ) {
 			continue;
 		}
-		for( int travelFlags: self->ai->botRef->TravelFlags() ) {
-			int travelTime = routeCache->TravelTimeToGoalArea( fromAreaNums[i], toAreaNum, travelFlags );
+		for( int flags: travelFlags ) {
+			int travelTime = routeCache->TravelTimeToGoalArea( fromAreaNums[i], toAreaNum, flags );
 			if( travelTime && travelTime < travelTimeToTarget && travelTime < bestTravelTime ) {
 				bestIndex = i;
 				bestTravelTime = travelTime;
@@ -3131,6 +3132,34 @@ const int *BotDummyMovementAction::TryFindBestRampExitArea( BotMovementPredictio
 
 	// Return a pointer to a persistent during the match memory
 	return &aasReach[fromReachNums[bestIndex]].areanum;
+}
+
+bool BotDummyMovementAction::TrySetupRampMovement( BotMovementPredictionContext *context, int rampAreaNum ) {
+	const auto *aasWorld = AiAasWorld::Instance();
+	const auto *aasAreas = aasWorld->Areas();
+	const auto *bestAreaNum = TryFindBestRampExitArea( context, rampAreaNum );
+	if( !bestAreaNum ) {
+		return false;
+	}
+
+	const auto &entityPhysicsState = context->movementState->entityPhysicsState;
+	Vec3 intendedLookDir( aasAreas[*bestAreaNum].center );
+	intendedLookDir -= entityPhysicsState.Origin();
+	intendedLookDir.NormalizeFast();
+
+	context->record->botInput.SetIntendedLookDir( intendedLookDir, true );
+	float dot = intendedLookDir.Dot( entityPhysicsState.ForwardDir() );
+	if( dot > 0.5f ) {
+		context->record->botInput.SetForwardMovement( 1 );
+		if( dot > 0.9f && entityPhysicsState.Speed2D() < context->GetDashSpeed() - 10 ) {
+			const auto *stats = context->currPlayerState->pmove.stats;
+			if( ( stats[PM_STAT_FEATURES] & PMFEAT_DASH ) && !stats[PM_STAT_DASHTIME] ) {
+				context->record->botInput.SetSpecialButton( true );
+			}
+		}
+	}
+
+	return true;
 }
 
 BotMovementFallback *BotDummyMovementAction::TryFindRampFallback( BotMovementPredictionContext *context,
@@ -4667,17 +4696,41 @@ struct ReachChainInterpolator {
 		return std::find( allowedEndReachTypes, end, reachTravelType ) != end;
 	}
 
+	bool TrySetDirToRegionExitArea( BotMovementPredictionContext *context,
+									const aas_area_t &area,
+									float distanceThreshold = 64.0f );
+
 	bool Exec( BotMovementPredictionContext *context );
 
 	inline const Vec3 &Result() const { return intendedLookDir; }
 };
+
+bool ReachChainInterpolator::TrySetDirToRegionExitArea( BotMovementPredictionContext *context,
+														const aas_area_t &area,
+														float distanceThreshold ) {
+	const float *origin = context->movementState->entityPhysicsState.Origin();
+
+	Vec3 areaPoint( area.center );
+	areaPoint.Z() = area.mins[2] + 32.0f;
+	if( areaPoint.SquareDistanceTo( origin ) < SQUARE( distanceThreshold ) ) {
+		return false;
+	}
+
+	intendedLookDir.Set( areaPoint );
+	intendedLookDir -= origin;
+	intendedLookDir.NormalizeFast();
+	return true;
+}
 
 bool ReachChainInterpolator::Exec( BotMovementPredictionContext *context ) {
 	trace_t trace;
 	vec3_t firstReachDir;
 	const auto &reachChain = context->NextReachChain();
 	const auto *aasWorld = AiAasWorld::Instance();
+	const auto *aasAreas = aasWorld->Areas();
 	const auto *aasReach = aasWorld->Reachabilities();
+	const auto *aasAreaSettings = aasWorld->AreaSettings();
+	const auto *aasAreaStairsClusterNums = aasWorld->AreaStairsClusterNums();
 	const auto &entityPhysicsState = context->movementState->entityPhysicsState;
 	const float *origin = entityPhysicsState.Origin();
 	const aas_reachability_t *singleFarReach = nullptr;
@@ -4685,6 +4738,27 @@ bool ReachChainInterpolator::Exec( BotMovementPredictionContext *context ) {
 	const int navTargetAreaNum = context->NavTargetAasAreaNum();
 	unsigned numReachFound = 0;
 	bool endsInNavTargetArea = false;
+
+	// Check for quick shortcuts for special cases when a bot is already inside a stairs cluster or a ramp.
+	// This should reduce CPU cycles wasting on interpolation attempts inside these kinds of environment.
+	// Using this when a bot is not already in the special kind of environemnt is more complicated,
+	// the question is what rules should be followed? So it is not implemented.
+	if( int currGroundedAreaNum = context->CurrGroundedAasAreaNum() ) {
+		// Stairs clusters and inclined floor areas are mutually exclusive
+		if( aasAreaSettings[currGroundedAreaNum].areaflags & AREA_INCLINED_FLOOR ) {
+			if( const auto *exitAreaNum = TryFindBestRampExitArea( context, currGroundedAreaNum ) ) {
+				if( TrySetDirToRegionExitArea( context, aasAreas[*exitAreaNum] ) ) {
+					return true;
+				}
+			}
+		} else if( int stairsClusterNum = aasAreaStairsClusterNums[currGroundedAreaNum] ) {
+			if( const auto *exitAreaNum = TryFindBestStairsExitArea( context, stairsClusterNum ) ) {
+				if( TrySetDirToRegionExitArea( context, aasAreas[*exitAreaNum] ) ) {
+					return true;
+				}
+			}
+		}
+	}
 
 	intendedLookDir.Set( 0, 0, 0 );
 	for( unsigned i = 0; i < reachChain.size(); ++i ) {
