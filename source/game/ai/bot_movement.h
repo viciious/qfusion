@@ -819,8 +819,6 @@ class BotSameFloorClusterAreasCache
 	mutable int computedTargetAreaNum;
 	mutable int computedTravelTime;
 
-	bool IsAreaWalkableInFloorCluster( int startAreaNum, int targetAreaNum ) const;
-
 	void BuildCandidateAreasHeap( BotMovementPredictionContext *context,
 								  const uint16_t *clusterAreaNums,
 								  int numClusterAreas,

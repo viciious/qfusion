@@ -2056,7 +2056,13 @@ static bool FindSegments2DIntersectionPoint( const vec3_t start1, const vec3_t e
 	return true;
 }
 
-bool BotSameFloorClusterAreasCache::IsAreaWalkableInFloorCluster( int startAreaNum, int targetAreaNum ) const {
+bool IsAreaWalkableInFloorCluster( int startAreaNum, int targetAreaNum ) {
+	// Consider matching areas walkable (even if the area does not belong to some cluster).
+	if( startAreaNum == targetAreaNum ) {
+		return true;
+	}
+
+	const auto *aasWorld = AiAasWorld::Instance();
 	const auto *areaFloorClusterNums = aasWorld->AreaFloorClusterNums();
 	int startFloorClusterNum = areaFloorClusterNums[startAreaNum];
 	if( !startFloorClusterNum ) {
@@ -4730,6 +4736,7 @@ bool ReachChainInterpolator::Exec( BotMovementPredictionContext *context ) {
 	const auto *aasAreas = aasWorld->Areas();
 	const auto *aasReach = aasWorld->Reachabilities();
 	const auto *aasAreaSettings = aasWorld->AreaSettings();
+	const auto *aasAreaFloorClusterNums = aasWorld->AreaFloorClusterNums();
 	const auto *aasAreaStairsClusterNums = aasWorld->AreaStairsClusterNums();
 	const auto &entityPhysicsState = context->movementState->entityPhysicsState;
 	const float *origin = entityPhysicsState.Origin();
@@ -4737,6 +4744,8 @@ bool ReachChainInterpolator::Exec( BotMovementPredictionContext *context ) {
 	const float squareDistanceThreshold = SQUARE( stopAtDistance );
 	const int navTargetAreaNum = context->NavTargetAasAreaNum();
 	unsigned numReachFound = 0;
+	int currAreaFloorClusterNum = 0;
+	int currAreaNum = context->CurrAasAreaNum();
 	bool endsInNavTargetArea = false;
 
 	// Check for quick shortcuts for special cases when a bot is already inside a stairs cluster or a ramp.
@@ -4744,6 +4753,8 @@ bool ReachChainInterpolator::Exec( BotMovementPredictionContext *context ) {
 	// Using this when a bot is not already in the special kind of environemnt is more complicated,
 	// the question is what rules should be followed? So it is not implemented.
 	if( int currGroundedAreaNum = context->CurrGroundedAasAreaNum() ) {
+		currAreaNum = currGroundedAreaNum;
+		currAreaFloorClusterNum = aasAreaFloorClusterNums[currGroundedAreaNum];
 		// Stairs clusters and inclined floor areas are mutually exclusive
 		if( aasAreaSettings[currGroundedAreaNum].areaflags & AREA_INCLINED_FLOOR ) {
 			if( const auto *exitAreaNum = TryFindBestRampExitArea( context, currGroundedAreaNum ) ) {
@@ -4761,6 +4772,9 @@ bool ReachChainInterpolator::Exec( BotMovementPredictionContext *context ) {
 	}
 
 	intendedLookDir.Set( 0, 0, 0 );
+
+	// The area the reachability starts in
+	int reachStartArea = context->CurrAasAreaNum();
 	for( unsigned i = 0; i < reachChain.size(); ++i ) {
 		const auto &reach = aasReach[reachChain[i].ReachNum()];
 
@@ -4779,24 +4793,41 @@ bool ReachChainInterpolator::Exec( BotMovementPredictionContext *context ) {
 
 		if( DistanceSquared( origin, reach.start ) > squareDistanceThreshold ) {
 			assert( !singleFarReach );
-			// The trace segment might be very long, test PVS first
-			if( trap_inPVS( origin, reach.start ) ) {
-				SolidWorldTrace( &trace, origin, reach.start );
-				if( trace.fraction == 1.0f ) {
+			// Check for possible CM trace replacement by much cheaper 2D raycasting in floor cluster
+			if( currAreaFloorClusterNum && currAreaFloorClusterNum == aasAreaFloorClusterNums[reachStartArea] ) {
+				if( IsAreaWalkableInFloorCluster( currAreaNum, reachStartArea ) ) {
 					singleFarReach = &reach;
+				}
+			} else {
+				// The trace segment might be very long, test PVS first
+				if( trap_inPVS( origin, reach.start ) ) {
+					SolidWorldTrace( &trace, origin, reach.start );
+					if( trace.fraction == 1.0f ) {
+						singleFarReach = &reach;
+					}
 				}
 			}
 			break;
 		}
 
-		SolidWorldTrace( &trace, origin, reach.start );
-		if( trace.fraction != 1.0f ) {
-			break;
+		// Check for possible CM trace replacement by much cheaper 2D raycasting in floor cluster
+		if( currAreaFloorClusterNum && currAreaFloorClusterNum == aasAreaFloorClusterNums[reachStartArea] ) {
+			if( !IsAreaWalkableInFloorCluster( currAreaNum, reachStartArea ) ) {
+				break;
+			}
+		} else {
+			SolidWorldTrace( &trace, origin, reach.start );
+			if( trace.fraction != 1.0f ) {
+				break;
+			}
 		}
 
 		if( reach.areanum == navTargetAreaNum ) {
 			endsInNavTargetArea = true;
 		}
+
+		// The next reachability starts in this area
+		reachStartArea = reach.areanum;
 
 		Vec3 reachDir( reach.start );
 		reachDir -= origin;
