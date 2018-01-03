@@ -5198,6 +5198,7 @@ AreaAndScore *BotBunnyStraighteningReachChainMovementAction::SelectCandidateArea
 	const auto *aasReachabilities = aasWorld->Reachabilities();
 	const auto *aasAreas = aasWorld->Areas();
 	const auto *aasAreaSettings = aasWorld->AreaSettings();
+	const auto *aasAreaStairsClusterNums = aasWorld->AreaStairsClusterNums();
 	const int navTargetAasAreaNum = context->NavTargetAasAreaNum();
 
 	const auto *dangerToEvade = self->ai->botRef->perceptionManager.PrimaryDanger();
@@ -5205,6 +5206,8 @@ AreaAndScore *BotBunnyStraighteningReachChainMovementAction::SelectCandidateArea
 	if( self->ai->botRef->ShouldRushHeadless() || ( dangerToEvade && !dangerToEvade->SupportsImpactTests() ) ) {
 		dangerToEvade = nullptr;
 	}
+
+	int metStairsClusterNum = 0;
 
 	// Do not make it speed-depended, it leads to looping/jitter!
 	const float distanceThreshold = 256.0f + 512.0f * self->ai->botRef->Skill();
@@ -5217,10 +5220,26 @@ AreaAndScore *BotBunnyStraighteningReachChainMovementAction::SelectCandidateArea
 	trace_t trace;
 	for( int i = lastValidReachIndex; i >= 0; --i ) {
 		const int reachNum = nextReachChain[i].ReachNum();
-		const aas_reachability_t &reachability = aasReachabilities[reachNum];
-		const int areaNum = reachability.areanum;
-		const aas_area_t &area = aasAreas[areaNum];
-		const aas_areasettings_t &areaSettings = aasAreaSettings[areaNum];
+		const auto &reachability = aasReachabilities[reachNum];
+		int areaNum = reachability.areanum;
+		const auto &area = aasAreas[areaNum];
+		const auto &areaSettings = aasAreaSettings[areaNum];
+
+		if( const int stairsClusterNum = aasAreaStairsClusterNums[areaNum] ) {
+			// If a stairs cluster has not been met yet
+			// (its currently limited to a single cluster but that's satisfactory)
+			if( !metStairsClusterNum ) {
+				if( const auto *exitAreaNum = TryFindBestStairsExitArea( context, stairsClusterNum ) ) {
+					// Do further tests for exit area num instead of the stairs cluster area
+					areaNum = *exitAreaNum;
+				}
+				metStairsClusterNum = stairsClusterNum;
+			} else {
+				// Skip the stairs area. A test for the exit area of the cluster has been already done.
+				continue;
+			}
+		}
+
 		if( areaSettings.contents & AREACONTENTS_DONOTENTER ) {
 			continue;
 		}
@@ -5370,6 +5389,7 @@ AreaAndScore *BotBunnyToBestShortcutAreaMovementAction::SelectCandidateAreas( Bo
 	const auto *aasRouteCache = self->ai->botRef->routeCache;
 	const auto *aasAreas = aasWorld->Areas();
 	const auto *aasAreaSettings = aasWorld->AreaSettings();
+	const auto *aasAreaStairsClusterNums = aasWorld->AreaStairsClusterNums();
 
 	const int navTargetAreaNum = context->NavTargetAasAreaNum();
 	const int travelFlags = self->ai->botRef->PreferredTravelFlags();
@@ -5397,12 +5417,38 @@ AreaAndScore *BotBunnyToBestShortcutAreaMovementAction::SelectCandidateAreas( Bo
 		dangerToEvade = nullptr;
 	}
 
+	int metStairsClusterNum = 0;
+
 	int bboxAreaNums[MAX_BBOX_AREAS];
 	int numBBoxAreas = FindBBoxAreas( context, bboxAreaNums, MAX_BBOX_AREAS );
 	for( int i = 0; i < numBBoxAreas; ++i ) {
-		const int areaNum = bboxAreaNums[i];
+		int areaNum = bboxAreaNums[i];
 		if( areaNum == droppedToFloorAreaNum || areaNum == currAreaNum ) {
 			continue;
+		}
+
+		if( const int stairsClusterNum = aasAreaStairsClusterNums[areaNum] ) {
+			// If a stairs cluster has not been met yet
+			// (its currently limited to a single cluster but that's satisfactory)
+			if( !metStairsClusterNum ) {
+				if( const auto *exitAreaNum = TryFindBestStairsExitArea( context, stairsClusterNum ) ) {
+					// Do further tests for exit area num instead of the stairs cluster area
+					areaNum = *exitAreaNum;
+				}
+				metStairsClusterNum = stairsClusterNum;
+			} else {
+				// Skip the stairs area. A test for the exit area of the cluster has been already done.
+				continue;
+			}
+		}
+
+		// Skip areas that have lead to the previous action failure
+		// This condition has been lifted to the beginning of the loop
+		// to avoid computing twice cluster exit area if a cluster has been met.
+		if( prevTestedAction.disabledForApplicationFrameIndex == context->topOfStackIndex ) {
+			if( std::find( prevTestedAreas.begin(), prevTestedAreas.end(), areaNum ) != prevTestedAreas.end() ) {
+				continue;
+			}
 		}
 
 		const auto &areaSettings = aasAreaSettings[areaNum];
@@ -5415,13 +5461,6 @@ AreaAndScore *BotBunnyToBestShortcutAreaMovementAction::SelectCandidateAreas( Bo
 		}
 		if( areaSettings.contents & ( AREACONTENTS_WATER | AREACONTENTS_LAVA | AREACONTENTS_SLIME | AREACONTENTS_DONOTENTER ) ) {
 			continue;
-		}
-
-		// Skip areas that have lead to the previous action failure
-		if( prevTestedAction.disabledForApplicationFrameIndex == context->topOfStackIndex ) {
-			if( std::find( prevTestedAreas.begin(), prevTestedAreas.end(), areaNum ) != prevTestedAreas.end() ) {
-				continue;
-			}
 		}
 
 		const auto &area = aasAreas[areaNum];
