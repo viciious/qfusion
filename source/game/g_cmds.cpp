@@ -466,7 +466,7 @@ static void Cmd_PlayersExt_f( edict_t *ent, bool onlyspecs ) {
 			cl = clientEnt->r.client;
 
 			login = NULL;
-			if( cl->mm_session > 0 ) {
+			if( cl->mm_session.IsValidSessionId() ) {
 				login = Info_ValueForKey( cl->userinfo, "cl_mm_login" );
 			}
 			if( !login ) {
@@ -1149,7 +1149,7 @@ static void Cmd_Whois_f( edict_t *ent ) {
 
 	cl = target->r.client;
 
-	if( cl->mm_session <= 0 ) {
+	if( !cl->mm_session.IsValidSessionId() ) {
 		G_PrintMsg( ent, "Unregistered player\n" );
 		return;
 	}

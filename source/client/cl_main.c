@@ -217,16 +217,14 @@ static void CL_Quit_f( void ) {
 * connect.
 */
 static void CL_SendConnectPacket( void ) {
+	char uuid_buffer[UUID_BUFFER_SIZE];
+
 	userinfo_modified = false;
 
-	Com_DPrintf( "CL_MM_Initialized: %d, cls.mm_ticket: %u\n", CL_MM_Initialized(), cls.mm_ticket );
-	if( CL_MM_Initialized() && cls.mm_ticket != 0 ) {
-		Netchan_OutOfBandPrint( cls.socket, &cls.serveraddress, "connect %i %i %i \"%s\" %i %u\n",
-								APP_PROTOCOL_VERSION, Netchan_GamePort(), cls.challenge, Cvar_Userinfo(), 0, cls.mm_ticket );
-	} else {
-		Netchan_OutOfBandPrint( cls.socket, &cls.serveraddress, "connect %i %i %i \"%s\" %i\n",
-								APP_PROTOCOL_VERSION, Netchan_GamePort(), cls.challenge, Cvar_Userinfo(), 0 );
-	}
+	Uuid_ToString( uuid_buffer, cls.mm_ticket );
+	Com_DPrintf( "CL_MM_Initialized: %d, cls.mm_ticket: %s\n", CL_MM_Initialized(), uuid_buffer );
+	Netchan_OutOfBandPrint( cls.socket, &cls.serveraddress, "connect %i %i %i \"%s\" %i %s\n",
+							APP_PROTOCOL_VERSION, Netchan_GamePort(), cls.challenge, Cvar_Userinfo(), 0, uuid_buffer );
 }
 
 /*

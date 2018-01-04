@@ -777,7 +777,8 @@ void SV_Frame( unsigned realmsec, unsigned gamemsec ) {
 */
 void SV_UserinfoChanged( client_t *client ) {
 	char *val;
-	int ival;
+	char uuid_buffer[UUID_BUFFER_SIZE];
+	mm_uuid_t uuid;
 
 	assert( client );
 	assert( Info_Validate( client->userinfo ) );
@@ -795,13 +796,13 @@ void SV_UserinfoChanged( client_t *client ) {
 	}
 
 	// mm session
-	ival = 0;
+	uuid = Uuid_ZeroUuid();
 	val = Info_ValueForKey( client->userinfo, "cl_mm_session" );
 	if( val ) {
-		ival = atoi( val );
+		Uuid_FromString( val, &uuid );
 	}
-	if( !val || ival != client->mm_session ) {
-		Info_SetValueForKey( client->userinfo, "cl_mm_session", va( "%d", client->mm_session ) );
+	if( !val || !Uuid_Compare( uuid, client->mm_session ) ) {
+		Info_SetValueForKey( client->userinfo, "cl_mm_session", Uuid_ToString( uuid_buffer, client->mm_session ) );
 	}
 
 	// mm login

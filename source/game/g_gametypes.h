@@ -21,6 +21,8 @@ Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
 #ifndef __G_GAMETYPE_H__
 #define __G_GAMETYPE_H__
 
+#include "../matchmaker/mm_rating.h"
+
 //g_gametypes.c
 extern cvar_t *g_warmup_timelimit;
 extern cvar_t *g_postmatch_timelimit;
@@ -46,14 +48,15 @@ typedef struct gameaward_s {
 } gameaward_t;
 
 typedef struct {
-	int mm_attacker;    // session-id
-	int mm_victim;      // session-id
+	mm_uuid_t attacker; // session-id
+	mm_uuid_t victim;   // session-id
 	int weapon;         // weapon used
 	int64_t time;		// server timestamp
 } loggedFrag_t;
 
 typedef struct {
-	int owner;			// session-id
+	char nickname[32];  // not set if session id is valid
+	mm_uuid_t owner;	// session-id
 	int64_t timestamp;	// milliseconds
 	int numSectors;
 	int64_t *times;		// unsigned int * numSectors+1, where last is final time

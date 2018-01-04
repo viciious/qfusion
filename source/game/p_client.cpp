@@ -755,7 +755,7 @@ void ClientBegin( edict_t *ent ) {
 	G_UpdatePlayerMatchMsg( ent );
 
 	mm_login = Info_ValueForKey( client->userinfo, "cl_mm_login" );
-	if( mm_login && *mm_login && client->mm_session > 0 ) {
+	if( mm_login && *mm_login && client->mm_session.IsValidSessionId() ) {
 		G_PrintMsg( NULL, "%s" S_COLOR_WHITE " (" S_COLOR_YELLOW "%s" S_COLOR_WHITE ") entered the game\n", client->netname, mm_login );
 	} else {
 		if( !level.gametype.disableObituaries || !( ent->r.svflags & SVF_FAKECLIENT ) ) {
@@ -1190,7 +1190,9 @@ void ClientUserinfoChanged( edict_t *ent, char *userinfo ) {
 	// mm session
 	// TODO: remove the key after storing it to gclient_t !
 	s = Info_ValueForKey( userinfo, "cl_mm_session" );
-	cl->mm_session = ( s == NULL ) ? 0 : atoi( s );
+	if( !Uuid_FromString( s, &cl->mm_session ) ) {
+		cl->mm_session = Uuid_ZeroUuid();
+	}
 
 	s = Info_ValueForKey( userinfo, "mmflags" );
 	cl->mmflags = ( s == NULL ) ? 0 : strtoul( s, NULL, 10 );

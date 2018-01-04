@@ -21,6 +21,7 @@
 
 #include "../qcommon/qcommon.h"
 #include "../game/g_public.h"
+#include "../matchmaker/mm_rating.h"
 
 //=============================================================================
 
@@ -174,8 +175,8 @@ typedef struct client_s {
 
 	bool tvclient;
 
-	int mm_session;
-	unsigned int mm_ticket;
+	mm_uuid_t mm_session;
+	mm_uuid_t mm_ticket;
 	char mm_login[MAX_INFO_VALUE];
 } client_t;
 
@@ -463,7 +464,7 @@ void SV_BroadcastCommand( _Printf_format_string_ const char *format, ... );
 void SV_ParseClientMessage( client_t *client, msg_t *msg );
 bool SV_ClientConnect( const socket_t *socket, const netadr_t *address, client_t *client, char *userinfo,
 					   int game_port, int challenge, bool fakeClient, bool tvClient,
-					   unsigned int ticket_id, int session_id );
+					   mm_uuid_t ticket_id, mm_uuid_t session_id );
 
 #ifndef _MSC_VER
 void SV_DropClient( client_t *drop, int type, const char *format, ... ) __attribute__( ( format( printf, 3, 4 ) ) );
@@ -528,7 +529,7 @@ void SV_MM_Shutdown( bool logout );
 void SV_MM_Frame( void );
 bool SV_MM_Initialized( void );
 
-int SV_MM_ClientConnect( const netadr_t *address, char *userinfo, unsigned int ticket, int session );
+mm_uuid_t SV_MM_ClientConnect( client_t *client, const netadr_t *address, char *userinfo, mm_uuid_t ticket, mm_uuid_t session );
 void SV_MM_ClientDisconnect( client_t *client );
 
 int SV_MM_GenerateLocalSession( void );

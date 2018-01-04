@@ -1224,7 +1224,10 @@ struct gclient_s {
 		int channel;
 	} tv;
 
-	int mm_session;                 // 0 - invalid session, < 0 - local session, > 0 authenticated account
+	// is a zero UUID if a client is not authenticated
+	// is an all-bits-set UUID if the session is local
+	// is a valid UUID if a client is authenticated
+	mm_uuid_t mm_session;
 	clientRating_t *ratings;        // list of ratings for gametypes
 
 	bool connecting;
@@ -1256,7 +1259,7 @@ struct gclient_s {
 struct gclient_quit_s {
 	char netname[MAX_NAME_BYTES];
 	int team;
-	int mm_session;
+	mm_uuid_t mm_session;
 
 	score_stats_t stats;
 	int64_t timePlayed;

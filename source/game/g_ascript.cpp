@@ -1418,7 +1418,7 @@ static asstring_t *objectGameClient_getClanName( gclient_t *self ) {
 static asstring_t *objectGameClient_getMMLogin( gclient_t *self ) {
 	const char *login = NULL;
 
-	if( self->mm_session > 0 ) {
+	if( self->mm_session.IsValidSessionId() ) {
 		login = Info_ValueForKey( self->userinfo, "cl_mm_login" );
 	}
 	if( !login ) {
