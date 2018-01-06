@@ -17,6 +17,9 @@ protected:
 	int teams[MAX_CLIENTS];
 	ai_handle_t *last;
 
+	int hubAreas[16];
+	int numHubAreas;
+
 	static AiManager *instance;
 	virtual void Frame() override;
 
@@ -159,6 +162,7 @@ public:
 
 	void SetupBotGoalsAndActions( edict_t *ent );
 
+	void FindHubAreas();
 public:
 	void LinkAi( ai_handle_t *ai );
 	void UnlinkAi( ai_handle_t *ai );
@@ -191,6 +195,8 @@ public:
 		registeredGoals.ClearToLimit();
 		registeredActions.ClearToLimit();
 	}
+
+	bool IsAreaReachableFromHubAreas( int targetArea, float *score = nullptr ) const;
 };
 
 #endif

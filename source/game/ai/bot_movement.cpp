@@ -1,6 +1,7 @@
 #include "bot.h"
 #include "bot_movement.h"
 #include "ai_aas_world.h"
+#include "ai_manager.h"
 #include "tactical_spots_registry.h"
 #include "ai_nav_mesh_manager.h"
 
@@ -1915,12 +1916,7 @@ void BotDummyMovementAction::PlanPredictionStep( BotMovementPredictionContext *c
 	if( handledSpecialMovement ) {
 		botInput->SetAllowedRotationMask( BotInputRotation::NONE );
 	} else {
-		// We have started testing for water level there to avoid using "lost nav target" movement staying in lava
-		// TODO: Separate movement in liquid
-		// TODO: Does !context->NavTargetAreaNum() imply !context->NextReachNum() and vice versa?
-		if( ( !context->NextReachNum() || !context->NavTargetAasAreaNum() ) && !entityPhysicsState.waterLevel ) {
-			SetupLostNavTargetMovement( context );
-		} else if( !entityPhysicsState.GroundEntity() ) {
+		if( !entityPhysicsState.GroundEntity() ) {
 			// Fallback path movement is the last hope action, wait for landing
 			SetupLostNavTargetMovement( context );
 		} else if( auto *fallback = TryFindMovementFallback( context ) ) {
@@ -2763,6 +2759,11 @@ BotMovementFallback *BotDummyMovementAction::TryFindMovementFallback( BotMovemen
 
 	// All the following checks require a valid nav target
 	if( !context->NavTargetAasAreaNum() ) {
+		if( self->ai->botRef->MillisInBlockedState() > 500 ) {
+			if( auto *fallback = TryFindLostNavTargetFallback( context ) ) {
+				return fallback;
+			}
+		}
 		return nullptr;
 	}
 
@@ -3418,6 +3419,7 @@ inline int TriggerAreaNumsCache::GetAreaNum( int entNum ) const {
 	// Find an area that has suitable flags matching the trigger type
 	const auto *aasWorld = AiAasWorld::Instance();
 	const auto *aasAreaSettings = aasWorld->AreaSettings();
+	const auto *aiManager = AiManager::Instance();
 
 	int desiredAreaContents = ~0;
 	const edict_t *ent = game.edicts + entNum;
@@ -3434,8 +3436,10 @@ inline int TriggerAreaNumsCache::GetAreaNum( int entNum ) const {
 	for( int i = 0; i < numBoxAreas; ++i ) {
 		int areaNum = boxAreaNums[i];
 		if( aasAreaSettings[areaNum].contents & desiredAreaContents ) {
-			*areaNumRef = areaNum;
-			break;
+			if( aiManager->IsAreaReachableFromHubAreas( areaNum ) ) {
+				*areaNumRef = areaNum;
+				break;
+			}
 		}
 	}
 
@@ -7822,7 +7826,9 @@ struct SpotAndScore {
 // The function assumes that the range (spotsBegin, spotsEnd) points to a max-heap
 static const float *FindBestJumpableSpot( BotMovementPredictionContext *context,
 										  SpotAndScore *spotsBegin,
-										  SpotAndScore *spotsEnd ) {
+										  SpotAndScore *spotsEnd,
+										  unsigned predictionStepMillis = 96,
+										  unsigned maxPredictionSteps = 6 ) {
 	const auto &entityPhysicsState = context->movementState->entityPhysicsState;
 	const auto *aasWorld = AiAasWorld::Instance();
 	const auto *aasAreaSettings = aasWorld->AreaSettings();
@@ -7857,7 +7863,9 @@ static const float *FindBestJumpableSpot( BotMovementPredictionContext *context,
 		predictedOrigin[2] += 8.0f;
 		cplane_t tmpPlane;
 		int hitContents = 0;
-		if( PredictTrajectoryHit( predictedOrigin, velocity.Data(), mins, maxs, 96, 6, &hitContents, tmpPlane.normal ) ) {
+		if( PredictTrajectoryHit( predictedOrigin, velocity.Data(), mins, maxs,
+								  predictionStepMillis, maxPredictionSteps,
+								  &hitContents, tmpPlane.normal ) ) {
 			if( !ISWALKABLEPLANE( &tmpPlane ) ) {
 				continue;
 			}
@@ -8007,4 +8015,78 @@ BotMovementFallback *BotDummyMovementAction::TryFindJumpFromLavaFallback( BotMov
 	}
 
 	return nullptr;
+}
+
+BotMovementFallback *BotDummyMovementAction::TryFindLostNavTargetFallback( BotMovementPredictionContext *context ) {
+	Assert( !context->NavTargetAasAreaNum() );
+
+	// This code is extremely expensive, prevent frametime spikes
+	if( self != level.think_client_entity ) {
+		return nullptr;
+	}
+
+	const auto &entityPhysicsState = context->movementState->entityPhysicsState;
+	const auto *aasWorld = AiAasWorld::Instance();
+	const auto *aasAreas = aasWorld->Areas();
+	const auto *aasAreaSettings = aasWorld->AreaSettings();
+	const auto *aiManager = AiManager::Instance();
+
+	const float searchRadius = 48.0f + 512.0f * BoundedFraction( self->ai->botRef->MillisInBlockedState(), 2000 );
+	Vec3 boxMins( -searchRadius, -searchRadius, -32.0f - 0.33f * searchRadius );
+	Vec3 boxMaxs( +searchRadius, +searchRadius, +24.0f + 0.15f * searchRadius );
+	boxMins += entityPhysicsState.Origin();
+	boxMaxs += entityPhysicsState.Origin();
+
+	int currAreaNums[2] = { 0, 0 };
+	entityPhysicsState.PrepareRoutingStartAreas( currAreaNums );
+
+	StaticVector<SpotAndScore, 256> spotCandidates;
+
+	int boxAreas[256];
+	const int numBoxAreas = AiAasWorld::Instance()->BBoxAreas( boxMins, boxMaxs, boxAreas, 256 );
+	for( int i = 0; i < numBoxAreas; ++i ) {
+		const int areaNum = boxAreas[i];
+		const auto &areaSettings = aasAreaSettings[areaNum];
+		if( !( areaSettings.areaflags & AREA_GROUNDED ) ) {
+			continue;
+		}
+		if( areaSettings.areaflags & AREA_DISABLED ) {
+			continue;
+		}
+		if( areaSettings.contents & ( AREACONTENTS_LAVA | AREACONTENTS_SLIME | AREACONTENTS_DONOTENTER ) ) {
+			continue;
+		}
+		if( areaNum == currAreaNums[0] || areaNum == currAreaNums[1] ) {
+			continue;
+		}
+
+		const auto &area = aasAreas[areaNum];
+		Vec3 areaPoint( area.center );
+		areaPoint.Z() = area.mins[2] + 4.0f - playerbox_stand_mins[2];
+		float squareDistance = areaPoint.SquareDistanceTo( entityPhysicsState.Origin() );
+		if( squareDistance < SQUARE( 48.0f ) ) {
+			continue;
+		}
+
+		if( !aiManager->IsAreaReachableFromHubAreas( areaNum ) ) {
+			continue;
+		}
+
+		new( spotCandidates.unsafe_grow_back() )SpotAndScore( areaPoint.Data(), squareDistance );
+	}
+
+	if( spotCandidates.empty() ) {
+		return nullptr;
+	}
+
+	// FindBestJumpableSpot assumes candidates to be a max-heap
+	std::make_heap( spotCandidates.begin(), spotCandidates.end() );
+	const float *spotOrigin = FindBestJumpableSpot( context, spotCandidates.begin(), spotCandidates.end(), 128, 12 );
+	if( !spotOrigin ) {
+		return nullptr;
+	}
+
+	auto *fallback = &self->ai->botRef->jumpToFeasibleSpotMovementFallback;
+	fallback->Activate( entityPhysicsState.Origin(), spotOrigin, 24.0f );
+	return fallback;
 }

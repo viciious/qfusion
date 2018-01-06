@@ -548,3 +548,103 @@ void AiManager::Frame() {
 		AiBaseTeamBrain::GetBrainForTeam( team )->Update();
 	}
 }
+
+void AiManager::FindHubAreas() {
+	const auto *aasWorld = AiAasWorld::Instance();
+	if( !aasWorld->IsLoaded() ) {
+		return;
+	}
+
+	StaticVector<AreaAndScore, sizeof( hubAreas ) / sizeof( *hubAreas )> bestAreasHeap;
+	for( int i = 1; i < aasWorld->NumAreas(); ++i ) {
+		const auto &areaSettings = aasWorld->AreaSettings()[i];
+		if( !( areaSettings.areaflags & AREA_GROUNDED ) ) {
+			continue;
+		}
+		if( areaSettings.areaflags & AREA_DISABLED ) {
+			continue;
+		}
+		if( areaSettings.contents & ( AREACONTENTS_DONOTENTER | AREACONTENTS_LAVA | AREACONTENTS_SLIME | AREACONTENTS_WATER ) ) {
+			continue;
+		}
+
+		// Reject degenerate areas, pass only relatively large areas
+		const auto &area = aasWorld->Areas()[i];
+		if( area.maxs[0] - area.mins[0] < 56.0f ) {
+			continue;
+		}
+		if( area.maxs[1] - area.mins[1] < 56.0f ) {
+			continue;
+		}
+
+		// Count as useful only several kinds of reachabilities
+		int usefulReachCount = 0;
+		int reachNum = areaSettings.firstreachablearea;
+		int lastReachNum = areaSettings.firstreachablearea + areaSettings.numreachableareas - 1;
+		while( reachNum <= lastReachNum ) {
+			const auto &reach = aasWorld->Reachabilities()[reachNum];
+			if( reach.traveltype == TRAVEL_WALK || reach.traveltype == TRAVEL_WALKOFFLEDGE ) {
+				usefulReachCount++;
+			}
+			++reachNum;
+		}
+
+		// Reject early to avoid more expensive call to push_heap()
+		if( !usefulReachCount ) {
+			continue;
+		}
+
+		bestAreasHeap.push_back( AreaAndScore( i, usefulReachCount ) );
+		std::push_heap( bestAreasHeap.begin(), bestAreasHeap.end() );
+
+		// bestAreasHeap size should be always less than its capacity:
+		// 1) to ensure that there is a free room for next area;
+		// 2) to ensure that hubAreas capacity will not be exceeded.
+		if( bestAreasHeap.size() == bestAreasHeap.capacity() ) {
+			std::pop_heap( bestAreasHeap.begin(), bestAreasHeap.end() );
+			bestAreasHeap.pop_back();
+		}
+	}
+
+	std::sort( bestAreasHeap.begin(), bestAreasHeap.end() );
+
+	for( int i = 0; i < bestAreasHeap.size(); ++i ) {
+		this->hubAreas[i] = bestAreasHeap[i].areaNum;
+	}
+
+	this->numHubAreas = (int)bestAreasHeap.size();
+}
+
+bool AiManager::IsAreaReachableFromHubAreas( int targetArea, float *score ) const {
+	if( !targetArea ) {
+		return false;
+	}
+
+	if( !this->numHubAreas ) {
+		const_cast<AiManager *>( this )->FindHubAreas();
+	}
+
+	const auto *routeCache = AiAasRouteCache::Shared();
+	int numReach = 0;
+	float scoreSum = 0.0f;
+	for( int i = 0; i < numHubAreas; ++i ) {
+		if( routeCache->ReachabilityToGoalArea( hubAreas[i], targetArea, Bot::ALLOWED_TRAVEL_FLAGS ) ) {
+			numReach++;
+			// Give first (and best) areas greater score
+			scoreSum += ( numHubAreas - i ) / (float)numHubAreas;
+			// That's enough, stop wasting CPU cycles
+			if( numReach == 4 ) {
+				if( score ) {
+					*score = scoreSum;
+				}
+				return true;
+			}
+		}
+	}
+
+	if ( score ) {
+		*score = scoreSum;
+	}
+
+	return numReach > 0;
+}
