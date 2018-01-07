@@ -2135,33 +2135,74 @@ bool IsAreaWalkableInFloorCluster( int startAreaNum, int targetAreaNum ) {
 	return true;
 }
 
-int BotSameFloorClusterAreasCache::GetClosestToTargetPoint( BotMovementPredictionContext *context,
-															float *resultPoint, int *resultAreaNum ) const {
+bool BotSameFloorClusterAreasCache::AreaPassesCollisionTest( BotMovementPredictionContext *context, int areaNum ) const {
 	const auto &entityPhysicsState = context->movementState->entityPhysicsState;
 
-	// FindClosestToTargetPoint() calls are extremely expensive.
-	// Unfortunately an actual data is always required.
-	// We try reusing a value computed once as long as we can.
+	Vec3 start( entityPhysicsState.Origin() );
+	if( entityPhysicsState.GroundEntity() ) {
+		start.Z() += 1.0f;
+	}
 
-	bool recompute;
-	auto timeoutPeriod = level.time - computedAt;
-	if( timeoutPeriod > 64 ) {
-		recompute = true;
-	} else {
-		float squareDistance = computedForOrigin.SquareDistanceTo( entityPhysicsState.Origin() );
-		if( timeoutPeriod > 32 ) {
-			recompute = squareDistance > 2 * 2;
-		} else {
-			recompute = squareDistance > 8 * 8;
+	vec3_t mins, maxs;
+	TacticalSpotsRegistry::GetSpotsWalkabilityTraceBounds( mins, maxs );
+	return AreaPassesCollisionTest( start, areaNum, mins, maxs );
+}
+
+bool BotSameFloorClusterAreasCache::AreaPassesCollisionTest( const Vec3 &start, int areaNum,
+															 const vec3_t mins, const vec3_t maxs ) const {
+	const auto &area = aasWorld->Areas()[areaNum];
+	Vec3 areaPoint( area.center );
+	areaPoint.Z() = area.mins[2] + 1.0f + ( -playerbox_stand_mins[2] );
+
+	// We deliberately have to check against entities, like the tank on wbomb1 A spot, and not only solid world
+	trace_t trace;
+	float *start_ = const_cast<float *>( start.Data() );
+	float *mins_ = const_cast<float *>( mins );
+	float *maxs_ = const_cast<float *>( maxs );
+	edict_t *ignore = const_cast<edict_t *>( self );
+	G_Trace( &trace, start_, mins_, maxs_, areaPoint.Data(), ignore, MASK_AISOLID );
+	return trace.fraction == 1.0f;
+}
+
+bool BotSameFloorClusterAreasCache::NeedsToComputed( BotMovementPredictionContext *context ) const {
+	const auto &entityPhysicsState = context->movementState->entityPhysicsState;
+	const auto *floorClusterNums = aasWorld->AreaFloorClusterNums();
+
+	if( !computedTargetAreaNum ) {
+		return true;
+	}
+
+	if( floorClusterNums[context->CurrGroundedAasAreaNum()] != floorClusterNums[computedTargetAreaNum] ) {
+		return true;
+	}
+
+	if( computedTargetAreaPoint.SquareDistanceTo( entityPhysicsState.Origin() ) < SQUARE( REACHABILITY_RADIUS ) ) {
+		return true;
+	}
+
+	// Walkability tests in cluster are cheap but sometimes produce false negatives,
+	// so do not check for walkability in the first second to prevent choice jitter
+	if( level.time - computedAt > 1000 ) {
+		if( !IsAreaWalkableInFloorCluster( context->CurrGroundedAasAreaNum(), computedTargetAreaNum ) ) {
+			return true;
 		}
 	}
 
-	if( recompute ) {
+	return !AreaPassesCollisionTest( context, computedTargetAreaNum );
+}
+
+int BotSameFloorClusterAreasCache::GetClosestToTargetPoint( BotMovementPredictionContext *context,
+															float *resultPoint, int *resultAreaNum ) const {
+	// We have switched to using a cached value as far as it is feasible
+	// avoiding computing an actual point almost every frame
+	// (it has proven to cause jitter/looping)
+
+	// Check whether an old value is present and is feasible
+	if( NeedsToComputed( context ) ) {
 		computedTargetAreaNum = 0;
 		computedTargetAreaPoint.Set( 0, 0, 0 );
-		computedForOrigin.Set( entityPhysicsState.Origin() );
-		computedAt = level.time;
 		if( ( computedTravelTime = FindClosestToTargetPoint( context, &computedTargetAreaNum ) ) ) {
+			computedAt = level.time;
 			const auto &area = aasWorld->Areas()[computedTargetAreaNum];
 			computedTargetAreaPoint.Set( area.center );
 			computedTargetAreaPoint.Z() = area.mins[2] + ( -playerbox_stand_mins[2] );
@@ -2215,9 +2256,7 @@ int BotSameFloorClusterAreasCache::FindClosestToTargetPoint( BotMovementPredicti
 	}
 
 	const auto &entityPhysicsState = context->movementState->entityPhysicsState;
-	const auto &aasAreas = aasWorld->Areas();
 
-	trace_t trace;
 	vec3_t traceMins, traceMaxs;
 	TacticalSpotsRegistry::GetSpotsWalkabilityTraceBounds( traceMins, traceMaxs );
 	Vec3 start( entityPhysicsState.Origin() );
@@ -2238,12 +2277,7 @@ int BotSameFloorClusterAreasCache::FindClosestToTargetPoint( BotMovementPredicti
 		// We hope we have done all possible cutoffs at this moment of execution.
 		// We still need this collision test since cutoffs are performed using thin rays.
 		// This test is expensive that's why we try to defer it as far at it is possible.
-
-		Vec3 areaPoint( aasAreas[areaNum].center );
-		areaPoint.Z() = aasAreas[areaNum].mins[2] + 1.0f + ( -playerbox_stand_mins[2] );
-		// We deliberately have to check against entities, like the tank on wbomb1 A spot, and not only solid world
-		G_Trace( &trace, start.Data(), traceMins, traceMaxs, areaPoint.Data(), self, MASK_AISOLID );
-		if( trace.fraction != 1.0f ) {
+		if( !AreaPassesCollisionTest( start, areaNum, traceMins, traceMaxs ) ) {
 			continue;
 		}
 
@@ -2286,8 +2320,13 @@ void BotSameFloorClusterAreasCache::BuildCandidateAreasHeap( BotMovementPredicti
 		Vec3 areaPoint( area.center );
 		areaPoint.Z() = area.mins[2] + 1 + ( -playerbox_stand_mins[2] );
 
-		float squareDistance = areaPoint.SquareDistanceTo( entityPhysicsState.Origin() );
-		if( squareDistance < SQUARE( 64.0f ) ) {
+		const float squareDistance = areaPoint.SquareDistanceTo( entityPhysicsState.Origin() );
+		if( squareDistance < SQUARE( SELECTION_THRESHOLD ) ) {
+			continue;
+		}
+
+		// Cut off very far points as it leads to looping in some cases on vast open areas
+		if( squareDistance > SQUARE( 4.0f * SELECTION_THRESHOLD ) ) {
 			continue;
 		}
 
