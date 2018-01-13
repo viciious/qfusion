@@ -173,77 +173,10 @@ class AiAasRouteCache
 		}
 	}
 
-	class FreelistPool
-	{
-public:
-		struct AreaAndPortalCacheChunkHeader {
-			AreaAndPortalCacheChunkHeader *prev;
-			AreaAndPortalCacheChunkHeader *next;
-		};
-
-private:
-		// Freelist head
-		AreaAndPortalCacheChunkHeader headChunk;
-		// Freelist free item
-		AreaAndPortalCacheChunkHeader *freeChunk;
-		// Actual chunks data
-		char *buffer;
-
-		// An actual chunk data size and a maximal count of chunks.
-		const unsigned chunkSize, maxChunks;
-		unsigned chunksInUse;
-
-public:
-		FreelistPool( void *buffer_, unsigned bufferSize, unsigned chunkSize_ );
-		virtual ~FreelistPool() {}
-
-		void *Alloc( int size );
-		void Free( void *ptr );
-
-		// True result does not guarantee that the pool owns the pointer.
-		// False result guarantees that the pool does not own the pointer.
-		inline bool MayOwn( const void *ptr ) {
-			return ptr >= buffer && ptr < buffer + maxChunks * ( chunkSize + sizeof( AreaAndPortalCacheChunkHeader ) );
-		}
-		inline bool IsFull() const { return freeChunk == nullptr; }
-		inline unsigned Size() const { return chunksInUse; }
-		inline unsigned Capacity() const { return maxChunks; }
-	};
-
-	// The enclosing class is either allocated via G_Malloc() that should be at least 8-byte aligned,
-	// or stored in a StaticVector that has 16-byte alignment.
-	class alignas ( 8 )AreaAndPortalChunksCache
-	{
-		static constexpr unsigned CHUNK_SIZE = 8192 - sizeof( FreelistPool::AreaAndPortalCacheChunkHeader );
-		// Since the real results cache has been implemented we can reduce chunks count
-		static constexpr unsigned MAX_CHUNKS = 384;
-
-		alignas( 8 ) char buffer[MAX_CHUNKS * ( CHUNK_SIZE + sizeof( FreelistPool::AreaAndPortalCacheChunkHeader ) )];
-
-		FreelistPool pooledChunks;
-		unsigned heapMemoryUsed;
-
-		// An envelope for heap-allocated chunks. Has at least 8-bit intrinsic alignment.
-		struct Envelope {
-			// For alignment purposes this should be an 8-byte item
-			uint64_t realSize;
-		};
-
-public:
-		AreaAndPortalChunksCache();
-
-		void *Alloc( int size );
-		void Free( void *ptr );
-
-		bool NeedsCleanup() {
-			if( pooledChunks.Size() / (float)pooledChunks.Capacity() > 0.66f ) {
-				return true;
-			}
-			return heapMemoryUsed > sizeof( buffer ) / 3;
-		}
-	};
-
-	AreaAndPortalChunksCache areaAndPortalChunksCache;
+	// A linked list for bins of relatively large size
+	class AreaAndPortalCacheBin *areaAndPortalCacheHead;
+	// A table of small size bins addressed by bin size
+	class AreaAndPortalCacheBin *areaAndPortalCacheTable[128];
 
 	class ResultCache
 	{
@@ -321,18 +254,13 @@ public:
 
 	int GetAreaContentsTravelFlags( int areanum );
 
-	inline void *AllocPooledChunk( int size ) {
-		return areaAndPortalChunksCache.Alloc( size );
-	}
-	inline void FreePooledChunk( void *ptr ) {
-		return areaAndPortalChunksCache.Free( ptr );
-	}
-	inline bool ShouldDrainCache() {
-		return areaAndPortalChunksCache.NeedsCleanup();
-	}
-
 	void *GetClearedMemory( int size );
 	void FreeMemory( void *ptr );
+
+	void *AllocAreaAndPortalCacheMemory( int size );
+	void FreeAreaAndPortalCacheMemory( void *ptr );
+
+	void FreeAreaAndPortalMemoryPools();
 
 	bool FreeOldestCache();
 	aas_routingcache_t *AllocRoutingCache( int numtraveltimes );
