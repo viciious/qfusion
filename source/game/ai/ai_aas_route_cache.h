@@ -190,7 +190,6 @@ public:
 			Node *nextInBin;
 			Node *prevInList;
 			Node *nextInList;
-			vec3_t fromOrigin;
 			int fromAreaNum;
 			int toAreaNum;
 			int travelFlags;
@@ -200,11 +199,8 @@ public:
 			unsigned binIndex;
 		};
 
-		static inline uint32_t Hash( const vec3_t fromOrigin, int fromAreaNum, int toAreaNum, int travelFlags ) {
+		static inline uint32_t Hash( int fromAreaNum, int toAreaNum, int travelFlags ) {
 			uint32_t result = 31;
-			result = result * 17 + *reinterpret_cast<const uint32_t *>( fromOrigin + 0 );
-			result = result * 17 + *reinterpret_cast<const uint32_t *>( fromOrigin + 1 );
-			result = result * 17 + *reinterpret_cast<const uint32_t *>( fromOrigin + 2 );
 			result = result * 17 + fromAreaNum;
 			result = result * 17 + toAreaNum;
 			result = result * 17 + travelFlags;
@@ -232,10 +228,8 @@ public:
 		void Clear();
 
 		// The hash must be computed by callers using Hash(). This is a bit ugly but encourages efficient usage patterns.
-		Node *GetCachedResultForHash( uint32_t hash, const vec3_t fromOrigin, int fromAreaNum,
-									  int toAreaNum, int travelFlags ) const;
-		Node *AllocAndRegisterForHash( uint32_t hash, const vec3_t fromOrigin, int fromAreaNum,
-									   int toAreaNum, int travelFlags );
+		Node *GetCachedResultForHash( uint32_t hash, int fromAreaNum, int toAreaNum, int travelFlags ) const;
+		Node *AllocAndRegisterForHash( uint32_t hash, int fromAreaNum, int toAreaNum, int travelFlags );
 	};
 
 	ResultCache resultCache;
@@ -276,12 +270,11 @@ public:
 
 	struct RoutingRequest {
 		int areanum;
-		const float *origin;
 		int goalareanum;
 		int travelflags;
 
-		inline RoutingRequest( int areaNum_, const float *origin_, int goalAreaNum_, int travelFlags_ )
-			: areanum( areaNum_ ), origin( origin_ ), goalareanum( goalAreaNum_ ), travelflags( travelFlags_ ) {}
+		inline RoutingRequest( int areaNum_, int goalAreaNum_, int travelFlags_ )
+			: areanum( areaNum_ ), goalareanum( goalAreaNum_ ), travelflags( travelFlags_ ) {}
 	};
 
 	struct RoutingResult {
@@ -289,7 +282,7 @@ public:
 		int traveltime;
 	};
 
-	bool RoutingResultToGoalArea( int fromAreaNum, const vec3_t origin, int toAreaNum, int travelFlags, RoutingResult *result ) const;
+	bool RoutingResultToGoalArea( int fromAreaNum, int toAreaNum, int travelFlags, RoutingResult *result ) const;
 
 	bool RouteToGoalArea( const RoutingRequest &request, RoutingResult *result );
 	bool RouteToGoalPortal( const RoutingRequest &request, aas_routingcache_t *portalCache, RoutingResult *result );
@@ -331,40 +324,25 @@ public:
 	~AiAasRouteCache();
 
 	inline int ReachabilityToGoalArea( int fromAreaNum, int toAreaNum, int travelFlags ) const {
-		return ReachabilityToGoalArea( fromAreaNum, nullptr, toAreaNum, travelFlags );
-	}
-
-	inline int ReachabilityToGoalArea( int fromAreaNum, const Vec3 &fromOrigin, int toAreaNum, int travelFlags ) const {
-		return ReachabilityToGoalArea( fromAreaNum, fromOrigin.Data(), toAreaNum, travelFlags );
-	}
-
-	inline int ReachabilityToGoalArea( int fromAreaNum, const vec3_t fromOrigin, int toAreaNum, int travelFlags ) const {
 		RoutingResult result;
-		if( RoutingResultToGoalArea( fromAreaNum, fromOrigin, toAreaNum, travelFlags, &result ) ) {
+		if( RoutingResultToGoalArea( fromAreaNum, toAreaNum, travelFlags, &result ) ) {
 			return result.reachnum;
 		}
 		return 0;
 	}
 
-	inline int TravelTimeToGoalArea( int fromAreaNum, int toAreaNum, int travelFlags ) const {
-		return TravelTimeToGoalArea( fromAreaNum, nullptr, toAreaNum, travelFlags );
-	}
-
-	inline int TravelTimeToGoalArea( int fromAreaNum, const Vec3 &fromOrigin, int toAreaNum, int travelFlags ) const {
-		return TravelTimeToGoalArea( fromAreaNum, fromOrigin.Data(), toAreaNum, travelFlags );
-	}
-
-	inline int TravelTimeToGoalArea( int fromAreaNum, const vec3_t fromOrigin, int toAreaNum, int travelFlags ) const {
+	inline int TravelTimeToGoalArea( int fromAreaNum,int toAreaNum, int travelFlags ) const {
 		RoutingResult result;
-		if( RoutingResultToGoalArea( fromAreaNum, fromOrigin, toAreaNum, travelFlags, &result ) ) {
+		if( RoutingResultToGoalArea( fromAreaNum, toAreaNum, travelFlags, &result ) ) {
 			return result.traveltime;
 		}
 		return 0;
 	}
 
-	inline bool ReachAndTravelTimeToGoalArea( int fromAreaNum, int toAreaNum, int travelFlags, int *reachNum, int *travelTime ) const {
+	inline bool ReachAndTravelTimeToGoalArea( int fromAreaNum, int toAreaNum, int travelFlags,
+											  int *reachNum, int *travelTime ) const {
 		RoutingResult result;
-		if( RoutingResultToGoalArea( fromAreaNum, nullptr, toAreaNum, travelFlags, &result ) ) {
+		if( RoutingResultToGoalArea( fromAreaNum, toAreaNum, travelFlags, &result ) ) {
 			*reachNum = result.reachnum;
 			*travelTime = result.traveltime;
 			return true;

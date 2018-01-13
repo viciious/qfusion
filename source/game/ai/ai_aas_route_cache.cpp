@@ -853,7 +853,7 @@ inline AiAasRouteCache::ResultCache::Node *AiAasRouteCache::ResultCache::UnlinkO
 }
 
 AiAasRouteCache::ResultCache::Node *
-AiAasRouteCache::ResultCache::GetCachedResultForHash( uint32_t hash, const vec3_t fromOrigin, int fromAreaNum,
+AiAasRouteCache::ResultCache::GetCachedResultForHash( uint32_t hash, int fromAreaNum,
 													  int toAreaNum, int travelFlags ) const {
 	unsigned binNum = hash % NUM_HASH_BINS;
 	for( auto *node = bins[binNum]; node; node = node->nextInBin ) {
@@ -869,11 +869,6 @@ AiAasRouteCache::ResultCache::GetCachedResultForHash( uint32_t hash, const vec3_
 		if( node->travelFlags != travelFlags ) {
 			continue;
 		}
-		// The origin is set to dummy value in most cases (when it is not specified by the routing params).
-		// Thats why this gets compared last to reject early by other values comparison.
-		if( !VectorCompare( node->fromOrigin, fromOrigin ) ) {
-			continue;
-		}
 
 		return node;
 	}
@@ -881,8 +876,7 @@ AiAasRouteCache::ResultCache::GetCachedResultForHash( uint32_t hash, const vec3_
 }
 
 AiAasRouteCache::ResultCache::Node *
-AiAasRouteCache::ResultCache::AllocAndRegisterForHash( uint32_t hash, const vec3_t fromOrigin, int fromAreaNum,
-													   int toAreaNum, int travelFlags ) {
+AiAasRouteCache::ResultCache::AllocAndRegisterForHash( uint32_t hash, int fromAreaNum, int toAreaNum, int travelFlags ) {
 	Node *result;
 	if( freeNode ) {
 		// Unlink the node from free list
@@ -896,7 +890,6 @@ AiAasRouteCache::ResultCache::AllocAndRegisterForHash( uint32_t hash, const vec3
 		LinkToUsedList( result );
 		return result;
 	}
-	VectorCopy( fromOrigin, result->fromOrigin );
 	result->fromAreaNum = fromAreaNum;
 	result->toAreaNum = toAreaNum;
 	result->travelFlags = travelFlags;
@@ -1486,7 +1479,7 @@ AiAasRouteCache::aas_routingcache_t *AiAasRouteCache::GetPortalRoutingCache( int
 	return cache;
 }
 
-bool AiAasRouteCache::RoutingResultToGoalArea( int fromAreaNum, const vec_t *origin, int toAreaNum,
+bool AiAasRouteCache::RoutingResultToGoalArea( int fromAreaNum, int toAreaNum,
 											   int travelFlags, RoutingResult *result ) const {
 	if( fromAreaNum == toAreaNum ) {
 		result->traveltime = 1;
@@ -1507,17 +1500,16 @@ bool AiAasRouteCache::RoutingResultToGoalArea( int fromAreaNum, const vec_t *ori
 	}
 
 	AiAasRouteCache *nonConstThis = const_cast<AiAasRouteCache *>( this );
-	const float *cachedOrigin = origin ? origin : vec3_origin;
 
-	uint32_t hash = ResultCache::Hash( cachedOrigin, fromAreaNum, toAreaNum, travelFlags );
-	if( auto *cacheNode = resultCache.GetCachedResultForHash( hash, cachedOrigin, fromAreaNum, toAreaNum, travelFlags ) ) {
+	uint32_t hash = ResultCache::Hash( fromAreaNum, toAreaNum, travelFlags );
+	if( auto *cacheNode = resultCache.GetCachedResultForHash( hash, fromAreaNum, toAreaNum, travelFlags ) ) {
 		result->reachnum = cacheNode->reachability;
 		result->traveltime = cacheNode->travelTime;
 		return cacheNode->reachability != 0;
 	}
 
-	auto *cacheNode = nonConstThis->resultCache.AllocAndRegisterForHash( hash, cachedOrigin, fromAreaNum, toAreaNum, travelFlags );
-	RoutingRequest request( fromAreaNum, origin, toAreaNum, travelFlags );
+	auto *cacheNode = nonConstThis->resultCache.AllocAndRegisterForHash( hash, fromAreaNum, toAreaNum, travelFlags );
+	RoutingRequest request( fromAreaNum, toAreaNum, travelFlags );
 	if( nonConstThis->RouteToGoalArea( request, result ) ) {
 		cacheNode->reachability = result->reachnum;
 		cacheNode->travelTime = result->traveltime;
@@ -1565,13 +1557,7 @@ bool AiAasRouteCache::RouteToGoalArea( const RoutingRequest &request, RoutingRes
 		//if it is possible to travel to the goal area through this cluster
 		if( areacache->traveltimes[clusterareanum] != 0 ) {
 			result->reachnum = aasWorld.AreaSettings()[request.areanum].firstreachablearea + areacache->reachabilities[clusterareanum];
-			if( !request.origin ) {
-				result->traveltime = areacache->traveltimes[clusterareanum];
-				return true;
-			}
-			const aas_reachability_t *reach = &aasWorld.Reachabilities()[result->reachnum];
-			int areaTravelTime = AreaTravelTime( request.areanum, request.origin, reach->start );
-			result->traveltime = areacache->traveltimes[clusterareanum] + areaTravelTime;
+			result->traveltime = areacache->traveltimes[clusterareanum];
 			return true;
 		}
 	}
@@ -1631,10 +1617,6 @@ bool AiAasRouteCache::RouteToGoalPortal( const RoutingRequest &request, aas_rout
 		t += portalmaxtraveltimes[portalnum];
 		// Qfusion: always fetch the reachnum even if origin is not present.
 		int reachnum = aasWorld.AreaSettings()[request.areanum].firstreachablearea + areacache->reachabilities[clusterareanum];
-		if( request.origin ) {
-			const aas_reachability_t *reach = aasWorld.Reachabilities() + reachnum;
-			t += AreaTravelTime( request.areanum, request.origin, reach->start );
-		}
 		//if the time is better than the one already found
 		if( !besttime || t < besttime ) {
 			bestreachnum = reachnum;

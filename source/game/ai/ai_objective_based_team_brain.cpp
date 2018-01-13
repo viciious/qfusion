@@ -547,8 +547,7 @@ void AiObjectiveBasedTeamBrain::SetSupportCarrierOrders( const edict_t *carrier,
 			botAndScore.bot->ai->botRef->OverrideEntityWeight( carrier, 4.5f );
 			continue;
 		}
-		int travelTime = routeCache->TravelTimeToGoalArea( botAreaNum, groundedBotOrigin, carrierAreaNum,
-														   Bot::ALLOWED_TRAVEL_FLAGS );
+		int travelTime = routeCache->TravelTimeToGoalArea( botAreaNum, carrierAreaNum, Bot::ALLOWED_TRAVEL_FLAGS );
 		// A carrier is not reachable in a short period of time
 		// AAS travel time is given in seconds^-2 and lowest feasible value is 1
 		if( !travelTime || travelTime > 250 ) {
