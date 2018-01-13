@@ -186,27 +186,33 @@ public:
 		static constexpr unsigned NUM_HASH_BINS = 797;
 
 		struct Node {
+			uint64_t key;
 			Node *prevInBin;
 			Node *nextInBin;
 			Node *prevInList;
 			Node *nextInList;
-			int fromAreaNum;
-			int toAreaNum;
-			int travelFlags;
-			int reachability;
-			int travelTime;
-			uint32_t hash;
-			unsigned binIndex;
+			uint16_t reachability;
+			uint16_t travelTime;
+			uint16_t binIndex;
 		};
 
-		static inline uint32_t Hash( int fromAreaNum, int toAreaNum, int travelFlags ) {
-			uint32_t result = 31;
-			result = result * 17 + fromAreaNum;
-			result = result * 17 + toAreaNum;
-			result = result * 17 + travelFlags;
-			return result;
+		// Assuming that area nums are limited by 16 bits, all parameters can be composed in a single integer
+		static inline uint64_t Key( int fromAreaNum, int toAreaNum, int travelFlags ) {
+			assert( fromAreaNum >= 0 && fromAreaNum <= 0xFFFF );
+			assert( toAreaNum >= 0 && toAreaNum <= 0xFFFF );
+			return ( (uint64_t)travelFlags << 32 ) | ( (uint16_t)fromAreaNum << 16 ) | ( (uint16_t)toAreaNum );
 		}
 
+		static inline uint16_t BinIndexForKey( uint64_t key ) {
+			// Convert a 64-bit key to 32-bit hash trying to preserve bits entropy.
+			// The primary purpose of it is avoiding 64-bit division in modulo computation
+			constexpr uint32_t mask32 = 0xFFFFFFFFu;
+			uint32_t loPart32 = (uint32_t)( key & mask32 );
+			uint32_t hiPart32 = (uint32_t)( ( key >> 32 ) & mask32 );
+			uint32_t hash = loPart32 * 17 + hiPart32;
+			static_assert( NUM_HASH_BINS < 0xFFFF, "Bin indices are assumed to be short" );
+			return (uint16_t)( hash % NUM_HASH_BINS );
+		}
 private:
 		Node nodes[MAX_CACHED_RESULTS];
 		Node *freeNode;
@@ -216,7 +222,7 @@ private:
 		Node *bins[NUM_HASH_BINS];
 
 
-		inline void LinkToHashBin( uint32_t hash, Node *node );
+		inline void LinkToHashBin( uint16_t binIndex, Node *node );
 		inline void LinkToUsedList( Node *node );
 		inline Node *UnlinkOldestUsedNode();
 		inline void UnlinkOldestUsedNodeFromBin();
@@ -227,9 +233,10 @@ public:
 
 		void Clear();
 
-		// The hash must be computed by callers using Hash(). This is a bit ugly but encourages efficient usage patterns.
-		Node *GetCachedResultForHash( uint32_t hash, int fromAreaNum, int toAreaNum, int travelFlags ) const;
-		Node *AllocAndRegisterForHash( uint32_t hash, int fromAreaNum, int toAreaNum, int travelFlags );
+		// The key and bin index must be computed by callers using Key() and BinIndexForKey().
+		// This is a bit ugly but encourages efficient usage patterns.
+		Node *GetCachedResultForKey( uint16_t binIndex, uint64_t key ) const;
+		Node *AllocAndRegisterForKey( uint16_t binIndex, uint64_t key );
 	};
 
 	ResultCache resultCache;

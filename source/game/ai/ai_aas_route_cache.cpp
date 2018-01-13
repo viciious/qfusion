@@ -771,9 +771,7 @@ void AiAasRouteCache::ResultCache::Clear() {
 	memset( bins, 0, NUM_HASH_BINS * sizeof( bins[0] ) );
 }
 
-inline void AiAasRouteCache::ResultCache::LinkToHashBin( uint32_t hash, Node *node ) {
-	node->hash = hash;
-	unsigned binIndex = hash % NUM_HASH_BINS;
+inline void AiAasRouteCache::ResultCache::LinkToHashBin( uint16_t binIndex, Node *node ) {
 	node->binIndex = binIndex;
 	// Link the result node to its hash bin
 	if( bins[binIndex] ) {
@@ -853,46 +851,32 @@ inline AiAasRouteCache::ResultCache::Node *AiAasRouteCache::ResultCache::UnlinkO
 }
 
 AiAasRouteCache::ResultCache::Node *
-AiAasRouteCache::ResultCache::GetCachedResultForHash( uint32_t hash, int fromAreaNum,
-													  int toAreaNum, int travelFlags ) const {
-	unsigned binNum = hash % NUM_HASH_BINS;
-	for( auto *node = bins[binNum]; node; node = node->nextInBin ) {
-		if( node->hash != hash ) {
-			continue;
+AiAasRouteCache::ResultCache::GetCachedResultForKey( uint16_t binIndex, uint64_t key ) const {
+	for( auto *node = bins[binIndex]; node; node = node->nextInBin ) {
+		if( node->key == key ) {
+			return node;
 		}
-		if( node->fromAreaNum != fromAreaNum ) {
-			continue;
-		}
-		if( node->toAreaNum != toAreaNum ) {
-			continue;
-		}
-		if( node->travelFlags != travelFlags ) {
-			continue;
-		}
-
-		return node;
 	}
+
 	return nullptr;
 }
 
 AiAasRouteCache::ResultCache::Node *
-AiAasRouteCache::ResultCache::AllocAndRegisterForHash( uint32_t hash, int fromAreaNum, int toAreaNum, int travelFlags ) {
+AiAasRouteCache::ResultCache::AllocAndRegisterForKey( uint16_t binIndex, uint64_t key ) {
 	Node *result;
 	if( freeNode ) {
 		// Unlink the node from free list
 		result = freeNode;
 		freeNode = freeNode->nextInList;
-		LinkToHashBin( hash, result );
+		LinkToHashBin( binIndex, result );
 		LinkToUsedList( result );
 	} else {
 		result = UnlinkOldestUsedNode();
-		LinkToHashBin( hash, result );
+		LinkToHashBin( binIndex, result );
 		LinkToUsedList( result );
-		return result;
 	}
-	result->fromAreaNum = fromAreaNum;
-	result->toAreaNum = toAreaNum;
-	result->travelFlags = travelFlags;
+
+	result->key = key;
 	return result;
 }
 
@@ -1501,18 +1485,21 @@ bool AiAasRouteCache::RoutingResultToGoalArea( int fromAreaNum, int toAreaNum,
 
 	AiAasRouteCache *nonConstThis = const_cast<AiAasRouteCache *>( this );
 
-	uint32_t hash = ResultCache::Hash( fromAreaNum, toAreaNum, travelFlags );
-	if( auto *cacheNode = resultCache.GetCachedResultForHash( hash, fromAreaNum, toAreaNum, travelFlags ) ) {
+	const uint64_t key = ResultCache::Key( fromAreaNum, toAreaNum, travelFlags );
+	const uint16_t binIndex = ResultCache::BinIndexForKey( key );
+	if( auto *cacheNode = resultCache.GetCachedResultForKey( binIndex, key ) ) {
 		result->reachnum = cacheNode->reachability;
 		result->traveltime = cacheNode->travelTime;
 		return cacheNode->reachability != 0;
 	}
 
-	auto *cacheNode = nonConstThis->resultCache.AllocAndRegisterForHash( hash, fromAreaNum, toAreaNum, travelFlags );
+	auto *cacheNode = nonConstThis->resultCache.AllocAndRegisterForKey( binIndex, key );
 	RoutingRequest request( fromAreaNum, toAreaNum, travelFlags );
 	if( nonConstThis->RouteToGoalArea( request, result ) ) {
-		cacheNode->reachability = result->reachnum;
-		cacheNode->travelTime = result->traveltime;
+		assert( result->reachnum >= 0 && result->reachnum <= 0xFFFF );
+		cacheNode->reachability = (uint16_t)result->reachnum;
+		assert( result->traveltime >= 0 && result->traveltime <= 0xFFFF );
+		cacheNode->travelTime = (uint16_t)result->traveltime;
 		return true;
 	}
 	cacheNode->reachability = 0;
