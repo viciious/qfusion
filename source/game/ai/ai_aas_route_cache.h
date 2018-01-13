@@ -183,17 +183,38 @@ class AiAasRouteCache
 public:
 		static constexpr unsigned MAX_CACHED_RESULTS = 512;
 		// A prime number
-		static constexpr unsigned NUM_HASH_BINS = 797;
+		// (we have increased it since bin pointers have been replaced by short integers,
+		// but not very much since we would not win in space and thus in CPU cache efficiency)
+		static constexpr unsigned NUM_HASH_BINS = 1181;
 
-		struct Node {
+		struct alignas( 8 )Node {
 			uint64_t key;
-			Node *prevInBin;
-			Node *nextInBin;
-			Node *prevInList;
-			Node *nextInList;
+
+			// A compact representation of linked list links.
+			// A negative index corresponds to a null pointer.
+			// Otherwise, an index points to a corresponding element in ResultCache::nodes array
+			struct alignas( 2 )Links {
+				int16_t prev;
+				int16_t next;
+
+				bool HasPrev() { return prev >= 0; }
+				bool HasNext() { return next >= 0; }
+			};
+
+			enum { BIN_LINKS, LIST_LINKS };
+
+			Links links[2];
+
 			uint16_t reachability;
 			uint16_t travelTime;
 			uint16_t binIndex;
+
+			// Totally 22 bytes, so only 2 bytes are wasted for 8-byte alignment
+
+			Links &ListLinks() { return links[LIST_LINKS]; }
+			const Links &ListLinks() const { return links[LIST_LINKS]; }
+			Links &BinLinks() { return links[BIN_LINKS]; }
+			const Links &BinLinks() const  { return links[BIN_LINKS]; }
 		};
 
 		// Assuming that area nums are limited by 16 bits, all parameters can be composed in a single integer
@@ -215,15 +236,23 @@ public:
 		}
 private:
 		Node nodes[MAX_CACHED_RESULTS];
-		Node *freeNode;
-		Node *newestUsedNode;
-		Node *oldestUsedNode;
+		// We could keep these links as pointers since they do not require a compact storage,
+		// but its better to stay uniform and use common link/unlink methods
+		int16_t freeNode;
+		int16_t newestUsedNode;
+		int16_t oldestUsedNode;
 
-		Node *bins[NUM_HASH_BINS];
+		int16_t bins[NUM_HASH_BINS];
 
+		static inline bool IsValidLink( int16_t link ) { return link >= 0; }
+		inline int16_t LinkOf( const Node *node ) { return (int16_t)( node - nodes ); }
+
+		// Constexpr usage leads to "symbol not found" crash on library loading.
+		enum { NULL_LINK = -1 };
 
 		inline void LinkToHashBin( uint16_t binIndex, Node *node );
 		inline void LinkToUsedList( Node *node );
+
 		inline Node *UnlinkOldestUsedNode();
 		inline void UnlinkOldestUsedNodeFromBin();
 		inline void UnlinkOldestUsedNodeFromList();
@@ -235,7 +264,7 @@ public:
 
 		// The key and bin index must be computed by callers using Key() and BinIndexForKey().
 		// This is a bit ugly but encourages efficient usage patterns.
-		Node *GetCachedResultForKey( uint16_t binIndex, uint64_t key ) const;
+		const Node *GetCachedResultForKey( uint16_t binIndex, uint64_t key ) const;
 		Node *AllocAndRegisterForKey( uint16_t binIndex, uint64_t key );
 	};
 
