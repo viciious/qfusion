@@ -4,6 +4,7 @@
 #include "ai_manager.h"
 #include "tactical_spots_registry.h"
 #include "ai_nav_mesh_manager.h"
+#include "ai_trajectory_predictor.h"
 
 #ifndef PUBLIC_BUILD
 #define CHECK_ACTION_SUGGESTION_LOOPS
@@ -7802,53 +7803,6 @@ void BotJumpToSpotMovementFallback::SetupMovement( BotMovementPredictionContext 
 	botInput->SetUpMovement( 1 );
 }
 
-// A very basic alternative to actual per-frame movement prediction
-// that uses the prediction context and PMove().
-// Assumes that the only thing that affects the velocity is the gravity
-// and the bot does not accelerate via any possible way.
-static bool PredictTrajectoryHit( vec3_t origin, const vec3_t velocity,
-								  const vec3_t mins, const vec3_t maxs,
-								  unsigned stepMillis, unsigned maxSteps = 4,
-								  int *hitContents = nullptr, float *hitNormal = nullptr ) {
-	vec3_t startOrigin, prevOrigin;
-	VectorCopy( origin, startOrigin );
-	VectorCopy( origin, prevOrigin );
-
-	trace_t trace;
-	const float gravity = level.gravity;
-	for( unsigned i = 1; i <= maxSteps; ++i ) {
-		const float t = i * 0.001f * stepMillis;
-		origin[0] = startOrigin[0] + velocity[0] * t;
-		origin[1] = startOrigin[1] + velocity[1] * t;
-		origin[2] = startOrigin[2] + velocity[2] * t - 0.5f * gravity * t * t;
-
-		// Hack: Ignore water/lava/slime while jumping from it, but consider it as a hit when falling into it
-		int mask = MASK_SOLID;
-		if( velocity[2] - gravity * t < 0 ) {
-			mask |= MASK_WATER;
-		}
-
-		StaticWorldTrace( &trace, prevOrigin, origin, mask, mins, maxs );
-		if( trace.fraction == 1.0f ) {
-			VectorCopy( origin, prevOrigin );
-			continue;
-		}
-
-		VectorCopy( trace.endpos, origin );
-		if( hitContents ) {
-			*hitContents = trace.contents;
-		}
-		if( hitNormal ) {
-			VectorCopy( trace.plane.normal, hitNormal );
-		}
-		return true;
-	}
-
-	// TODO: Extrapolate using a single ray if the last segment was almost vertical
-
-	return false;
-}
-
 struct SpotAndScore {
 	vec3_t origin;
 	float score;
@@ -7868,10 +7822,7 @@ static const float *FindBestJumpableSpot( BotMovementPredictionContext *context,
 										  unsigned predictionStepMillis = 96,
 										  unsigned maxPredictionSteps = 6 ) {
 	const auto &entityPhysicsState = context->movementState->entityPhysicsState;
-	const auto *aasWorld = AiAasWorld::Instance();
-	const auto *aasAreaSettings = aasWorld->AreaSettings();
 
-	constexpr auto badAasContents = AREACONTENTS_LAVA | AREACONTENTS_SLIME | AREACONTENTS_DONOTENTER;
 	constexpr auto badCmContents = CONTENTS_LAVA | CONTENTS_SLIME | CONTENTS_DONOTENTER;
 
 	const float runSpeed = context->GetRunSpeed();
@@ -7880,6 +7831,17 @@ static const float *FindBestJumpableSpot( BotMovementPredictionContext *context,
 	// Make aliases to fit line width in call sites
 	const float *const mins = vec3_origin;
 	const float *const maxs = playerbox_stand_maxs;
+
+	AiTrajectoryPredictor predictor;
+	AiTrajectoryPredictor::Results predictionResults;
+
+	predictor.SetColliderBounds( mins, maxs );
+	predictor.SetStepMillis( predictionStepMillis );
+	predictor.SetNumSteps( maxPredictionSteps );
+	// Stop on entering "bad" AAS area contents
+	predictor.SetEnterAreaProps( 0, AREACONTENTS_LAVA | AREACONTENTS_SLIME | AREACONTENTS_DONOTENTER );
+	// Stop on hitting a solid world or water/lava/slime
+	predictor.AddStopEventFlags( AiTrajectoryPredictor::HIT_SOLID | AiTrajectoryPredictor::HIT_LIQUID );
 
 	while( spotsBegin != spotsEnd ) {
 		// Evict the best candidate from the heap
@@ -7895,31 +7857,31 @@ static const float *FindBestJumpableSpot( BotMovementPredictionContext *context,
 		velocity *= runSpeed;
 		velocity.Z() = jumpSpeed;
 
-		vec3_t predictedOrigin;
-		VectorCopy( entityPhysicsState.Origin(), predictedOrigin );
+		Vec3 startOrigin( entityPhysicsState.Origin() );
 		// Add some delta, it's important
-		predictedOrigin[2] += 8.0f;
-		cplane_t tmpPlane;
-		int hitContents = 0;
-		if( PredictTrajectoryHit( predictedOrigin, velocity.Data(), mins, maxs,
-								  predictionStepMillis, maxPredictionSteps,
-								  &hitContents, tmpPlane.normal ) ) {
-			if( !ISWALKABLEPLANE( &tmpPlane ) ) {
+		startOrigin.Z() += 8.0f;
+
+		predictionResults.Clear();
+		auto predictionStopEvent = predictor.Run( velocity.Data(), startOrigin.Data(), &predictionResults );
+
+		// A bot has entered an area of "bad" contents
+		if( predictionStopEvent & AiTrajectoryPredictor::ENTER_AREA_CONTENTS ) {
+			continue;
+		}
+
+		if( predictionStopEvent & ( AiTrajectoryPredictor::HIT_SOLID | AiTrajectoryPredictor::HIT_LIQUID ) ) {
+			if( !ISWALKABLEPLANE( &predictionResults.trace->plane ) ) {
 				continue;
 			}
-			if( hitContents & badCmContents ) {
+			if( predictionResults.trace->contents & badCmContents ) {
 				continue;
 			}
 		} else {
-			if( trap_CM_TransformedPointContents( predictedOrigin, nullptr, nullptr, nullptr ) & badCmContents ) {
-				continue;
-			}
-
 			// Do a ground sampling
 			trace_t trace;
-			Vec3 traceEnd( predictedOrigin );
+			Vec3 traceEnd( predictionResults.origin );
 			traceEnd.Z() -= 64.0f;
-			StaticWorldTrace( &trace, predictedOrigin, traceEnd.Data(), MASK_SOLID | MASK_WATER );
+			StaticWorldTrace( &trace, predictionResults.origin, traceEnd.Data(), MASK_SOLID | MASK_WATER );
 			if( trace.fraction == 1.0f ) {
 				continue;
 			}
@@ -7930,20 +7892,6 @@ static const float *FindBestJumpableSpot( BotMovementPredictionContext *context,
 				continue;
 			}
 		}
-
-		const int predictedAreaNum = aasWorld->FindAreaNum( predictedOrigin );
-		if( !predictedAreaNum ) {
-			continue;
-		}
-		if( aasAreaSettings[predictedAreaNum].contents & badAasContents ) {
-			continue;
-		}
-		if( aasAreaSettings[predictedAreaNum].areaflags & AREA_DISABLED ) {
-			continue;
-		}
-
-		// Don't check whether the area has AREA_GROUND flags, it is enough it is not a hazard area.
-		// We have sampled a ground using a real collision trace.
 
 		// Returning this pointer is legal assuming spots array lifetime spans the origin usage
 		return spotAndScore->origin;
