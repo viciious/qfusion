@@ -1431,6 +1431,15 @@ class BotDummyMovementAction : public BotBaseMovementAction
 	BotMovementFallback *TryFindNearbyRampAreasFallback( BotMovementPredictionContext *context );
 	BotMovementFallback *TryFindWalkableTriggerFallback( BotMovementPredictionContext *context );
 	BotMovementFallback *TryFindJumpFromLavaFallback( BotMovementPredictionContext *context );
+
+	BotMovementFallback *TryNodeBasedFallbacksLeft( BotMovementPredictionContext *context );
+
+	BotMovementFallback *TryShortcutOtherFallbackByJumping( BotMovementPredictionContext *context,
+															const vec3_t initialTarget,
+															int initialTargetAreaNum = 0 );
+
+	BotMovementFallback *TryShortcutOtherFallbackByJumping( BotMovementPredictionContext *context,
+															int initialTargetAreaNum );
 public:
 	DECLARE_MOVEMENT_ACTION_CONSTRUCTOR( BotDummyMovementAction, COLOR_RGB( 0, 0, 0 ) ) {}
 	void PlanPredictionStep( BotMovementPredictionContext *context ) override;
@@ -1543,6 +1552,9 @@ protected:
 public:
 	BotUseWalkableNodeMovementFallback( const edict_t *self_ )
 		: BotGenericGroundMovementFallback( self_, COLOR_RGB( 0, 192, 0 ) ) {}
+
+	const vec3_t &NodeOrigin() const { return nodeOrigin; }
+	int NodeAreaNum() const { return nodeAasAreaNum; }
 
 	void Activate( const vec3_t nodeOrigin_, float reachRadius_, int nodeAasAreaNum_ = 0, unsigned timeout_ = 750 ) {
 		VectorCopy( nodeOrigin_, this->nodeOrigin );

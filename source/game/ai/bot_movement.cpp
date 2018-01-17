@@ -2837,6 +2837,25 @@ BotMovementFallback *BotDummyMovementAction::TryFindMovementFallback( BotMovemen
 		return fallback;
 	}
 
+	if( auto *fallback = TryNodeBasedFallbacksLeft( context ) ) {
+		// Check whether its really a node based fallback
+		auto *const nodeBasedFallback = &self->ai->botRef->useWalkableNodeMovementFallback;
+		if( fallback == nodeBasedFallback ) {
+			const vec3_t &origin = nodeBasedFallback->NodeOrigin();
+			const int areaNum = nodeBasedFallback->NodeAreaNum();
+			if( auto *jumpFallback = TryShortcutOtherFallbackByJumping( context, origin, areaNum ) ) {
+				return jumpFallback;
+			}
+		}
+		return fallback;
+	}
+
+	return nullptr;
+}
+
+BotMovementFallback *BotDummyMovementAction::TryNodeBasedFallbacksLeft( BotMovementPredictionContext *context ) {
+	const auto &entityPhysicsState = context->movementState->entityPhysicsState;
+
 	// Try using the nav target as a fallback movement target
 	Assert( context->NavTargetAasAreaNum() );
 	auto *nodeFallback = &self->ai->botRef->useWalkableNodeMovementFallback;
@@ -2939,6 +2958,10 @@ BotMovementFallback *BotDummyMovementAction::TryFindWalkReachFallback( BotMoveme
 		return nullptr;
 	}
 
+	if( auto *fallback = TryShortcutOtherFallbackByJumping( context, nextReach.end, nextReach.areanum ) ) {
+		return fallback;
+	}
+
 	auto *fallback = &self->ai->botRef->useWalkableNodeMovementFallback;
 	unsigned timeout = (unsigned)( 1000.0f * sqrtf( squareDistance ) / context->GetRunSpeed() );
 	// Note: We have to add several units to the target Z, otherwise a collision test
@@ -2946,6 +2969,116 @@ BotMovementFallback *BotDummyMovementAction::TryFindWalkReachFallback( BotMoveme
 	Vec3 target( nextReach.end );
 	target.Z() += -playerbox_stand_mins[2];
 	fallback->Activate( target.Data(), 16.0f, AiAasWorld::Instance()->FindAreaNum( target ), timeout );
+	return fallback;
+}
+
+BotMovementFallback *BotDummyMovementAction::TryShortcutOtherFallbackByJumping( BotMovementPredictionContext *context,
+																				int initialTargetAreaNum ) {
+	Assert( initialTargetAreaNum );
+	const auto &area = AiAasWorld::Instance()->Areas()[initialTargetAreaNum];
+	Vec3 areaPoint( area.center );
+	areaPoint.Z() = area.mins[2] + 1.0f - playerbox_stand_mins[2];
+	return TryShortcutOtherFallbackByJumping( context, areaPoint.Data(), initialTargetAreaNum );
+}
+
+BotMovementFallback *BotDummyMovementAction::TryShortcutOtherFallbackByJumping( BotMovementPredictionContext *context,
+																				const vec3_t initialTarget,
+																				int initialTargetAreaNum ) {
+	if( self->ai->botRef->ShouldBeSilent() ) {
+		return nullptr;
+	}
+
+	if( !( context->currPlayerState->stats[PM_STAT_FEATURES] & PMFEAT_JUMP ) ) {
+		return nullptr;
+	}
+
+	const auto &entityPhysicsState = context->movementState->entityPhysicsState;
+
+	// Check necessary preconditions first to cut off expensive trajectory prediction
+
+	if( !entityPhysicsState.GroundEntity() ) {
+		return nullptr;
+	}
+
+	const auto *aasWorld = AiAasWorld::Instance();
+	float distanceThreshold = 96.0f;
+	const int groundedAreaNum = context->CurrGroundedAasAreaNum();
+	// Lower distance threshold for inclined floor/stairs areas where a bot is very likely to get stuck
+	const int groundedAreaFlags = aasWorld->AreaSettings()[groundedAreaNum].areaflags;
+	if( groundedAreaFlags & AREA_INCLINED_FLOOR ) {
+		distanceThreshold = 72.0f;
+	}
+
+	if( DistanceSquared( entityPhysicsState.Origin(), initialTarget ) < SQUARE( distanceThreshold ) ) {
+		return nullptr;
+	}
+
+	// Do not try jumping to a-priori non-reachable by jumping targets
+	if( entityPhysicsState.Origin()[2] < initialTarget[2] ) {
+		// Mins does not correspond to the real ground level in this case, just reject the fallback
+		if( groundedAreaFlags & AREA_INCLINED_FLOOR ) {
+			return nullptr;
+		}
+		// initialTarget might use arbitrary offset from ground, check a real height over ground
+		const auto &targetArea = aasWorld->Areas()[initialTargetAreaNum];
+		if( entityPhysicsState.Origin()[2] + playerbox_stand_mins[2] < targetArea.mins[2] + AI_JUMPABLE_HEIGHT ) {
+			return nullptr;
+		}
+	}
+
+	// Dont try starting to jump having a high speed, this leads to looping
+	if( entityPhysicsState.Speed2D() > context->GetRunSpeed() ) {
+		return nullptr;
+	}
+
+	if( !initialTargetAreaNum ) {
+		if( !( initialTargetAreaNum = AiAasWorld::Instance()->FindAreaNum( initialTarget ) ) ) {
+			return nullptr;
+		}
+	}
+
+	AiTrajectoryPredictor predictor;
+	predictor.SetColliderBounds( ( Vec3( 0, 0, 8 ) + playerbox_stand_mins ).Data(), playerbox_stand_maxs );
+	predictor.SetStepMillis( 128 );
+	predictor.SetNumSteps( 8 );
+	predictor.SetEnterAreaProps( 0, AREACONTENTS_LAVA | AREACONTENTS_SLIME | AREACONTENTS_DONOTENTER );
+	predictor.AddStopEventFlags( AiTrajectoryPredictor::HIT_SOLID | AiTrajectoryPredictor::ENTER_AREA_CONTENTS );
+
+	Vec3 startVelocity( initialTarget );
+	startVelocity -= entityPhysicsState.Origin();
+	startVelocity.Z() = 0;
+	startVelocity.NormalizeFast();
+	startVelocity *= context->GetRunSpeed();
+	startVelocity.Z() = context->GetJumpSpeed();
+
+	Vec3 startOrigin( entityPhysicsState.Origin() );
+	startOrigin.Z() += 1.0f;
+
+	AiTrajectoryPredictor::Results predictionResults;
+	auto stopEvents = predictor.Run( startVelocity, startOrigin, &predictionResults );
+	if( !( stopEvents & AiTrajectoryPredictor::HIT_SOLID ) ) {
+		return nullptr;
+	}
+	// If the bot has entered a hazard area
+	if( stopEvents & AiTrajectoryPredictor::ENTER_AREA_CONTENTS ) {
+		return nullptr;
+	}
+
+	int landingAreaNum = predictionResults.lastAreaNum;
+	// We have not landed in the target area, check whether we have landed in even better one
+	if( landingAreaNum != initialTargetAreaNum ) {
+		const auto *routeCache = self->ai->botRef->routeCache;
+		const int goalAreaNum = context->NavTargetAasAreaNum();
+		const auto travelFlags = Bot::ALLOWED_TRAVEL_FLAGS;
+		int nextReachTravelTime = routeCache->TravelTimeToGoalArea( initialTargetAreaNum, goalAreaNum, travelFlags );
+		int landingTargetTravelTime = routeCache->TravelTimeToGoalArea( landingAreaNum, goalAreaNum, travelFlags );
+		if( !landingTargetTravelTime || landingTargetTravelTime + 10 > nextReachTravelTime ) {
+			return nullptr;
+		}
+	}
+
+	auto *fallback = &self->ai->botRef->jumpToSpotMovementFallback;
+	fallback->Activate( entityPhysicsState.Origin(), predictionResults.origin );
 	return fallback;
 }
 
@@ -3086,6 +3219,8 @@ BotMovementFallback *BotDummyMovementAction::TryFindStairsFallback( BotMovementP
 		return nullptr;
 	}
 
+	// Note: Don't try to apply jumping shortcut, results are very poor.
+
 	auto *fallback = &self->ai->botRef->useStairsExitMovementFallback;
 	fallback->Activate( stairsClusterNum, *bestAreaNum );
 	return fallback;
@@ -3210,13 +3345,44 @@ bool BotDummyMovementAction::TrySetupInclinedFloorMovement( BotMovementPredictio
 
 BotMovementFallback *BotDummyMovementAction::TryFindRampFallback( BotMovementPredictionContext *context,
 																  int rampAreaNum, int forbiddenAreaNum ) {
-	if( const int *bestExitAreaNum = TryFindBestInclinedFloorExitArea( context, rampAreaNum, forbiddenAreaNum ) ) {
-		auto *fallback = &self->ai->botRef->useRampExitMovementFallback;
-		fallback->Activate( rampAreaNum, *bestExitAreaNum );
-		return fallback;
+	const auto &entityPhysicsState = context->movementState->entityPhysicsState;
+	const int *bestExitAreaNum = TryFindBestInclinedFloorExitArea( context, rampAreaNum, forbiddenAreaNum );
+	if( !bestExitAreaNum ) {
+		return nullptr;
 	}
 
-	return nullptr;
+	const auto *aasWorld = AiAasWorld::Instance();
+	const auto &exitArea = aasWorld->Areas()[*bestExitAreaNum];
+
+	Vec3 areaPoint( exitArea.center );
+	areaPoint.Z() = exitArea.mins[2] + 1.0f - playerbox_stand_mins[2];
+
+	bool tryJumpShortcut = false;
+	// Try jumping below
+	if( exitArea.mins[2] < entityPhysicsState.Origin()[2] ) {
+		tryJumpShortcut = true;
+	} else {
+		// Dont try jumping if a bot can slide on an ramp
+		// Check whether a current area is actually slidable (and not just has an inclided floor)
+		if( aasWorld->AreaSettings()[rampAreaNum].areaflags & AREA_SLIDABLE_RAMP ) {
+			// Don't try jumping to a far exit area that is higher than the bot, keep sliding on a ramp.
+			if( exitArea.mins[2] > entityPhysicsState.Origin()[2] ) {
+				if( areaPoint.SquareDistanceTo( entityPhysicsState.Origin() ) < SQUARE( 96.0f ) ) {
+					tryJumpShortcut = true;
+				}
+			}
+		}
+	}
+
+	if( tryJumpShortcut ) {
+		if( auto *fallback = TryShortcutOtherFallbackByJumping( context, areaPoint.Data(), *bestExitAreaNum ) ) {
+			return fallback;
+		}
+	}
+
+	auto *fallback = &self->ai->botRef->useRampExitMovementFallback;
+	fallback->Activate( rampAreaNum, *bestExitAreaNum );
+	return fallback;
 }
 
 BotMovementFallback *BotDummyMovementAction::TryFindNearbyRampAreasFallback( BotMovementPredictionContext *context ) {
@@ -8072,7 +8238,7 @@ BotMovementFallback *BotDummyMovementAction::TryFindLostNavTargetFallback( BotMo
 		return nullptr;
 	}
 
-	auto *fallback = &self->ai->botRef->jumpToFeasibleSpotMovementFallback;
+	auto *fallback = &self->ai->botRef->jumpToSpotMovementFallback;
 	fallback->Activate( entityPhysicsState.Origin(), spotOrigin, 24.0f );
 	return fallback;
 }
