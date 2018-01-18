@@ -3113,30 +3113,191 @@ BotMovementFallback *BotDummyMovementAction::TryFindWalkOffLedgeReachFallback( B
 BotMovementFallback *BotDummyMovementAction::TryFindJumpLikeReachFallback( BotMovementPredictionContext *context,
 																		   const aas_reachability_t &nextReach ) {
 	const auto &entityPhysicsState = context->movementState->entityPhysicsState;
-	auto *fallback = &self->ai->botRef->jumpToSpotMovementFallback;
 
-	float startAirAccelFrac, endAirAccelFrac;
-	float jumpBoostSpeed = 0.0f;
-	if( ( nextReach.traveltype & TRAVELTYPE_MASK ) == TRAVEL_JUMP ) {
-		if( nextReach.start[2] > nextReach.end[2] ) {
-			if( DistanceSquared( nextReach.start, nextReach.end ) < SQUARE( 72.0f ) ) {
-				startAirAccelFrac = endAirAccelFrac = 0.0f;
-			} else {
-				startAirAccelFrac = endAirAccelFrac = 0.3f;
+	// BSPC generates lots of junk jump reachabilities from small steps to small steps, stairs/ramps boundaries, etc
+	// Check whether all areas from start and end are grounded and are of the same height,
+	// and run instead of jumping in this case
+
+	// Check only if a reachability does not go noticeably upwards
+	if( nextReach.end[2] < nextReach.start[2] + 16.0f ) {
+		Vec3 reachVec( nextReach.start );
+		reachVec -= nextReach.end;
+		float squareReachLength = reachVec.SquaredLength();
+		// If a reachability is rather short
+		if( squareReachLength < SQUARE( 72.0f ) ) {
+			// If there is no significant sloppiness
+			if( fabsf( reachVec.Z() ) / sqrtf( SQUARE( reachVec.X() ) + SQUARE( reachVec.Y() ) ) < 0.3f ) {
+				const auto *aasWorld = AiAasWorld::Instance();
+				const auto *aasAreas = aasWorld->Areas();
+				const auto *aasAreaSettings = aasWorld->AreaSettings();
+
+				int tracedAreaNums[32];
+				tracedAreaNums[0] = 0;
+				const int numTracedAreas = aasWorld->TraceAreas( nextReach.start, nextReach.end, tracedAreaNums, 32 );
+				const float startAreaZ = aasAreas[tracedAreaNums[0]].mins[2];
+				int i = 1;
+				for(; i < numTracedAreas; ++i ) {
+					const int areaNum = tracedAreaNums[i];
+					// Stop on a non-grounded area
+					if( !( aasAreaSettings[areaNum].areaflags & AREA_GROUNDED ) ) {
+						break;
+					}
+					// Force jumping over lava/slime/water
+					// TODO: not sure about jumppads, if would ever have an intention to pass jumppad without touching it
+					constexpr auto undesiredContents = AREACONTENTS_LAVA | AREACONTENTS_SLIME | AREACONTENTS_WATER;
+					if( aasAreaSettings[areaNum].contents & undesiredContents ) {
+						break;
+					}
+					// Stop if there is a significant height difference
+					if( fabsf( aasAreas[areaNum].mins[2] - startAreaZ ) > 12.0f ) {
+						break;
+					}
+				}
+
+				// All areas pass the walkability test, use walking to a node that seems to be really close
+				if( i == numTracedAreas ) {
+					auto *fallback = &self->ai->botRef->useWalkableNodeMovementFallback;
+					Vec3 target( nextReach.end );
+					target.Z() += 1.0f - playerbox_stand_mins[2];
+					fallback->Activate( target.Data(), 24.0f, AiAasWorld::Instance()->FindAreaNum( target ), 500u );
+					return fallback;
+				}
 			}
-		} else {
-			startAirAccelFrac = 0.7f;
-			endAirAccelFrac = 0.4f;
 		}
-	} else {
-		startAirAccelFrac = endAirAccelFrac = 1.0f;
-		jumpBoostSpeed = 35.0f;
 	}
 
-	Vec3 targetOrigin( nextReach.end );
-	targetOrigin.Z() += -playerbox_stand_mins[2] + self->viewheight;
-	fallback->Activate( entityPhysicsState.Origin(), targetOrigin.Data(), 24.0f,
-						startAirAccelFrac, endAirAccelFrac, jumpBoostSpeed );
+	AiTrajectoryPredictor predictor;
+	predictor.SetStepMillis( 128 );
+	predictor.SetNumSteps( 8 );
+	predictor.SetEnterAreaProps( 0, AREACONTENTS_LAVA | AREACONTENTS_SLIME | AREACONTENTS_DONOTENTER );
+	predictor.SetEnterAreaNum( nextReach.areanum );
+	predictor.SetColliderBounds( vec3_origin, playerbox_stand_maxs );
+	predictor.SetEntitiesCollisionProps( true, ENTNUM( self ) );
+	predictor.AddStopEventFlags( AiTrajectoryPredictor::HIT_SOLID | AiTrajectoryPredictor::HIT_ENTITY );
+
+	int numAttempts;
+	float startSpeed2D;
+
+	const float *attemptsZBoosts;
+	const float *startAirAccelFracs;
+	const float *endAirAccelFracs;
+
+	const float jumpAttemptsZBoosts[] = { 0.0f, 10.0f };
+	// Not used in prediction but should fit results for assumed start 2D speed
+	const float jumpStartAirAccelFracs[] = { 0.0f, 0.5f };
+	const float jumpEndAirAccelFracs[] = { 0.0f, 0.0f };
+
+	const float strafejumpAttemptsZBoosts[] = { 0.0f, 15.0f, 40.0f };
+	// Not used in prediction but should fit results for assumed start 2D speed
+	const float strafejumpStartAirAccelFracs[] = { 0.9f, 1.0f, 1.0f };
+	const float strafejumpEndAirAccelFracs[] = { 0.5f, 0.9f, 1.0f };
+
+	if( ( nextReach.traveltype & TRAVELTYPE_MASK ) == TRAVEL_STRAFEJUMP ) {
+		// Approximate applied acceleration as having 470 units of starting speed
+		// That's what BSPC assumes for generating strafejumping reachabilities
+		startSpeed2D = 470.0;
+		numAttempts = sizeof( strafejumpAttemptsZBoosts ) / sizeof( *strafejumpAttemptsZBoosts );
+		attemptsZBoosts = strafejumpAttemptsZBoosts;
+		startAirAccelFracs = strafejumpStartAirAccelFracs;
+		endAirAccelFracs = strafejumpEndAirAccelFracs;
+	} else {
+		startSpeed2D = context->GetRunSpeed();
+		numAttempts = sizeof( jumpAttemptsZBoosts ) / sizeof( *jumpAttemptsZBoosts );
+		attemptsZBoosts = jumpAttemptsZBoosts;
+		startAirAccelFracs = jumpStartAirAccelFracs;
+		endAirAccelFracs = jumpEndAirAccelFracs;
+	}
+
+	Vec3 startVelocity( nextReach.end );
+	startVelocity -= entityPhysicsState.Origin();
+	startVelocity.Z() = 0;
+	startVelocity.Normalize();
+	startVelocity *= startSpeed2D;
+
+	const float defaultJumpSpeed = context->GetJumpSpeed();
+
+	const auto *routeCache = self->ai->botRef->routeCache;
+	int navTargetAreaNum = context->NavTargetAasAreaNum();
+	// Note: we don't stop on the first feasible travel time here and below
+	int travelTimeFromReachArea = std::numeric_limits<int>::max();
+	for( int flags: self->ai->botRef->TravelFlags() ) {
+		if( int travelTime = routeCache->TravelTimeToGoalArea( nextReach.areanum, navTargetAreaNum, flags ) ) {
+			travelTimeFromReachArea = std::min( travelTime, travelTimeFromReachArea );
+		}
+	}
+	if( travelTimeFromReachArea == std::numeric_limits<int>::max() ) {
+		return nullptr;
+	}
+
+	AiTrajectoryPredictor::Results predictionResults;
+
+	vec3_t jumpTarget;
+	int jumpTargetAreaNum = 0;
+
+	int i = 0;
+	for(; i < numAttempts; ++i ) {
+		startVelocity.Z() = defaultJumpSpeed + attemptsZBoosts[i];
+
+		if( i ) {
+			// Results are cleared by default
+			predictionResults.Clear();
+		}
+
+		auto stopEvents = predictor.Run( startVelocity.Data(), entityPhysicsState.Origin(), &predictionResults );
+		// A trajectory have entered an undesired contents
+		if( stopEvents & AiTrajectoryPredictor::ENTER_AREA_CONTENTS ) {
+			continue;
+		}
+
+		// A trajectory has hit the target area
+		if( stopEvents & AiTrajectoryPredictor::ENTER_AREA_NUM ) {
+			VectorCopy( nextReach.end, jumpTarget );
+			jumpTargetAreaNum = nextReach.areanum;
+			break;
+		}
+
+		if( !( stopEvents & AiTrajectoryPredictor::HIT_SOLID ) ) {
+			continue;
+		}
+
+		if( !ISWALKABLEPLANE( &predictionResults.trace->plane ) ) {
+			continue;
+		}
+
+		if( predictionResults.trace->contents & ( CONTENTS_LAVA | CONTENTS_SLIME | CONTENTS_WATER | CONTENTS_NODROP ) ) {
+			continue;
+		}
+
+		const int landingArea = predictionResults.lastAreaNum;
+		int travelTimeFromLandingArea = std::numeric_limits<int>::max();
+		for( int flags: self->ai->botRef->TravelFlags() ) {
+			if( int travelTime = routeCache->TravelTimeToGoalArea( landingArea, navTargetAreaNum, flags ) ) {
+				travelTimeFromLandingArea = std::min( travelTime, travelTimeFromLandingArea );
+			}
+		}
+
+		// Note: thats why we are using best travel time among allowed and preferred travel flags
+		// (there is a suspicion that many feasible areas might be cut off by the following test otherwise).
+		// If the travel time is significantly worse than travel time from reach area
+		if( travelTimeFromLandingArea - 20 > travelTimeFromReachArea ) {
+			continue;
+		}
+
+		VectorCopy( predictionResults.origin, jumpTarget );
+		jumpTargetAreaNum = landingArea;
+		break;
+	}
+
+	// All attempts have failed
+	if( i == numAttempts ) {
+		return nullptr;
+	}
+
+	jumpTarget[2] += 1.0f - playerbox_stand_mins[2] + self->viewheight;
+	auto *fallback = &self->ai->botRef->jumpToSpotMovementFallback;
+	fallback->Activate( entityPhysicsState.Origin(), jumpTarget,
+						32.0f, startAirAccelFracs[i],
+						endAirAccelFracs[i], attemptsZBoosts[i] );
 	return fallback;
 }
 
