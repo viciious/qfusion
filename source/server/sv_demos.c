@@ -73,7 +73,7 @@ void SV_Demo_WriteSnap( void ) {
 
 	MSG_Init( &msg, msg_buffer, sizeof( msg_buffer ) );
 
-	SV_BuildClientFrameSnap( &svs.demo.client );
+	SV_BuildClientFrameSnap( &svs.demo.client, 0 );
 
 	SV_WriteFrameSnapToClient( &svs.demo.client, &msg );
 

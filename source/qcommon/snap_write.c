@@ -439,7 +439,189 @@ static bool SNAP_BitsCullEntity( cmodel_state_t *cms, edict_t *ent, uint8_t *bit
 	return true;    // not visible/audible
 }
 
-#define SNAP_PVSCullEntity( cms,fatpvs,ent ) SNAP_BitsCullEntity( cms,ent,fatpvs,ent->r.num_clusters )
+static bool SNAP_ViewDirCullEntity( const edict_t *clent, const edict_t *ent ) {
+	vec3_t viewDir;
+	AngleVectors( clent->s.angles, viewDir, NULL, NULL );
+
+	vec3_t toEntDir;
+	VectorSubtract( ent->s.origin, clent->s.origin, toEntDir );
+	return DotProduct( toEntDir, viewDir ) < 0;
+}
+
+static bool SNAP_Raycast( cmodel_state_t *cms, trace_t *trace, const vec3_t from, const vec3_t to ) {
+	CM_TransformedBoxTrace( cms, trace, (float *)from, (float *)to, vec3_origin, vec3_origin, NULL, MASK_SOLID, NULL, NULL );
+
+	if( trace->fraction == 1.0f ) {
+		return true;
+	}
+
+	if( !trace->contents & CONTENTS_TRANSLUCENT ) {
+		return false;
+	}
+
+	vec3_t rayDir;
+	VectorSubtract( to, from, rayDir );
+	VectorNormalize( rayDir );
+
+	// Do 8 attempts to continue tracing.
+	// It might seem that the threshold could be lower,
+	// but keep in mind situations like on wca1
+	// while looking behind a glass tube being behind a glass wall itself.
+	for( int i = 0; i < 8; ++i ) {
+		vec3_t rayStart;
+		VectorMA( trace->endpos, 2.0f, rayDir, rayStart );
+
+		CM_TransformedBoxTrace( cms, trace, rayStart, (float *)to, vec3_origin, vec3_origin, NULL, MASK_SOLID, NULL, NULL );
+
+		if( trace->fraction == 1.0f ) {
+			return true;
+		}
+
+		if( !( trace->contents & CONTENTS_TRANSLUCENT ) ) {
+			return false;
+		}
+	}
+
+	return false;
+}
+
+static inline void SNAP_GetRandomPointInBox( const vec3_t origin, const vec3_t mins, const vec3_t size, vec3_t result ) {
+	result[0] = origin[0] + mins[0] + random() * size[0];
+	result[1] = origin[1] + mins[1] + random() * size[1];
+	result[2] = origin[2] + mins[2] + random() * size[2];
+}
+
+static bool SNAP_TryCullEntityByRaycasting( cmodel_state_t *cms, edict_t *clent, const vec3_t vieworg, edict_t *ent ) {
+	// Currently only clients are supported
+	const gclient_t *entClient = ent->r.client;
+	if( !entClient ) {
+		return false;
+	}
+
+	const gclient_t *client = clent->r.client;
+	vec3_t clientViewOrigin;
+	VectorCopy( clent->s.origin, clientViewOrigin );
+	clientViewOrigin[2] += client->ps.viewheight;
+
+	// Should be an actual origin
+	if( !VectorCompare( clientViewOrigin, vieworg ) ) {
+		return false;
+	}
+
+	// Do not use vis culling for fast moving clients/entities due to being prone to glitches
+
+	const float *clientVelocity = client->ps.pmove.velocity;
+	float squareClientVelocity = VectorLengthSquared( clientVelocity );
+	if( squareClientVelocity > 1100 * 1100 ) {
+		return false;
+	}
+
+	const float *entityVelocity = ent->r.client->ps.pmove.velocity;
+	float squareEntityVelocity = VectorLengthSquared( entityVelocity );
+	if( squareEntityVelocity > 1100 * 1100 ) {
+		return false;
+	}
+
+	if( squareClientVelocity > 800 * 800 && squareEntityVelocity > 800 * 800 ) {
+		return false;
+	}
+
+	vec3_t to;
+	VectorCopy( ent->s.origin, to );
+
+	trace_t trace;
+	// Do a first raycast to the entity origin for a fast cutoff
+	if( SNAP_Raycast( cms, &trace, clientViewOrigin, to ) ) {
+		return false;
+	}
+
+	// Do a second raycast at the entity chest/eyes level
+	to[2] += entClient->ps.viewheight;
+	if( SNAP_Raycast( cms, &trace, clientViewOrigin, to ) ) {
+		return false;
+	}
+
+	// Test a random point in entity bounds now
+	SNAP_GetRandomPointInBox( ent->s.origin, ent->r.mins, ent->r.size, to );
+	if( SNAP_Raycast( cms, &trace, clientViewOrigin, to ) ) {
+		return false;
+	}
+
+	// Now try applying a cutoff of further extremely expensive computations using client viewangles.
+	// This could lead to some glitches but we try to vary cutoff threshold by ping.
+	// Even in case when a high-ping player turns instantly back,
+	// an info about most players that should be visible in his POV is still provided.
+
+	vec3_t viewDir;
+	AngleVectors( client->ps.viewangles, viewDir, NULL, NULL );
+	VectorNormalize( viewDir );
+
+	vec3_t toEntDir;
+	VectorSubtract( ent->s.origin, clientViewOrigin, toEntDir );
+	VectorNormalize( toEntDir );
+
+	float pingDotFactor = -client->r.ping / 400.0f;
+	if( DotProduct( viewDir, toEntDir ) < pingDotFactor ) {
+		return true;
+	}
+
+	// Test all bbox corners at the current position.
+	// Prevent missing a player that should be clearly visible.
+
+	vec3_t bounds[2];
+	// Shrink bounds by 2 units to avoid ending in a solid if the entity contacts some brushes.
+	for( int i = 0; i < 3; ++i ) {
+		bounds[0][i] = ent->r.mins[i] + 2.0f;
+		bounds[1][i] = ent->r.maxs[i] - 2.0f;
+	}
+
+	for( int i = 0; i < 8; ++i ) {
+		to[0] = ent->s.origin[0] + bounds[(i >> 2) & 1][0];
+		to[1] = ent->s.origin[1] + bounds[(i >> 1) & 1][1];
+		to[2] = ent->s.origin[2] + bounds[(i >> 0) & 1][2];
+		if( SNAP_Raycast( cms, &trace, clientViewOrigin, to ) ) {
+			return false;
+		}
+	}
+
+	// There is no need to extrapolate
+	if( squareClientVelocity < 10 * 10 && squareEntityVelocity < 10 * 10 ) {
+		return true;
+	}
+
+	// We might think about skipping culling for high-ping players but pings are easily mocked from a client side.
+	// The game is barely playable for really high pings anyway.
+
+	float xerpTimeSeconds = 0.001f * ( 100 + client->r.ping );
+	clamp_high( xerpTimeSeconds, 0.275f );
+
+	// We want to test the trajectory in "continuous" way.
+	// Use a fixed small trajectory step and adjust the timestep using it.
+	float timestep;
+	if( squareEntityVelocity > squareClientVelocity ) {
+		timestep = 24.0f / sqrtf( squareEntityVelocity );
+	} else {
+		timestep = 24.0f / sqrtf( squareClientVelocity );
+	}
+
+	float secondsAhead = 0.0f;
+	while( secondsAhead < xerpTimeSeconds ) {
+		secondsAhead += timestep;
+
+		vec3_t from;
+		vec3_t entOrigin;
+
+		VectorMA( clientViewOrigin, secondsAhead, clientVelocity, from );
+		VectorMA( ent->s.origin, secondsAhead, vec3_origin, entOrigin );
+
+		SNAP_GetRandomPointInBox( entOrigin, ent->r.mins, ent->r.size, to );
+		if( SNAP_Raycast( cms, &trace, from, to ) ) {
+			return false;
+		}
+	}
+
+	return true;
+}
 
 //=====================================================================
 
@@ -545,13 +727,33 @@ static bool SNAP_SnapCullSoundEntity( cmodel_state_t *cms, edict_t *ent, vec3_t 
 	return true;
 }
 
+static inline bool SNAP_IsSoundCullOnlyEntity( const edict_t *ent ) {
+	// If it is set explicitly
+	if( ent->r.svflags & SVF_SOUNDCULL ) {
+		return true;
+	}
+
+	// If there is no sound
+	if( !ent->s.sound ) {
+		return false;
+	}
+
+	// Check whether there is nothing else to transmit
+	return !ent->s.modelindex && !ent->s.events[0] && !ent->s.light && !ent->s.effects;
+}
+
 /*
 * SNAP_SnapCullEntity
 */
-static bool SNAP_SnapCullEntity( cmodel_state_t *cms, edict_t *ent, edict_t *clent, client_snapshot_t *frame, vec3_t vieworg, uint8_t *fatpvs ) {
+static bool SNAP_SnapCullEntity( cmodel_state_t *cms, edict_t *ent,
+								 edict_t *clent, client_snapshot_t *frame,
+								 vec3_t vieworg, uint8_t *fatpvs, int snapHintFlags ) {
 	uint8_t *areabits;
 	bool snd_cull_only;
 	bool snd_culled;
+	bool snd_use_pvs;
+	bool use_raycasting;
+	bool use_viewdir_culling;
 
 	// filters: this entity has been disabled for comunication
 	if( ent->r.svflags & SVF_NOCLIENT ) {
@@ -596,35 +798,99 @@ static bool SNAP_SnapCullEntity( cmodel_state_t *cms, edict_t *ent, edict_t *cle
 		}
 	}
 
-	snd_cull_only = false;
+	snd_cull_only = SNAP_IsSoundCullOnlyEntity( ent );
+
+	snd_use_pvs = ( snapHintFlags & SNAP_HINT_CULL_SOUND_WITH_PVS ) != 0;
+	use_raycasting = ( snapHintFlags & SNAP_HINT_USE_RAYCAST_CULLING ) != 0;
+	use_viewdir_culling = ( snapHintFlags & SNAP_HINT_USE_VIEW_DIR_CULLING ) != 0;
+
+	if( snd_use_pvs ) {
+		// Don't even bother about calling SnapCullSoundEntity() except the entity has only a sound to transmit
+		if( snd_cull_only ) {
+			if( SNAP_SnapCullSoundEntity( cms, ent, vieworg, ent->s.attenuation ) ) {
+				return true;
+			}
+		}
+
+		// Force PVS culling in all other cases
+		if( SNAP_BitsCullEntity( cms, ent, fatpvs, ent->r.num_clusters ) ) {
+			return true;
+		}
+
+		// Don't test sounds by raycasting
+		if( snd_cull_only ) {
+			return false;
+		}
+
+		// Check whether there is sound-like info to transfer
+		if( ent->s.sound || ent->s.events[0] ) {
+			// If sound attenuation is not sufficient to cutoff the entity
+			if( !SNAP_SnapCullSoundEntity( cms, ent, vieworg, ent->s.attenuation ) ) {
+				return false;
+			}
+		}
+
+		// Don't try doing additional culling for beams
+		if( ent->r.svflags & SVF_TRANSMITORIGIN2 ) {
+			return false;
+		}
+
+		if( use_raycasting && SNAP_TryCullEntityByRaycasting( cms, clent, vieworg, ent ) ) {
+			return true;
+		}
+
+		if( use_viewdir_culling && SNAP_ViewDirCullEntity( clent, ent ) ) {
+			return true;
+		}
+
+		return false;
+	}
+
 	snd_culled = true;
 
-	// sound entities culling
-	if( ent->r.svflags & SVF_SOUNDCULL ) {
-		snd_cull_only = true;
-	}
-	// if not a sound entity but the entity is only a sound
-	else if( !ent->s.modelindex && !ent->s.events[0] && !ent->s.light && !ent->s.effects && ent->s.sound ) {
-		snd_cull_only = true;
-	}
-
 	// PVS culling alone may not be used on pure sounds, entities with
-	// events and regular entities emitting sounds
+	// events and regular entities emitting sounds, unless being explicitly specified
 	if( snd_cull_only || ent->s.events[0] || ent->s.sound ) {
 		snd_culled = SNAP_SnapCullSoundEntity( cms, ent, vieworg, ent->s.attenuation );
 	}
 
-	// pure sound emitters don't use PVS culling at all
+	// If there is nothing else to transmit aside a sound and the sound has been culled by distance.
 	if( snd_cull_only && snd_culled ) {
 		return true;
 	}
-	return snd_culled && SNAP_PVSCullEntity( cms, fatpvs, ent );    // cull by PVS
+
+	// If sound attenuation is not sufficient to cutoff the entity
+	if( !snd_culled ) {
+		return false;
+	}
+
+	if( SNAP_BitsCullEntity( cms, ent, fatpvs, ent->r.num_clusters ) ) {
+		return true;
+	}
+
+	// Don't try doing additional culling for beams
+	if( ent->r.svflags & SVF_TRANSMITORIGIN2 ) {
+		return false;
+	}
+
+	if( use_raycasting && SNAP_TryCullEntityByRaycasting( cms, clent, vieworg, ent ) ) {
+		return true;
+	}
+
+	if( use_viewdir_culling && SNAP_ViewDirCullEntity( clent, ent ) ) {
+		return true;
+	}
+
+	return false;
 }
 
 /*
 * SNAP_BuildSnapEntitiesList
 */
-static void SNAP_BuildSnapEntitiesList( cmodel_state_t *cms, ginfo_t *gi, edict_t *clent, vec3_t vieworg, vec3_t skyorg, uint8_t *fatpvs, client_snapshot_t *frame, snapshotEntityNumbers_t *entsList ) {
+static void SNAP_BuildSnapEntitiesList( cmodel_state_t *cms, ginfo_t *gi,
+										edict_t *clent, vec3_t vieworg, vec3_t skyorg,
+										uint8_t *fatpvs, client_snapshot_t *frame,
+										snapshotEntityNumbers_t *entsList, int snapHintFlags ) {
 	int leafnum = -1, clusternum = -1, clientarea = -1;
 	int entNum;
 	edict_t *ent;
@@ -669,7 +935,7 @@ static void SNAP_BuildSnapEntitiesList( cmodel_state_t *cms, ginfo_t *gi, edict_
 			ent = EDICT_NUM( entNum );
 			if( ent->r.svflags & SVF_PORTAL ) {
 				// merge visibility sets if portal
-				if( SNAP_SnapCullEntity( cms, ent, clent, frame, vieworg, fatpvs ) ) {
+				if( SNAP_SnapCullEntity( cms, ent, clent, frame, vieworg, fatpvs, snapHintFlags ) ) {
 					continue;
 				}
 
@@ -691,7 +957,7 @@ static void SNAP_BuildSnapEntitiesList( cmodel_state_t *cms, ginfo_t *gi, edict_
 		}
 
 		// always add the client entity, even if SVF_NOCLIENT
-		if( ( ent != clent ) && SNAP_SnapCullEntity( cms, ent, clent, frame, vieworg, fatpvs ) ) {
+		if( ( ent != clent ) && SNAP_SnapCullEntity( cms, ent, clent, frame, vieworg, fatpvs, snapHintFlags ) ) {
 			continue;
 		}
 
@@ -721,7 +987,7 @@ static void SNAP_BuildSnapEntitiesList( cmodel_state_t *cms, ginfo_t *gi, edict_
 void SNAP_BuildClientFrameSnap( cmodel_state_t *cms, ginfo_t *gi, int64_t frameNum, int64_t timeStamp,
 								fatvis_t *fatvis, client_t *client,
 								game_state_t *gameState, client_entities_t *client_entities,
-								bool relay, mempool_t *mempool ) {
+								bool relay, mempool_t *mempool, int snapHintFlags ) {
 	int e, i, ne;
 	vec3_t org;
 	edict_t *ent, *clent;
@@ -814,7 +1080,7 @@ void SNAP_BuildClientFrameSnap( cmodel_state_t *cms, ginfo_t *gi, int64_t frameN
 	//=============================
 	entsList.numSnapshotEntities = 0;
 	memset( entsList.entityAddedToSnapList, 0, sizeof( entsList.entityAddedToSnapList ) );
-	SNAP_BuildSnapEntitiesList( cms, gi, clent, org, fatvis->skyorg, fatvis->pvs, frame, &entsList );
+	SNAP_BuildSnapEntitiesList( cms, gi, clent, org, fatvis->skyorg, fatvis->pvs, frame, &entsList, snapHintFlags );
 
 	if( developer->integer ) {
 		int olde = -1;

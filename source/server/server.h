@@ -360,6 +360,11 @@ extern cvar_t *sv_mm_authkey;
 extern cvar_t *sv_mm_loginonly;
 extern cvar_t *sv_mm_debug_reportbots;
 
+extern cvar_t *sv_snap_aggressive_sound_culling;
+extern cvar_t *sv_snap_raycast_players_culling;
+// "fov" sounds more clear than "view dir" though its not very accurate
+extern cvar_t *sv_snap_aggressive_fov_culling;
+
 //===========================================================
 
 //
@@ -478,7 +483,7 @@ void SV_Status_f( void );
 // sv_ents.c
 //
 void SV_WriteFrameSnapToClient( client_t *client, msg_t *msg );
-void SV_BuildClientFrameSnap( client_t *client );
+void SV_BuildClientFrameSnap( client_t *client, int snapHintFlags );
 
 
 //

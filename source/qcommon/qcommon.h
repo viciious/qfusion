@@ -154,10 +154,22 @@ void SNAP_WriteFrameSnapToClient( struct ginfo_s *gi, struct client_s *client, m
 								  entity_state_t *baselines, struct client_entities_s *client_entities,
 								  int numcmds, gcommand_t *commands, const char *commandsData );
 
+// Use PVS culling for sounds.
+// Note: changes gameplay experience, use with caution.
+#define SNAP_HINT_CULL_SOUND_WITH_PVS     ( 1 )
+// Try determining visibility via raycasting in collision world.
+// Might lead to false negatives and heavy CPU load,
+// but overall is recommended to use in untrusted environments.
+#define SNAP_HINT_USE_RAYCAST_CULLING     ( 2 )
+// Cull entities that are not in the front hemisphere of viewer.
+// Currently it is a last hope against cheaters in an untrusted environment,
+// but would be useful for slowly-turning vehicles in future.
+#define SNAP_HINT_USE_VIEW_DIR_CULLING    ( 4 )
+
 void SNAP_BuildClientFrameSnap( struct cmodel_state_s *cms, struct ginfo_s *gi, int64_t frameNum, int64_t timeStamp,
 								struct fatvis_s *fatvis, struct client_s *client,
 								game_state_t *gameState, struct client_entities_s *client_entities,
-								bool relay, struct mempool_s *mempool );
+								bool relay, struct mempool_s *mempool, int snapHintFlags );
 
 void SNAP_FreeClientFrames( struct client_s *client );
 

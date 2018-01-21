@@ -74,7 +74,7 @@ void TV_Relay_BuildClientFrameSnap( relay_t *relay, client_t *client ) {
 	SNAP_BuildClientFrameSnap( relay->cms, &relay->gi, relay->framenum, relay->realtime, &relay->fatvis,
 							   client, relay->module_export->GetGameState( relay->module ),
 							   &relay->client_entities,
-							   true, tv_mempool );
+							   true, tv_mempool, 0 );
 
 	if( relay->playernum >= 0 ) {
 		client->edict->s = backup_state;
