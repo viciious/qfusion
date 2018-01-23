@@ -104,20 +104,85 @@ inline bool IsInsideHugeArea( const float *origin, const aas_area_t &area, float
 	return true;
 }
 
+class CanSafelyKeepHighSpeedPredictor: protected AiTrajectoryPredictor {
+protected:
+	AiAasWorld *aasWorld;
+	bool hasFailed;
+
+	bool OnPredictionStep( const Vec3 &segmentStart, const Results *results ) override;
+
+public:
+	const float *startVelocity;
+	const float *startOrigin;
+
+	bool Exec();
+
+	CanSafelyKeepHighSpeedPredictor()
+		: aasWorld( nullptr ), hasFailed( false ), startVelocity( nullptr ), startOrigin( nullptr ) {
+		SetStepMillis( 200 );
+		SetNumSteps( 4 );
+		SetColliderBounds( playerbox_stand_mins, playerbox_stand_maxs );
+		AddStopEventFlags( HIT_SOLID | HIT_LIQUID );
+	}
+};
+
+class KeepHighSpeedWithoutNavTargetPredictor final: protected CanSafelyKeepHighSpeedPredictor {
+	typedef CanSafelyKeepHighSpeedPredictor Super;
+public:
+	// We do not want users to confuse different subtypes of CanSafelyKeepHighSpeedPredictor
+	// by occasionally assigning to a supertype pointer losing type info
+	// (some fields should be set explicitly for a concrete type and other approaches add way too much clutter)
+	// Thats why a protected inheritance is used, and these fields should be exposed manually.
+	using Super::Exec;
+	using Super::startVelocity;
+	using Super::startOrigin;
+};
+
+static KeepHighSpeedWithoutNavTargetPredictor keepHighSpeedWithoutNavTargetPredictor;
+
+class KeepHighSpeedMovingToNavTargetPredictor final: protected CanSafelyKeepHighSpeedPredictor {
+	typedef CanSafelyKeepHighSpeedPredictor Super;
+	bool OnPredictionStep( const Vec3 &segmentStart, const Results *results ) override;
+public:
+	ArrayRange<int> travelFlags;
+	AiAasRouteCache *routeCache;
+	int navTargetAreaNum;
+	int startTravelTime;
+
+	using Super::Exec;
+	using Super::startVelocity;
+	using Super::startOrigin;
+
+	KeepHighSpeedMovingToNavTargetPredictor()
+		: travelFlags( ArrayRange<int>( nullptr, 0 ) ),
+		  routeCache( nullptr ),
+		  navTargetAreaNum( 0 ),
+		  startTravelTime( 0 ) {}
+};
+
+static KeepHighSpeedMovingToNavTargetPredictor keepHighSpeedMovingToNavTargetPredictor;
+
 bool Bot::TestWhetherCanSafelyKeepHighSpeed( BotMovementPredictionContext *context ) {
-	const auto *aasWorld = AiAasWorld::Instance();
-	const auto *aasAreas = aasWorld->Areas();
+	const int navTargetAreaNum = context ? context->NavTargetAasAreaNum() : self->ai->botRef->NavTargetAasAreaNum();
+	if( !navTargetAreaNum ) {
+		auto *predictor = &::keepHighSpeedWithoutNavTargetPredictor;
+		if( context ) {
+			predictor->startVelocity = context->movementState->entityPhysicsState.Velocity();
+			predictor->startOrigin = context->movementState->entityPhysicsState.Origin();
+		} else {
+			predictor->startVelocity = self->velocity;
+			predictor->startOrigin = self->s.origin;
+		}
+		return predictor->Exec();
+	}
 
 	const AiEntityPhysicsState *entityPhysicsState;
-	int prevAreaNum;
 	int startTravelTime = std::numeric_limits<int>::max();
 	if( context ) {
 		entityPhysicsState = &context->movementState->entityPhysicsState;
-		prevAreaNum = context->CurrGroundedAasAreaNum();
 		startTravelTime = context->TravelTimeToNavTarget();
 	} else {
 		entityPhysicsState = self->ai->botRef->EntityPhysicsState();
-		prevAreaNum = entityPhysicsState->DroppedToFloorAasAreaNum();
 		int startAreaNums[2] = { 0, 0 };
 		int numStartAreas = entityPhysicsState->PrepareRoutingStartAreas( startAreaNums );
 		int goalAreaNum = self->ai->botRef->NavTargetAasAreaNum();
@@ -134,69 +199,91 @@ bool Bot::TestWhetherCanSafelyKeepHighSpeed( BotMovementPredictionContext *conte
 		}
 	}
 
-	const float offset = 20.0f + 48.0f * BoundedFraction( entityPhysicsState->HeightOverGround(), 32 );
-	if( prevAreaNum && IsInsideHugeArea( entityPhysicsState->Origin(), aasAreas[prevAreaNum], offset ) ) {
+	auto *predictor = &::keepHighSpeedMovingToNavTargetPredictor;
+	predictor->startVelocity = entityPhysicsState->Velocity();
+	predictor->startOrigin = entityPhysicsState->Origin();
+	predictor->navTargetAreaNum = navTargetAreaNum;
+	predictor->startTravelTime = startTravelTime;
+	predictor->travelFlags = self->ai->botRef->TravelFlags();
+	predictor->routeCache = self->ai->botRef->routeCache;
+
+	return predictor->Exec();
+}
+
+bool CanSafelyKeepHighSpeedPredictor::OnPredictionStep( const Vec3 &segmentStart, const Results *results ) {
+	if( results->trace->fraction == 1.0f ) {
 		return true;
 	}
 
-	const int navTargetAreaNum = self->ai->botRef->NavTargetAasAreaNum();
-	int travelTime = 0;
-
-	Vec3 origin( entityPhysicsState->Origin() );
-	Vec3 velocity( entityPhysicsState->Velocity() );
-	Vec3 prevOrigin( origin );
-	float secondsAhead = 0.0f;
-	trace_t trace;
-	for(;; ) {
-		secondsAhead += 0.1f;
-		velocity.Set( entityPhysicsState->Velocity() );
-		velocity.Z() = entityPhysicsState->Velocity()[2] - secondsAhead * level.gravity;
-		origin += secondsAhead * velocity;
-
-		// Try use cheap AAS area bounds tests
-		int areaNum = aasWorld->FindAreaNum( origin );
-		if( areaNum != prevAreaNum && areaNum ) {
-			if( aasWorld->AreaGrounded( areaNum ) ) {
-				if( IsInsideHugeArea( entityPhysicsState->Origin(), aasAreas[areaNum], offset ) ) {
-					return true;
-				}
-			}
-		}
-		prevAreaNum = areaNum;
-
-		StaticWorldTrace( &trace, prevOrigin.Data(), origin.Data(), MASK_SOLID | MASK_WATER, playerbox_stand_mins, playerbox_stand_maxs );
-		if( trace.fraction != 1.0f ) {
-			// No area is found on landing
-			if( !areaNum ) {
-				return false;
-			}
-
-			// Disallow bumping into walls (it can lead to cycling in tight environments)
-			if( !ISWALKABLEPLANE( &trace.plane.normal ) ) {
-				return false;
-			}
-
-			// Check travel time to the nav target if it is present
-			if( navTargetAreaNum ) {
-				for( int flags: self->ai->botRef->TravelFlags() ) {
-					if( ( travelTime = routeCache->TravelTimeToGoalArea( areaNum, navTargetAreaNum, flags ) ) ) {
-						break;
-					}
-				}
-				if( !travelTime || travelTime > startTravelTime + 100 ) {
-					return false;
-				}
-			}
-			return trace.endpos[2] + 8 - playerbox_stand_mins[2] >= entityPhysicsState->Origin()[2];
-		}
-
-		// The ground is still not found
-		if( secondsAhead > 0.5f ) {
-			return false;
-		}
-
-		prevOrigin = origin;
+	// Disallow bumping into walls (it can lead to cycling in tight environments)
+	if( !ISWALKABLEPLANE( &results->trace->plane ) ) {
+		hasFailed = true;
+		return false;
 	}
+
+	// Disallow falling or landing that looks like falling
+	if( results->trace->endpos[2] + 8 - playerbox_stand_mins[2] < startOrigin[2] ) {
+		hasFailed = true;
+	}
+
+	// Interrupt the base prediction
+	return false;
+}
+
+bool CanSafelyKeepHighSpeedPredictor::Exec() {
+	this->aasWorld = AiAasWorld::Instance();
+	this->hasFailed = false;
+
+	AiTrajectoryPredictor::Results predictionResults;
+	auto stopEvents = AiTrajectoryPredictor::Run( startVelocity, startOrigin, &predictionResults );
+	return !( stopEvents & HIT_LIQUID ) && ( stopEvents & INTERRUPTED ) && !hasFailed;
+}
+
+bool KeepHighSpeedMovingToNavTargetPredictor::OnPredictionStep( const Vec3 &segmentStart, const Results *results ) {
+	// Continue the base prediction loop in this case waiting for actually hitting a brush
+	if( Super::OnPredictionStep( segmentStart, results ) ) {
+		return true;
+	}
+
+	// There is no need for further checks in this case
+	if( hasFailed ) {
+		return false;
+	}
+
+	// Find the area num of the trace hit pos
+	int areaNum;
+
+	// Try offsetting hit pos from the hit surface before making FindAreaNum() call
+	// otherwise its very likely to yield a zero area on the first test in FindAreaNum(),
+	// thus leading to repeated BSP traversal attempts in FindAreaNum()
+	Vec3 segmentDir( results->origin );
+	segmentDir -= segmentStart;
+	float squareSegmentLength = segmentDir.SquaredLength();
+	if( squareSegmentLength > 2 * 2 ) {
+		segmentDir *= 1.0f / sqrtf( squareSegmentLength );
+		Vec3 originForAreaNum( results->trace->endpos );
+		originForAreaNum -= segmentDir;
+		areaNum = aasWorld->FindAreaNum( originForAreaNum );
+	} else {
+		areaNum = aasWorld->FindAreaNum( results->trace->endpos );
+	}
+
+	// Don't check whether area num is zero, it should be extremely rare and handled by the router in that case
+
+	int travelTimeAtLanding = std::numeric_limits<int>::max();
+	for( int flags: travelFlags ) {
+		if( int travelTime = routeCache->TravelTimeToGoalArea( areaNum, navTargetAreaNum, flags ) ) {
+			travelTimeAtLanding = travelTime;
+			break;
+		}
+	}
+
+	if( travelTimeAtLanding > startTravelTime ) {
+		hasFailed = true;
+	}
+
+	// Interrupt the prediction
+	return false;
 }
 
 inline bool BotMovementPredictionContext::CanSafelyKeepHighSpeed() {
