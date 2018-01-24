@@ -469,6 +469,9 @@ void AiAasWorld::ComputeExtraAreaData() {
 		TrySetAreaRampFlags( areaNum );
 	}
 
+	// Call after all other flags have been set
+	TrySetAreaSkipCollisionFlags();
+
 	ComputeLogicalAreaClusters();
 	ComputeFace2DProjVertices();
 	ComputeAreasLeafsLists();
@@ -606,6 +609,76 @@ void AiAasWorld::TrySetAreaRampFlags( int areaNum ) {
 				return;
 			}
 		}
+	}
+}
+
+void AiAasWorld::TrySetAreaSkipCollisionFlags() {
+	trace_t trace;
+
+	const float extents[3] = { 32, 16 };
+	int flagsToSet[3] = { AREA_SKIP_COLLISION_48, AREA_SKIP_COLLISION_32, AREA_SKIP_COLLISION_16 };
+	// Leftmost flags also imply all rightmost flags presence
+	for( int i = 0; i < 2; ++i ) {
+		for( int j = i + 1; j < 3; ++j ) {
+			flagsToSet[i] |= flagsToSet[j];
+		}
+	}
+
+	for( int i = 1; i < numareas; ++i ) {
+		int *const areaFlags = &areasettings[i].areaflags;
+		// If it is already known that the area is bounded by a solid wall or is an inclined floor area
+		if( *areaFlags & ( AREA_WALL | AREA_INCLINED_FLOOR ) ) {
+			continue;
+		}
+
+		auto &area = areas[i];
+		for( int j = 0; j < 3; ++j ) {
+			const float extent = extents[j];
+			// Now make a bounding box not lesser than the area bounds or player bounds
+
+			// Set some side extent, except for the bottom side
+			Vec3 mins( -extent, -extent, 0 );
+			Vec3 maxs( +extent, +extent, playerbox_stand_maxs[2] );
+			mins += area.mins;
+			maxs += area.maxs;
+			// Convert bounds to relative
+			maxs -= area.center;
+			mins -= area.center;
+
+			// Ensure that the bounds are not less than playerbox + necessary extent
+			for( int k = 0; k < 2; ++k ) {
+				float maxSideMins = playerbox_stand_mins[k] - extent;
+				if( mins.Data()[k] > maxSideMins ) {
+					mins.Data()[k] = maxSideMins;
+				}
+				float minSideMaxs = playerbox_stand_maxs[k] + extent;
+				if( maxs.Data()[k] < minSideMaxs ) {
+					maxs.Data()[k] = minSideMaxs;
+				}
+			}
+
+			float maxMinsZ = playerbox_stand_mins[2];
+			if( mins.Z() > maxMinsZ ) {
+				mins.Z() = maxMinsZ;
+			}
+
+			float minMaxsZ = playerbox_stand_maxs[2] * 2;
+			if( maxs.Z() < minMaxsZ ) {
+				maxs.Z() = minMaxsZ;
+			}
+
+			// Add an offset from ground if necessary (otherwise a trace is likely to start in solid)
+			if( *areaFlags & AREA_GROUNDED ) {
+				mins.Z() += 1.0f;
+			}
+
+			G_Trace( &trace, area.center, mins.Data(), maxs.Data(), area.center, nullptr, MASK_PLAYERSOLID );
+			if( trace.fraction == 1.0f && !trace.startsolid ) {
+				*areaFlags |= flagsToSet[j];
+				goto nextArea;
+			}
+		}
+nextArea:;
 	}
 }
 
