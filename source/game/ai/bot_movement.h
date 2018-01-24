@@ -664,6 +664,9 @@ public:
 	static const float sideDirXYFractions[8][2];
 
 private:
+	// Precache this reference as it is used on every prediction step
+	const aas_areasettings_t *aasAreaSettings;
+
 	TraceResult results[16];
 	unsigned resultsMask;
 	bool didAreaTest;
@@ -761,6 +764,7 @@ public:
 	inline BotEnvironmentTraceCache() {
 		// Shut an analyzer up
 		memset( this, 0, sizeof( BotEnvironmentTraceCache ) );
+		this->aasAreaSettings = AiAasWorld::Instance()->AreaSettings();
 	}
 
 	void TestForResultsMask( class BotMovementPredictionContext *context, unsigned requiredResultsMask );

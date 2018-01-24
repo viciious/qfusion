@@ -7767,22 +7767,38 @@ void BotEnvironmentTraceCache::TestForResultsMask( BotMovementPredictionContext 
 }
 
 bool BotEnvironmentTraceCache::CanSkipPMoveCollision( BotMovementPredictionContext *context ) {
+	const auto &entityPhysicsState = context->movementState->entityPhysicsState;
+	// We might still need to check steps even if there is no full height obstacles around.
+	if( entityPhysicsState.GroundEntity() ) {
+		return false;
+	}
+
+	// If the bot does not move upwards
+	if( entityPhysicsState.HeightOverGround() <= 12.0f && entityPhysicsState.Velocity()[2] <= 10 ) {
+		return false;
+	}
+
+	const float expectedShift = entityPhysicsState.Speed() * context->predictionStepMillis * 0.001f;
+	const int areaFlags = aasAreaSettings[entityPhysicsState.CurrAasAreaNum()].areaflags;
+	// All greater shift flags imply this (and other lesser ones flags) flag being set too
+	if( areaFlags & AREA_SKIP_COLLISION_16 ) {
+		const float precomputedShifts[3] = { 16.0f, 32.0f, 48.0f };
+		const int flagsForShifts[3] = { AREA_SKIP_COLLISION_16, AREA_SKIP_COLLISION_32, AREA_SKIP_COLLISION_48 };
+		// Start from the minimal shift
+		for( int i = 0; i < 3; ++i ) {
+			if( ( expectedShift < precomputedShifts[i] ) && ( areaFlags & flagsForShifts[i] ) ) {
+				return true;
+			}
+		}
+	}
+
 	// Do not force computations in this case.
 	// Otherwise there is no speedup shown according to testing results.
 	if( !this->didAreaTest ) {
 		return false;
 	}
 
-	const auto &entityPhysicsState = context->movementState->entityPhysicsState;
-	// We might still need to check steps even if there is no full height obstacles around.
-	if( entityPhysicsState.GroundEntity() ) {
-		return false;
-	}
-	// If the bot is likely to land on this step
-	if( entityPhysicsState.HeightOverGround() <= 8.0f && entityPhysicsState.Velocity()[2] < 0 ) {
-		return false;
-	}
-
+	// Return the already computed result
 	return this->hasNoFullHeightObstaclesAround;
 }
 
