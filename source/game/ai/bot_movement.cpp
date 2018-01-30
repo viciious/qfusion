@@ -2903,11 +2903,22 @@ BotMovementFallback *BotDummyMovementAction::TryFindMovementFallback( BotMovemen
 		return fallback;
 	}
 
+	if( auto *fallback = TryFindJumpAdvancingToTargetFallback( context ) ) {
+		return fallback;
+	}
+
 	return nullptr;
 }
 
 BotMovementFallback *BotDummyMovementAction::TryNodeBasedFallbacksLeft( BotMovementPredictionContext *context ) {
 	const auto &entityPhysicsState = context->movementState->entityPhysicsState;
+
+	const unsigned millisInBlockedState = self->ai->botRef->MillisInBlockedState();
+	// This is a very conservative condition that however should prevent looping these node-based fallbacks are prone to.
+	// Prefer jumping fallbacks that are almost seamless to the bunnying movement.
+	if( millisInBlockedState < 2500 ) {
+		return nullptr;
+	}
 
 	// Try using the nav target as a fallback movement target
 	Assert( context->NavTargetAasAreaNum() );
@@ -2922,7 +2933,7 @@ BotMovementFallback *BotDummyMovementAction::TryNodeBasedFallbacksLeft( BotMovem
 		}
 	}
 
-	if( self->ai->botRef->MillisInBlockedState() > 500 ) {
+	if( millisInBlockedState > 2750 ) {
 		vec3_t areaPoint;
 		int areaNum;
 		if( context->sameFloorClusterAreasCache.GetClosestToTargetPoint( context, areaPoint, &areaNum ) ) {
@@ -2940,7 +2951,7 @@ BotMovementFallback *BotDummyMovementAction::TryNodeBasedFallbacksLeft( BotMovem
 			}
 		}
 
-		if( self->ai->botRef->MillisInBlockedState() > 1000 ) {
+		if( millisInBlockedState > 3000 ) {
 			// Notify the nav target selection code
 			self->ai->botRef->OnMovementToNavTargetBlocked();
 		}
@@ -8177,7 +8188,8 @@ public:
 			this->score = score_;
 		}
 
-		bool operator<( const SpotAndScore &that ) const { return this->score > that.score; }
+		// Do not negate the comparison result as we usually do, since spots are assumed to be stored in a max-heap
+		bool operator<( const SpotAndScore &that ) const { return this->score < that.score; }
 	};
 protected:
 	AiTrajectoryPredictor predictor;
@@ -8214,7 +8226,7 @@ public:
 		predictor.SetColliderBounds( mins, maxs );
 	}
 
-	bool Exec( const vec3_t startOrigin_, vec3_t spotOrigin_ );
+	virtual bool Exec( const vec3_t startOrigin_, vec3_t spotOrigin_ );
 };
 
 // We make it static non-memeber function to avoid lifting SpotAndScore to headers
@@ -8228,6 +8240,12 @@ bool BestJumpableSpotDetector::Exec( const vec3_t startOrigin_, vec3_t spotOrigi
 	// Make sure we can spot missing initialization easily
 	SpotAndScore *spotsBegin = nullptr, *spotsEnd = nullptr;
 	GetCandidateSpots( &spotsBegin, &spotsEnd );
+
+#ifndef PUBLIC_BUILD
+	if( !std::is_heap( spotsBegin, spotsEnd ) ) {
+		AI_FailWith( "BestJumpableSpotsDetector::Exec()", "A given spots range must point to a max-heap\n" );
+	}
+#endif
 
 	while( spotsBegin != spotsEnd ) {
 		// Evict the best candidate from the heap
@@ -8290,17 +8308,56 @@ protected:
 		velocity[2] = jumpZSpeed;
 	}
 
-	BestRegularJumpableSpotDetector(): run2DSpeed( 0 ), jumpZSpeed( 0 ) {}
+	const AiAasWorld *aasWorld;
+	// If set, a travel time to a nav target is used as a criterion instead of distance proximity
+	const AiAasRouteCache *routeCache;
+	int navTargetAreaNum;
+	int startTravelTimeToTarget;
 public:
 	void SetJumpPhysicsProps( float run2DSpeed_, float jumpZSpeed_ ) {
 		this->run2DSpeed = run2DSpeed_;
 		this->jumpZSpeed = jumpZSpeed_;
+	}
+
+	BestRegularJumpableSpotDetector()
+		: run2DSpeed( 0.0f ),
+		  jumpZSpeed( 0.0f ),
+		  aasWorld( nullptr ),
+		  routeCache( nullptr ),
+		  navTargetAreaNum( 0 ),
+		  startTravelTimeToTarget( 0 ) {}
+
+	inline void AddRoutingParams( const AiAasRouteCache *routeCache_, int navTargetAreaNum_, int startTravelTimeToTarget_ ) {
+		this->routeCache = routeCache_;
+		this->navTargetAreaNum = navTargetAreaNum_;
+		this->startTravelTimeToTarget = startTravelTimeToTarget_;
+	}
+
+	bool Exec( const vec3_t startOrigin_, vec3_t spotOrigin_ ) override {
+#ifndef PUBLIC_BUILD
+		if( run2DSpeed <= 0 || jumpZSpeed <= 0 ) {
+			AI_FailWith( "BestRegularJumpableSpotsDetector::Exec()", "Illegal jump physics props (have they been set?)\n" );
+		}
+#endif
+		// Cannot be initialized in constructor called for the global instance
+		this->aasWorld = AiAasWorld::Instance();
+		bool result = BestJumpableSpotDetector::Exec( startOrigin_, spotOrigin_ );
+		run2DSpeed = 0.0f;
+		jumpZSpeed = 0.0f;
+		// Nulliffy supplied references to avoid unintended reusing
+		this->routeCache = nullptr;
+		this->navTargetAreaNum = 0;
+		this->startTravelTimeToTarget = 0;
+		return result;
 	}
 };
 
 class BestAreaCenterJumpableSpotDetector: public BestRegularJumpableSpotDetector {
 	StaticVector<SpotAndScore, 64> spotsHeap;
 	void GetCandidateSpots( SpotAndScore **begin, SpotAndScore **end ) override;
+	inline int GetBoxAreas( int *boxAreaNums, int maxAreaNums );
+	void FillCandidateSpotsUsingRoutingTest( const int *boxAreaNums, int numBoxAreas );
+	void FillCandidateSpotsWithoutRoutingTest( const int *boxAreaNums, int numBoxAreas );
 	inline bool TestAreaSettings( const aas_areasettings_t &areaSettings );
 };
 
@@ -8319,24 +8376,67 @@ inline bool BestAreaCenterJumpableSpotDetector::TestAreaSettings( const aas_area
 	return true;
 }
 
-void BestAreaCenterJumpableSpotDetector::GetCandidateSpots( SpotAndScore **begin, SpotAndScore **end ) {
-	spotsHeap.clear();
-
-	const auto *aasWorld = AiAasWorld::Instance();
-	const auto *aasAreas = aasWorld->Areas();
-	const auto *aasAreaSettings = aasWorld->AreaSettings();
-
-	int boxAreaNums[64];
+int BestAreaCenterJumpableSpotDetector::GetBoxAreas( int *boxAreaNums, int maxAreaNums ) {
 	Vec3 boxMins( -128, -128, -32 );
 	Vec3 boxMaxs( +128, +128, +64 );
 	boxMins += startOrigin;
 	boxMaxs += startOrigin;
+	return aasWorld->BBoxAreas( boxMins, boxMaxs, boxAreaNums, maxAreaNums );
+}
 
+void BestAreaCenterJumpableSpotDetector::GetCandidateSpots( SpotAndScore **begin, SpotAndScore **end ) {
+	spotsHeap.clear();
+
+	int boxAreaNums[64];
+	int numBoxAreas = GetBoxAreas( boxAreaNums, 64 );
+	if( routeCache ) {
+		FillCandidateSpotsUsingRoutingTest( boxAreaNums, numBoxAreas );
+	} else {
+		FillCandidateSpotsWithoutRoutingTest( boxAreaNums, numBoxAreas );
+	}
+
+	std::make_heap( spotsHeap.begin(), spotsHeap.end() );
+
+	*begin = spotsHeap.begin();
+	*end = spotsHeap.end();
+}
+
+void BestAreaCenterJumpableSpotDetector::FillCandidateSpotsUsingRoutingTest( const int *boxAreaNums, int numBoxAreas ) {
+	const auto *aasAreas = aasWorld->Areas();
+	const auto *aasAreaSettings = aasWorld->AreaSettings();
 	const float areaPointZOffset = 1.0f - playerbox_stand_mins[2];
-	const int numBoxAreas = aasWorld->BBoxAreas( boxMins, boxMaxs, boxAreaNums, 64 );
+
 	for( int i = 0; i < numBoxAreas; ++i ) {
 		const int areaNum = boxAreaNums[i];
-		if( !TestAreaSettings( aasAreaSettings[areaNum ] ) ) {
+		if( !TestAreaSettings( aasAreaSettings[areaNum] ) ) {
+			continue;
+		}
+
+		const auto &area = aasAreas[areaNum];
+		Vec3 areaPoint( area.center );
+		areaPoint.Z() = area.mins[2] + areaPointZOffset;
+		if( areaPoint.SquareDistanceTo( startOrigin ) < SQUARE( 64.0f ) ) {
+			continue;
+		}
+		int travelTime = routeCache->PreferredRouteToGoalArea( areaNum, navTargetAreaNum );
+		if( !travelTime || travelTime > startTravelTimeToTarget ) {
+			continue;
+		}
+		// Otherwise no results are produced
+		areaPoint.Z() += playerbox_stand_maxs[2];
+		// Use the negated travel time as a score for the max-heap (closest to target spot gets evicted first)
+		new( spotsHeap.unsafe_grow_back() )SpotAndScore( areaPoint.Data(), -travelTime );
+	}
+}
+
+void BestAreaCenterJumpableSpotDetector::FillCandidateSpotsWithoutRoutingTest( const int *boxAreaNums, int numBoxAreas ) {
+	const auto *aasAreas = aasWorld->Areas();
+	const auto *aasAreaSettings = aasWorld->AreaSettings();
+	const float areaPointZOffset = 1.0f - playerbox_stand_mins[2];
+
+	for( int i = 0; i < numBoxAreas; ++i ) {
+		const int areaNum = boxAreaNums[i];
+		if( !TestAreaSettings( aasAreaSettings[areaNum] ) ) {
 			continue;
 		}
 
@@ -8344,58 +8444,120 @@ void BestAreaCenterJumpableSpotDetector::GetCandidateSpots( SpotAndScore **begin
 		Vec3 areaPoint( area.center );
 		areaPoint.Z() = area.mins[2] + areaPointZOffset;
 		float squareDistance = areaPoint.SquareDistanceTo( startOrigin );
-		// Make sure closest areas come are selected as "greatest" ones in the heap
-		new( spotsHeap.unsafe_grow_back() )SpotAndScore( area.center, -squareDistance );
-		std::push_heap( spotsHeap.begin(), spotsHeap.end() );
+		areaPoint.Z() += playerbox_stand_maxs[2];
+		// Farthest spots should get evicted first
+		new( spotsHeap.unsafe_grow_back() )SpotAndScore( areaPoint.Data(), squareDistance );
 	}
-
-	*begin = spotsHeap.begin();
-	*end = spotsHeap.end();
 }
 
 class BestNavMeshPolyJumpableSpotDetector: public BestRegularJumpableSpotDetector {
 	StaticVector<SpotAndScore, 64> spotsHeap;
+	const AiNavMeshManager *navMeshManager;
+
 	void GetCandidateSpots( SpotAndScore **begin, SpotAndScore **end ) override;
+	inline uint32_t GetStartPolyRef();
+	void FillCandidateSpotsUsingRoutingTest( const uint32_t *polyRefs, int numPolyRefs );
+	void FillCandidateSpotsWithoutRoutingTest( const uint32_t *polyRefs, int numPolyRefs );
 public:
+	BestNavMeshPolyJumpableSpotDetector() : navMeshManager( nullptr ), navMeshQuery( nullptr ) {}
+
+	// Should be set for the query owned by the corresponding client
 	AiNavMeshQuery *navMeshQuery;
+
+	bool Exec( const vec3_t startOrigin_, vec3_t spotOrigin_ ) override {
+		navMeshManager = AiNavMeshManager::Instance();
+		bool result = BestRegularJumpableSpotDetector::Exec( startOrigin_, spotOrigin_ );
+		// Nullify the supplied reference to avoid unintended reusing
+		navMeshQuery = nullptr;
+		return result;
+	}
 };
 
 static BestNavMeshPolyJumpableSpotDetector bestNavMeshPolyJumpableSpotDetector;
 
-void BestNavMeshPolyJumpableSpotDetector::GetCandidateSpots( SpotAndScore **begin, SpotAndScore **end ) {
-	spotsHeap.clear();
-
+uint32_t BestNavMeshPolyJumpableSpotDetector::GetStartPolyRef() {
 	Vec3 polySearchMins( -24, -24, playerbox_stand_mins[2] - 1.0f );
 	Vec3 polySearchMaxs( +24, +24, playerbox_stand_maxs[2] );
 	polySearchMins += startOrigin;
 	polySearchMaxs += startOrigin;
-	uint32_t startPolyRef = navMeshQuery->FindNearestPoly( polySearchMins.Data(), polySearchMaxs.Data() );
+	return navMeshQuery->FindNearestPoly( polySearchMins.Data(), polySearchMaxs.Data() );
+}
+
+void BestNavMeshPolyJumpableSpotDetector::GetCandidateSpots( SpotAndScore **begin, SpotAndScore **end ) {
+	spotsHeap.clear();
+
+	uint32_t startPolyRef = GetStartPolyRef();
 	if( !startPolyRef ) {
 		*begin = spotsHeap.begin();
 		*end = spotsHeap.end();
 		return;
 	}
 
-	const auto *navMeshManager = AiNavMeshManager::Instance();
-
 	uint32_t polyRefs[64];
-	int numPolysInRadius = navMeshQuery->FindPolysInRadius( startPolyRef, 96.0f, polyRefs, 64 );
-
-	for( int i = 0; i < numPolysInRadius; ++i ) {
-		vec3_t targetOrigin;
-		navMeshManager->GetPolyCenter( polyRefs[i], targetOrigin );
-		// Poly center corresponds to the center of the grounded poly.
-		// Add some height above ground
-		targetOrigin[2] += -playerbox_stand_mins[2] + playerbox_stand_maxs[2];
-		float squareDistance = DistanceSquared( targetOrigin, startOrigin );
-		new( spotsHeap.unsafe_grow_back() )SpotAndScore( targetOrigin, -squareDistance );
+	int numPolyRefs = navMeshQuery->FindPolysInRadius( startPolyRef, 96.0f, polyRefs, 64 );
+	if( routeCache ) {
+		FillCandidateSpotsUsingRoutingTest( polyRefs, numPolyRefs );
+	} else {
+		FillCandidateSpotsWithoutRoutingTest( polyRefs, numPolyRefs );
 	}
+
+	std::make_heap( spotsHeap.begin(), spotsHeap.end() );
 
 	*begin = spotsHeap.begin();
 	*end = spotsHeap.end();
 }
 
-BotMovementFallback *BotDummyMovementAction::TryFindJumpFromLavaFallback( BotMovementPredictionContext *context ) {
+void BestNavMeshPolyJumpableSpotDetector::FillCandidateSpotsUsingRoutingTest( const uint32_t *polyRefs, int numPolyRefs ) {
+	vec3_t targetOrigin;
+	for( int i = 0; i < numPolyRefs; ++i ) {
+		navMeshManager->GetPolyCenter( polyRefs[i], targetOrigin );
+		// Poly center corresponds to the center of the grounded poly.
+		// Add some height above ground
+		targetOrigin[2] += -playerbox_stand_mins[2];
+		// Dont try jumping to nearby spots
+		if( DistanceSquared( startOrigin, targetOrigin ) < SQUARE( 48.0f ) ) {
+			continue;
+		}
+		int areaNum = aasWorld->FindAreaNum( targetOrigin );
+		if( !areaNum ) {
+			continue;
+		}
+		int travelTime = routeCache->PreferredRouteToGoalArea( areaNum, navTargetAreaNum );
+		if( !travelTime || travelTime > startTravelTimeToTarget ) {
+			continue;
+		}
+		targetOrigin[2] += playerbox_stand_maxs[2];
+		// Use the negated travel time as a spot score (closest to target spots should get evicted first)
+		new( spotsHeap.unsafe_grow_back() )SpotAndScore( targetOrigin, -travelTime );
+	}
+}
+
+void BestNavMeshPolyJumpableSpotDetector::FillCandidateSpotsWithoutRoutingTest( const uint32_t *polyRefs, int numPolyRefs ) {
+	vec3_t targetOrigin;
+	for( int i = 0; i < numPolyRefs; ++i ) {
+		navMeshManager->GetPolyCenter( polyRefs[i], targetOrigin );
+		// Use greater Z offset in this case
+		targetOrigin[2] += -playerbox_stand_mins[2] + playerbox_stand_maxs[2];
+		// Dont try cutting off by distance in this case since we're likely to be jumping from lava
+		float spotScore = DistanceSquared( startOrigin, targetOrigin );
+		targetOrigin[2] += playerbox_stand_maxs[2];
+		// Farthest spots should get evicted first
+		new( spotsHeap.unsafe_grow_back() )SpotAndScore( targetOrigin, spotScore );
+	}
+}
+
+// Can't be defined in the header due to accesing a Bot field
+BotMovementFallback *BotDummyMovementAction::TryFindJumpAdvancingToTargetFallback( BotMovementPredictionContext *context ) {
+	// Let the bot lose its speed first
+	if( self->ai->botRef->MillisInBlockedState() < 100 ) {
+		return nullptr;
+	}
+
+	return TryFindJumpToSpotFallback( context, true );
+}
+
+BotMovementFallback *BotDummyMovementAction::TryFindJumpToSpotFallback( BotMovementPredictionContext *context,
+																		bool testTravelTime ) {
 	// Cut off these extremely expensive computations
 	if( self != level.think_client_entity ) {
 		return nullptr;
@@ -8404,9 +8566,26 @@ BotMovementFallback *BotDummyMovementAction::TryFindJumpFromLavaFallback( BotMov
 	const auto &entityPhysicsState = context->movementState->entityPhysicsState;
 	auto *const fallback = &self->ai->botRef->jumpToSpotMovementFallback;
 
+	auto *const areaDetector = &::bestAreaCenterJumpableSpotDetector;
+	auto *const polyDetector = &::bestNavMeshPolyJumpableSpotDetector;
+
+	// Prepare auxiliary travel time data
+	if( testTravelTime ) {
+		int navTargetAreaNum = context->NavTargetAasAreaNum();
+		if( !navTargetAreaNum ) {
+			return nullptr;
+		}
+		int startTravelTimeToTarget = context->TravelTimeToNavTarget();
+		if( !startTravelTimeToTarget ) {
+			return nullptr;
+		}
+		areaDetector->AddRoutingParams( self->ai->botRef->routeCache, navTargetAreaNum, startTravelTimeToTarget );
+		polyDetector->AddRoutingParams( self->ai->botRef->routeCache, navTargetAreaNum, startTravelTimeToTarget );
+	}
+
 	vec3_t spotOrigin;
-	::bestAreaCenterJumpableSpotDetector.SetJumpPhysicsProps( context->GetRunSpeed(), context->GetJumpSpeed() );
-	if( ::bestAreaCenterJumpableSpotDetector.Exec( entityPhysicsState.Origin(), spotOrigin ) ) {
+	areaDetector->SetJumpPhysicsProps( context->GetRunSpeed(), context->GetJumpSpeed() );
+	if( areaDetector->Exec( entityPhysicsState.Origin(), spotOrigin ) ) {
 		fallback->Activate( entityPhysicsState.Origin(), spotOrigin );
 		return fallback;
 	}
@@ -8416,9 +8595,9 @@ BotMovementFallback *BotDummyMovementAction::TryFindJumpFromLavaFallback( BotMov
 		self->ai->botRef->navMeshQuery = AiNavMeshManager::Instance()->AllocQuery( self->r.client );
 	}
 
-	::bestNavMeshPolyJumpableSpotDetector.SetJumpPhysicsProps( context->GetRunSpeed(), context->GetJumpSpeed() );
-	::bestNavMeshPolyJumpableSpotDetector.navMeshQuery = self->ai->botRef->navMeshQuery;
-	if( ::bestNavMeshPolyJumpableSpotDetector.Exec( entityPhysicsState.Origin(), spotOrigin ) ) {
+	polyDetector->SetJumpPhysicsProps( context->GetRunSpeed(), context->GetJumpSpeed() );
+	polyDetector->navMeshQuery = self->ai->botRef->navMeshQuery;
+	if( polyDetector->Exec( entityPhysicsState.Origin(), spotOrigin ) ) {
 		fallback->Activate( entityPhysicsState.Origin(), spotOrigin );
 		return fallback;
 	}
@@ -8503,6 +8682,8 @@ void BestConnectedToHubAreasJumpableSpotDetector::GetCandidateSpots( SpotAndScor
 			continue;
 		}
 
+		// Use the distance as a spot score in a max-heap.
+		// Farthest spots should get evicted first
 		new( spotsHeap.unsafe_grow_back() )SpotAndScore( areaPoint.Data(), squareDistance );
 	}
 

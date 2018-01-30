@@ -1434,7 +1434,14 @@ class BotDummyMovementAction : public BotBaseMovementAction
 	BotMovementFallback *TryFindLostNavTargetFallback( BotMovementPredictionContext *context );
 	BotMovementFallback *TryFindNearbyRampAreasFallback( BotMovementPredictionContext *context );
 	BotMovementFallback *TryFindWalkableTriggerFallback( BotMovementPredictionContext *context );
-	BotMovementFallback *TryFindJumpFromLavaFallback( BotMovementPredictionContext *context );
+
+	BotMovementFallback *TryFindJumpFromLavaFallback( BotMovementPredictionContext *context ) {
+		return TryFindJumpToSpotFallback( context, false );
+	}
+
+	BotMovementFallback *TryFindJumpAdvancingToTargetFallback( BotMovementPredictionContext *context );
+
+	BotMovementFallback *TryFindJumpToSpotFallback( BotMovementPredictionContext *context, bool testTravelTime );
 
 	BotMovementFallback *TryNodeBasedFallbacksLeft( BotMovementPredictionContext *context );
 
