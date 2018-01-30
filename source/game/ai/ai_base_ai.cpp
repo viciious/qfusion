@@ -82,11 +82,9 @@ void Ai::UpdateReachChain( const ReachChainVector &oldReachChain,
 
 	int reachNum, travelTime;
 	while( areaNum != goalAreaNum && currReachChain->size() != currReachChain->capacity() ) {
-		if( !routeCache->ReachAndTravelTimeToGoalArea( areaNum, goalAreaNum, travelFlags[0], &reachNum, &travelTime ) ) {
-			// We hope we'll be pushed in some other area during movement, and goal area will become reachable. Leave as is.
-			if( !routeCache->ReachAndTravelTimeToGoalArea( areaNum, goalAreaNum, travelFlags[1], &reachNum, &travelTime ) ) {
-				break;
-			}
+		// We hope we'll be pushed in some other area during movement, and goal area will become reachable. Leave as is.
+		if( !( travelTime = routeCache->PreferredRouteToGoalArea( areaNum, goalAreaNum, &reachNum ) ) ) {
+			break;
 		}
 		areaNum = reachabilities[reachNum].areanum;
 		currReachChain->emplace_back( ReachAndTravelTime( reachNum, (short)travelTime ) );
@@ -124,10 +122,8 @@ int Ai::CheckTravelTimeMillis( const Vec3& from, const Vec3 &to, bool allowUnrea
 		FailWith( "CheckTravelTimeMillis(): Can't find `to` AAS area" );
 	}
 
-	for( int flags: { self->ai->aiRef->PreferredTravelFlags(), self->ai->aiRef->AllowedTravelFlags() } ) {
-		if( int aasTravelTime = routeCache->TravelTimeToGoalArea( fromAreaNum, toAreaNum, flags ) ) {
-			return 10U * aasTravelTime;
-		}
+	if( int aasTravelTime = routeCache->PreferredRouteToGoalArea( fromAreaNum, toAreaNum ) ) {
+		return 10U * aasTravelTime;
 	}
 
 	if( allowUnreachable ) {

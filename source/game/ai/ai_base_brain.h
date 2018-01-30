@@ -447,17 +447,6 @@ protected:
 	// Used to detect attitude change
 	signed char oldAttitude[MAX_EDICTS];
 
-	int CurrAasAreaNum() const { return self->ai->aiRef->entityPhysicsState->CurrAasAreaNum(); };
-	int DroppedToFloorAasAreaNum() const { return self->ai->aiRef->entityPhysicsState->DroppedToFloorAasAreaNum(); }
-	Vec3 DroppedToFloorOrigin() const { return self->ai->aiRef->entityPhysicsState->DroppedToFloorOrigin(); }
-
-	int PreferredAasTravelFlags() const { return self->ai->aiRef->PreferredTravelFlags(); }
-	int AllowedAasTravelFlags() const { return self->ai->aiRef->AllowedTravelFlags(); }
-
-	const AiAasWorld *AasWorld() const { return self->ai->aiRef->aasWorld; }
-	AiAasRouteCache *RouteCache() { return self->ai->aiRef->routeCache; }
-	const AiAasRouteCache *RouteCache() const { return self->ai->aiRef->routeCache; }
-
 	AiBaseBrain( edict_t *self );
 
 	virtual void PrepareCurrWorldState( WorldState *worldState ) = 0;
@@ -489,11 +478,6 @@ protected:
 		this->navTarget = nullptr;
 		self->ai->aiRef->OnNavTargetTouchHandled();
 	}
-
-	int FindAasParamToGoalArea( int goalAreaNum, int ( AiAasRouteCache::*pathFindingMethod )( int, int, int ) const ) const;
-
-	int FindReachabilityToGoalArea( int goalAreaNum ) const;
-	int FindTravelTimeToGoalArea( int goalAreaNum ) const;
 
 	virtual void PreThink() override;
 

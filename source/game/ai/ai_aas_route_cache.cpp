@@ -1,6 +1,7 @@
 #include "ai_aas_route_cache.h"
 #include "static_vector.h"
 #include "ai_local.h"
+#include "bot.h"
 
 #undef min
 #undef max
@@ -30,8 +31,8 @@ void AiAasRouteCache::Shutdown() {
 	}
 }
 
-AiAasRouteCache *AiAasRouteCache::NewInstance() {
-	return new( G_Malloc( sizeof( AiAasRouteCache ) ) )AiAasRouteCache( Shared() );
+AiAasRouteCache *AiAasRouteCache::NewInstance( const int *travelFlags_ ) {
+	return new( G_Malloc( sizeof( AiAasRouteCache ) ) )AiAasRouteCache( Shared(), travelFlags_ );
 }
 
 void AiAasRouteCache::ReleaseInstance( AiAasRouteCache *instance ) {
@@ -43,8 +44,10 @@ void AiAasRouteCache::ReleaseInstance( AiAasRouteCache *instance ) {
 	G_Free( instance );
 }
 
+static const int DEFAULT_TRAVEL_FLAGS[] = { Bot::PREFERRED_TRAVEL_FLAGS, Bot::ALLOWED_TRAVEL_FLAGS };
+
 AiAasRouteCache::AiAasRouteCache( const AiAasWorld &aasWorld_ )
-	: aasWorld( aasWorld_ ), loaded( false ) {
+	: travelFlags( DEFAULT_TRAVEL_FLAGS ), aasWorld( aasWorld_ ), loaded( false ) {
 	InitDisabledAreasStatusAndHelpers();
 	//
 	InitTravelFlagFromType();
@@ -68,7 +71,7 @@ AiAasRouteCache::AiAasRouteCache( const AiAasWorld &aasWorld_ )
 }
 
 AiAasRouteCache::AiAasRouteCache( AiAasRouteCache &&that )
-	: aasWorld( that.aasWorld ), loaded( true ) {
+	: travelFlags( that.travelFlags ), aasWorld( that.aasWorld ), loaded( true ) {
 	currDisabledAreaNums = that.currDisabledAreaNums;
 	cleanCacheAreaNums = that.cleanCacheAreaNums;
 	areasDisabledStatus = that.areasDisabledStatus;
@@ -100,8 +103,8 @@ AiAasRouteCache::AiAasRouteCache( AiAasRouteCache &&that )
 	that.loaded = false;
 }
 
-AiAasRouteCache::AiAasRouteCache( AiAasRouteCache *parent )
-	: aasWorld( parent->aasWorld ), loaded( true ) {
+AiAasRouteCache::AiAasRouteCache( AiAasRouteCache *parent, const int *newTravelFlags )
+	: travelFlags( newTravelFlags ), aasWorld( parent->aasWorld ), loaded( true ) {
 	InitDisabledAreasStatusAndHelpers();
 
 	memcpy( travelflagfortype, parent->travelflagfortype, sizeof( travelflagfortype ) );
@@ -1469,6 +1472,79 @@ AiAasRouteCache::aas_routingcache_t *AiAasRouteCache::GetPortalRoutingCache( int
 	cache->type = CACHETYPE_PORTAL;
 	LinkCache( cache );
 	return cache;
+}
+
+int AiAasRouteCache::PreferredRouteToGoalArea( int fromAreaNum, int toAreaNum, int *reachNum ) const {
+	for( int i = 0; i < 2; ++i ) {
+		RoutingResult routingResult;
+		if( RoutingResultToGoalArea( fromAreaNum, toAreaNum, travelFlags[i], &routingResult ) ) {
+			*reachNum = routingResult.reachnum;
+			return routingResult.traveltime;
+		}
+	}
+
+	return 0;
+}
+
+int AiAasRouteCache::PreferredRouteToGoalArea( const int *fromAreaNums, int numFromAreas, int toAreaNum, int *reachNum ) const {
+	for( int i = 0; i < 2; ++i ) {
+		for( int j = 0; j < numFromAreas; ++j ) {
+			RoutingResult routingResult;
+			if( RoutingResultToGoalArea( fromAreaNums[j], toAreaNum, travelFlags[i], &routingResult ) ) {
+				*reachNum = routingResult.reachnum;
+				return routingResult.traveltime;
+			}
+		}
+	}
+
+	return 0;
+}
+
+int AiAasRouteCache::FastestRouteToGoalArea( int fromAreaNum, int toAreaNum, int *reachNum ) const {
+	int bestTravelTime = std::numeric_limits<int>::max();
+	int bestReachNum = 0;
+
+	for( int i = 0; i < 2; ++i ) {
+		RoutingResult routingResult;
+		if( RoutingResultToGoalArea( fromAreaNum, toAreaNum, travelFlags[i], &routingResult ) ) {
+			if( bestTravelTime > routingResult.traveltime ) {
+				bestTravelTime = routingResult.traveltime;
+				bestReachNum = routingResult.reachnum;
+			}
+		}
+	}
+
+	if( bestTravelTime == std::numeric_limits<int>::max() ) {
+		return 0;
+	}
+
+	*reachNum = bestReachNum;
+	return bestTravelTime;
+}
+
+int AiAasRouteCache::FastestRouteToGoalArea( const int *fromAreaNums, int numFromAreas,
+											 int toAreaNum, int *reachNum ) const {
+	int bestTravelTime = std::numeric_limits<int>::max();
+	int bestReachNum = 0;
+
+	for( int i = 0; i < 2; ++i ) {
+		for( int j = 0; j < numFromAreas; ++j ) {
+			RoutingResult routingResult;
+			if( RoutingResultToGoalArea( fromAreaNums[j], toAreaNum, travelFlags[i], &routingResult ) ) {
+				if( bestTravelTime > routingResult.traveltime ) {
+					bestTravelTime = routingResult.traveltime;
+					bestReachNum = routingResult.reachnum;
+				}
+			}
+		}
+	}
+
+	if( bestTravelTime == std::numeric_limits<int>::max() ) {
+		return 0;
+	}
+
+	*reachNum = bestReachNum;
+	return bestTravelTime;
 }
 
 bool AiAasRouteCache::RoutingResultToGoalArea( int fromAreaNum, int toAreaNum,

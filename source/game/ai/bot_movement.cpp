@@ -144,7 +144,6 @@ class KeepHighSpeedMovingToNavTargetPredictor final: protected CanSafelyKeepHigh
 	typedef CanSafelyKeepHighSpeedPredictor Super;
 	bool OnPredictionStep( const Vec3 &segmentStart, const Results *results ) override;
 public:
-	ArrayRange<int> travelFlags;
 	AiAasRouteCache *routeCache;
 	int navTargetAreaNum;
 	int startTravelTime;
@@ -154,8 +153,7 @@ public:
 	using Super::startOrigin;
 
 	KeepHighSpeedMovingToNavTargetPredictor()
-		: travelFlags( ArrayRange<int>( nullptr, 0 ) ),
-		  routeCache( nullptr ),
+		: routeCache( nullptr ),
 		  navTargetAreaNum( 0 ),
 		  startTravelTime( 0 ) {}
 };
@@ -186,15 +184,7 @@ bool Bot::TestWhetherCanSafelyKeepHighSpeed( BotMovementPredictionContext *conte
 		int startAreaNums[2] = { 0, 0 };
 		int numStartAreas = entityPhysicsState->PrepareRoutingStartAreas( startAreaNums );
 		int goalAreaNum = self->ai->botRef->NavTargetAasAreaNum();
-		for( int i = 0; i < numStartAreas; ++i ) {
-			for( int travelFlags: self->ai->botRef->TravelFlags() ) {
-				if( int travelTime = routeCache->TravelTimeToGoalArea( startAreaNums[i], goalAreaNum, travelFlags ) ) {
-					startTravelTime = travelTime;
-					break;
-				}
-			}
-		}
-		if( startTravelTime == std::numeric_limits<int>::max() ) {
+		if( !( startTravelTime = routeCache->PreferredRouteToGoalArea( startAreaNums, numStartAreas, goalAreaNum ) ) ) {
 			return false;
 		}
 	}
@@ -204,7 +194,6 @@ bool Bot::TestWhetherCanSafelyKeepHighSpeed( BotMovementPredictionContext *conte
 	predictor->startOrigin = entityPhysicsState->Origin();
 	predictor->navTargetAreaNum = navTargetAreaNum;
 	predictor->startTravelTime = startTravelTime;
-	predictor->travelFlags = self->ai->botRef->TravelFlags();
 	predictor->routeCache = self->ai->botRef->routeCache;
 
 	return predictor->Exec();
@@ -270,15 +259,8 @@ bool KeepHighSpeedMovingToNavTargetPredictor::OnPredictionStep( const Vec3 &segm
 
 	// Don't check whether area num is zero, it should be extremely rare and handled by the router in that case
 
-	int travelTimeAtLanding = std::numeric_limits<int>::max();
-	for( int flags: travelFlags ) {
-		if( int travelTime = routeCache->TravelTimeToGoalArea( areaNum, navTargetAreaNum, flags ) ) {
-			travelTimeAtLanding = travelTime;
-			break;
-		}
-	}
-
-	if( travelTimeAtLanding > startTravelTime ) {
+	int travelTimeAtLanding = routeCache->PreferredRouteToGoalArea( areaNum, navTargetAreaNum );
+	if( !travelTimeAtLanding || travelTimeAtLanding > startTravelTime ) {
 		hasFailed = true;
 	}
 
@@ -308,21 +290,12 @@ void BotMovementPredictionContext::NextReachNumAndTravelTimeToNavTarget( int *re
 		return;
 	}
 
-	const auto &entityPhysicsState = movementState->entityPhysicsState;
-	const auto &routeCache = self->ai->botRef->routeCache;
+	const auto *routeCache = self->ai->botRef->routeCache;
 
 	int fromAreaNums[2];
-	int numFromAreas = entityPhysicsState.PrepareRoutingStartAreas( fromAreaNums );
-	for( int i = 0; i < numFromAreas; ++i ) {
-		for( int travelFlags: self->ai->botRef->TravelFlags() ) {
-			int routeReachNum, routeTravelTime;
-			if( routeCache->ReachAndTravelTimeToGoalArea( fromAreaNums[i], navTargetAreaNum, travelFlags,
-														  &routeReachNum, &routeTravelTime ) ) {
-				*reachNum = routeReachNum;
-				*travelTimeToNavTarget = routeTravelTime;
-				return;
-			}
-		}
+	int numFromAreas = movementState->entityPhysicsState.PrepareRoutingStartAreas( fromAreaNums );
+	if( int travelTime = routeCache->PreferredRouteToGoalArea( fromAreaNums, numFromAreas, navTargetAreaNum, reachNum ) ) {
+		*travelTimeToNavTarget = travelTime;
 	}
 }
 
@@ -2422,15 +2395,8 @@ void BotSameFloorClusterAreasCache::BuildCandidateAreasHeap( BotMovementPredicti
 			continue;
 		}
 
-		int bestCurrTime = std::numeric_limits<int>::max();
-		for( int travelFlags: self->ai->botRef->TravelFlags() ) {
-			int travelTime = routeCache->TravelTimeToGoalArea( areaNum, toAreaNum, travelFlags );
-			if( travelTime && travelTime < bestCurrTime ) {
-				bestCurrTime = travelTime;
-			}
-		}
-
-		if( bestCurrTime >= currTravelTimeToTarget ) {
+		int bestCurrTime = routeCache->FastestRouteToGoalArea( areaNum, toAreaNum );
+		if( !bestCurrTime || bestCurrTime >= currTravelTimeToTarget ) {
 			continue;
 		}
 
@@ -3306,13 +3272,8 @@ BotMovementFallback *BotDummyMovementAction::TryFindJumpLikeReachFallback( BotMo
 	const auto *routeCache = self->ai->botRef->routeCache;
 	int navTargetAreaNum = context->NavTargetAasAreaNum();
 	// Note: we don't stop on the first feasible travel time here and below
-	int travelTimeFromReachArea = std::numeric_limits<int>::max();
-	for( int flags: self->ai->botRef->TravelFlags() ) {
-		if( int travelTime = routeCache->TravelTimeToGoalArea( nextReach.areanum, navTargetAreaNum, flags ) ) {
-			travelTimeFromReachArea = std::min( travelTime, travelTimeFromReachArea );
-		}
-	}
-	if( travelTimeFromReachArea == std::numeric_limits<int>::max() ) {
+	int travelTimeFromReachArea = routeCache->FastestRouteToGoalArea( nextReach.areanum, navTargetAreaNum );
+	if( !travelTimeFromReachArea ) {
 		return nullptr;
 	}
 
@@ -3356,17 +3317,12 @@ BotMovementFallback *BotDummyMovementAction::TryFindJumpLikeReachFallback( BotMo
 		}
 
 		const int landingArea = predictionResults.lastAreaNum;
-		int travelTimeFromLandingArea = std::numeric_limits<int>::max();
-		for( int flags: self->ai->botRef->TravelFlags() ) {
-			if( int travelTime = routeCache->TravelTimeToGoalArea( landingArea, navTargetAreaNum, flags ) ) {
-				travelTimeFromLandingArea = std::min( travelTime, travelTimeFromLandingArea );
-			}
-		}
+		int travelTimeFromLandingArea = routeCache->FastestRouteToGoalArea( landingArea, navTargetAreaNum );
 
 		// Note: thats why we are using best travel time among allowed and preferred travel flags
 		// (there is a suspicion that many feasible areas might be cut off by the following test otherwise).
 		// If the travel time is significantly worse than travel time from reach area
-		if( travelTimeFromLandingArea - 20 > travelTimeFromReachArea ) {
+		if( !travelTimeFromLandingArea || travelTimeFromLandingArea - 20 > travelTimeFromReachArea ) {
 			continue;
 		}
 
@@ -3941,14 +3897,7 @@ const edict_t *BotDummyMovementAction::FindClosestToTargetTrigger( const Closest
 
 		// Find a travel time from trigger for regular bot movement
 
-		int travelTimeFromTrigger = 0;
-		for( int travelFlags: self->ai->botRef->TravelFlags() ) {
-			travelTimeFromTrigger = routeCache->TravelTimeToGoalArea( entAreaNum, toAreaNum, travelFlags );
-			if( travelTimeFromTrigger ) {
-				break;
-			}
-		}
-
+		const int travelTimeFromTrigger = routeCache->FastestRouteToGoalArea( entAreaNum, toAreaNum );
 		if( !travelTimeFromTrigger || travelTimeFromTrigger >= bestTravelTimeFromTrigger ) {
 			continue;
 		}
@@ -4559,13 +4508,7 @@ float BotLandOnSavedAreasMovementAction::SaveJumppadLandingAreas( const edict_t 
 	const auto *routeCache = self->ai->botRef->routeCache;
 	if( int navTargetAreaNum = self->ai->botRef->botBrain.NavTargetAasAreaNum() ) {
 		int reachNum = 0;
-		for( int travelFlags: self->ai->botRef->TravelFlags() ) {
-			if( ( reachNum = routeCache->ReachabilityToGoalArea( jumppadAreaNum, navTargetAreaNum, travelFlags ) ) ) {
-				break;
-			}
-		}
-
-		if( reachNum ) {
+		if( routeCache->PreferredRouteToGoalArea( jumppadAreaNum, navTargetAreaNum, &reachNum ) ) {
 			int jumppadTargetAreaNum = aasWorld->Reachabilities()[reachNum].areanum;
 			return SaveLandingAreasForJumppadTargetArea( jumppadEntity, navTargetAreaNum, jumppadTargetAreaNum );
 		}
@@ -4629,12 +4572,7 @@ float BotLandOnSavedAreasMovementAction::SaveLandingAreasForJumppadTargetArea( c
 	int bboxAreas[48];
 	const int numBBoxAreas = aasWorld->BBoxAreas( mins, maxs, bboxAreas, 48 );
 
-	int baseTravelTime = 0;
-	for( int travelFlags: self->ai->botRef->TravelFlags() ) {
-		if( ( baseTravelTime = routeCache->TravelTimeToGoalArea( jumppadTargetAreaNum, navTargetAreaNum, travelFlags ) ) ) {
-			break;
-		}
-	}
+	const int baseTravelTime = routeCache->PreferredRouteToGoalArea( jumppadTargetAreaNum, navTargetAreaNum );
 	// If the target is for some reasons unreachable or the jumppad target area is the nav target area too
 	if( baseTravelTime <= 1 ) {
 		// Return some default values in hope they are useful
@@ -4672,12 +4610,7 @@ float BotLandOnSavedAreasMovementAction::SaveLandingAreasForJumppadTargetArea( c
 			continue;
 		}
 
-		int travelTime = 0;
-		for( int travelFlags: self->ai->botRef->TravelFlags() ) {
-			if( ( travelTime = routeCache->TravelTimeToGoalArea( areaNum, navTargetAreaNum, travelFlags ) ) ) {
-				break;
-			}
-		}
+		const int travelTime = routeCache->PreferredRouteToGoalArea( areaNum, navTargetAreaNum );
 		// If the nav target is not reachable from the box area or
 		// it leads to a greater travel time than the jumppad target area
 		if( !travelTime || travelTime >= baseTravelTime ) {
@@ -6906,9 +6839,8 @@ void BotGenericRunBunnyingMovementAction::CheckPredictionStepResults( BotMovemen
 		return;
 	}
 
-	int travelFlags = self->ai->botRef->AllowedTravelFlags();
 	const auto *routeCache = self->ai->botRef->routeCache;
-	int travelTime = routeCache->TravelTimeToGoalArea( groundAreaNum, context->NavTargetAasAreaNum(), travelFlags );
+	int travelTime = routeCache->PreferredRouteToGoalArea( groundAreaNum, context->NavTargetAasAreaNum() );
 	if( travelTime && travelTime < currTravelTimeToNavTarget ) {
 		Debug( "The bot is not very high above the ground and looks like it lands in a \"good\" area\n" );
 		context->isCompleted = true;

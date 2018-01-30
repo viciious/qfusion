@@ -640,33 +640,6 @@ void AiBaseBrain::DeletePlan( AiBaseActionRecord *head ) {
 	}
 }
 
-int AiBaseBrain::FindAasParamToGoalArea( int goalAreaNum, int ( AiAasRouteCache::*pathFindingMethod )( int, int, int ) const ) const {
-	const AiAasRouteCache *routeCache = RouteCache();
-
-	const int fromAreaNums[2] = { DroppedToFloorAasAreaNum(), CurrAasAreaNum() };
-	// Avoid testing same from areas twice
-	const int numFromAreas = fromAreaNums[0] != fromAreaNums[1] ? 2 : 1;
-	const int travelFlags[2] = { PreferredAasTravelFlags(), AllowedAasTravelFlags() };
-
-	for( int flags: travelFlags ) {
-		for( int i = 0; i < numFromAreas; ++i ) {
-			if( int aasParam = ( routeCache->*pathFindingMethod )( fromAreaNums[i], goalAreaNum, flags ) ) {
-				return aasParam;
-			}
-		}
-	}
-
-	return 0;
-}
-
-int AiBaseBrain::FindReachabilityToGoalArea( int goalAreaNum ) const {
-	return FindAasParamToGoalArea( goalAreaNum, &AiAasRouteCache::ReachabilityToGoalArea );
-}
-
-int AiBaseBrain::FindTravelTimeToGoalArea( int goalAreaNum ) const {
-	return FindAasParamToGoalArea( goalAreaNum, &AiAasRouteCache::TravelTimeToGoalArea );
-}
-
 bool AiBaseBrain::MayNotBeFeasibleEnemy( const edict_t *ent ) const {
 	if( !ent->r.inuse ) {
 		return true;

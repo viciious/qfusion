@@ -43,6 +43,11 @@
 
 class AiAasRouteCache
 {
+	const int *const travelFlags;
+	// Used to provide a dummy writable address for several routing calls
+	// where we do not want to add extra branching for every call if an out parameter is unused.
+	mutable int dummyIntPtr[1];
+
 	static constexpr int CACHETYPE_PORTAL = 0;
 	static constexpr int CACHETYPE_AREA = 1;
 
@@ -341,7 +346,7 @@ public:
 	// Should be used only for shared route cache initialization
 	AiAasRouteCache( const AiAasWorld &aasWorld_ );
 	// Should be used for creation of new instances based on shared one
-	AiAasRouteCache( AiAasRouteCache *parent );
+	AiAasRouteCache( AiAasRouteCache *parent, const int *newTravelFlags );
 
 	static AiAasRouteCache *shared;
 
@@ -352,7 +357,7 @@ public:
 	static void Shutdown();
 
 	static AiAasRouteCache *Shared() { return shared; }
-	static AiAasRouteCache *NewInstance();
+	static AiAasRouteCache *NewInstance( const int *travelFlags_ );
 	static void ReleaseInstance( AiAasRouteCache *instance );
 
 	// A helper for emplace_back() calls on instances of this class
@@ -375,15 +380,36 @@ public:
 		return 0;
 	}
 
-	inline bool ReachAndTravelTimeToGoalArea( int fromAreaNum, int toAreaNum, int travelFlags,
-											  int *reachNum, int *travelTime ) const {
-		RoutingResult result;
-		if( RoutingResultToGoalArea( fromAreaNum, toAreaNum, travelFlags, &result ) ) {
-			*reachNum = result.reachnum;
-			*travelTime = result.traveltime;
-			return true;
-		}
-		return false;
+	// Finds a reachability/travel time to goal area testing preferred and allowed travel flags for the owner
+	// starting from preferred travel flags for the owner and stopping at first feasible result.
+	// Returns non-zero travel time on success and a reachability via the out parameter.
+	int PreferredRouteToGoalArea( int fromAreaNum, int toAreaNum, int *reachNum ) const;
+	// Tests all specified area nums for each flag before moving to the next one.
+	int PreferredRouteToGoalArea( const int *fromAreaNums, int numFromAreas, int toAreaNum, int *reachNum ) const;
+
+	// Finds a reachability/travel time to goal area testing preferred and allowed travel flags for the owner
+	// starting from preferred travel flags for the owner and choosing a best result.
+	// Returns non-zero travel time on success and a reachability via the out parameter.
+	int FastestRouteToGoalArea( int fromAreaNum, int toAreaNum, int *reachNum ) const;
+	// Returns best results for each combination of from area / travel flags.
+	int FastestRouteToGoalArea( const int *fromAreaNums, int numFromAreas, int toAreaNum, int *reachNum ) const;
+
+	// It's better to add separate prototypes than set out pointers to null by default and use branching on every call.
+	// We could also set these parameters to an address of some static variable, but it could lead to extra cache misses
+	// since all these variables are likely to be scattered in memory.
+	// The underlying calls read flags pointer that is very likely on the same cache line the dummyIntPtr is.
+
+	inline int PreferredRouteToGoalArea( int fromAreaNum, int toAreaNum ) const {
+		return PreferredRouteToGoalArea( fromAreaNum, toAreaNum, dummyIntPtr );
+	}
+	inline int PreferredRouteToGoalArea( const int *fromAreaNums, int numFromAreas, int toAreaNum ) const {
+		return PreferredRouteToGoalArea( fromAreaNums, numFromAreas, toAreaNum, dummyIntPtr );
+	}
+	inline int FastestRouteToGoalArea( int fromAreaNum, int toAreaNum ) const {
+		return FastestRouteToGoalArea( fromAreaNum, toAreaNum, dummyIntPtr );
+	}
+	inline int FastestRouteToGoalArea( const int *fromAreaNums, int numFromAreas, int toAreaNum ) const {
+		return FastestRouteToGoalArea( fromAreaNums, numFromAreas, toAreaNum, dummyIntPtr );
 	}
 
 	inline bool AreaDisabled( int areaNum ) const {

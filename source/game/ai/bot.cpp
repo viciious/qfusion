@@ -11,7 +11,8 @@
 #endif
 
 Bot::Bot( edict_t *self_, float skillLevel_ )
-	: Ai( self_, &botBrain, AiAasRouteCache::NewInstance(), &movementState.entityPhysicsState, PREFERRED_TRAVEL_FLAGS, ALLOWED_TRAVEL_FLAGS ),
+	: Ai( self_, &botBrain, AiAasRouteCache::NewInstance( &travelFlags[0] ),
+		  &movementState.entityPhysicsState, PREFERRED_TRAVEL_FLAGS, ALLOWED_TRAVEL_FLAGS ),
 	weightConfig( self_ ),
 	perceptionManager( self_ ),
 	botBrain( this, skillLevel_ ),
