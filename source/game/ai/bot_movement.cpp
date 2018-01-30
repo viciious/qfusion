@@ -8072,18 +8072,25 @@ void BotJumpToSpotMovementFallback::SetupMovement( BotMovementPredictionContext 
 	toTargetDir *= -1.0f;
 	toTargetDir.Normalize();
 
+	int forwardMovement = 1;
+	float viewDot = toTargetDir.Dot( entityPhysicsState.ForwardDir() );
+	if( viewDot < 0 ) {
+		toTargetDir *= -1.0f;
+		forwardMovement = -1;
+	}
+
 	botInput->SetIntendedLookDir( toTargetDir, true );
 
 	// Note: we do not check only 2D dot product but the dot product in all dimensions intentionally
 	// (a bot often has to look exactly at the spot that might be above).
 	// Setting exact view angles is important
-	if( toTargetDir.Dot( entityPhysicsState.ForwardDir() ) < 0.99f ) {
+	if( fabsf( viewDot ) < 0.99f ) {
 		// This huge value is important, otherwise bot falls down in some cases
 		botInput->SetTurnSpeedMultiplier( 15.0f );
 		return;
 	}
 
-	botInput->SetForwardMovement( 1 );
+	botInput->SetForwardMovement( forwardMovement );
 
 	if( !entityPhysicsState.GroundEntity() ) {
 		if( !hasAppliedJumpBoost ) {
@@ -8109,11 +8116,15 @@ void BotJumpToSpotMovementFallback::SetupMovement( BotMovementPredictionContext 
 		if( accelFrac > 0 ) {
 			clamp_high( accelFrac, 1.0f );
 			context->CheatingAccelerate( accelFrac );
-			// Don't press forward when using cheating acceleration
-			botInput->SetForwardMovement( 0 );
 		}
 
 		if( allowCorrection && entityPhysicsState.Speed2D() > 100 ) {
+			// If the movement has been inverted
+			if( forwardMovement < 0 ) {
+				// Restore the real to target dir that has been inverted
+				toTargetDir *= -1.0f;
+			}
+
 			// Check whether a correction should be really applied
 			// Otherwise it looks weird (a bot starts fly ghosting near the target like having a jetpack).
 			Vec3 toTargetDir2D( targetOrigin );
@@ -8140,16 +8151,25 @@ void BotJumpToSpotMovementFallback::SetupMovement( BotMovementPredictionContext 
 	if( entityPhysicsState.Speed2D() < context->GetRunSpeed() - 30 ) {
 		// First, utilize the obstacles cache used in prediction
 		auto *traceCache = &context->EnvironmentTraceCache();
-		traceCache->TestForResultsMask( context, traceCache->FullHeightMask( BotEnvironmentTraceCache::FRONT ) );
-		// Try jumping over an obstacle
-		if( !traceCache->FullHeightFrontTrace().IsEmpty() ) {
+		bool shouldJumpOverObstacle;
+		if( forwardMovement > 0 ) {
+			traceCache->TestForResultsMask( context, traceCache->FullHeightMask( BotEnvironmentTraceCache::FRONT ) );
+			shouldJumpOverObstacle = !traceCache->FullHeightFrontTrace().IsEmpty();
+		} else {
+			traceCache->TestForResultsMask( context, traceCache->FullHeightMask( BotEnvironmentTraceCache::BACK ) );
+			shouldJumpOverObstacle = !traceCache->FullHeightBackTrace().IsEmpty();
+		}
+		if( shouldJumpOverObstacle ) {
 			botInput->SetUpMovement( 1 );
+			// Setting it is important too (helps if skimming gets triggered)
+			botInput->SetForwardMovement( forwardMovement );
 			return;
 		}
 
 		// Check whether there is a gap in front of the bot
 		trace_t trace;
 		Vec3 traceStart( entityPhysicsState.ForwardDir() );
+		traceStart *= forwardMovement;
 		traceStart *= 24.0f;
 		traceStart += entityPhysicsState.Origin();
 		Vec3 traceEnd( traceStart );
