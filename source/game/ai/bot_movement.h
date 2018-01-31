@@ -1651,6 +1651,7 @@ class BotJumpToSpotMovementFallback: public BotMovementFallback {
 protected:
 	vec3_t targetOrigin;
 	vec3_t startOrigin;
+	unsigned timeout;
 	float reachRadius;
 	float startAirAccelFrac;
 	float endAirAccelFrac;
@@ -1665,6 +1666,7 @@ public:
 
 	BotJumpToSpotMovementFallback( const edict_t *self_ )
 		: BotMovementFallback( self_, COLOR_RGB( 255, 0, 128 ) ),
+		  timeout( 0 ),
 		  startAirAccelFrac( 0 ),
 		  endAirAccelFrac( 0 ),
 		  jumpBoostSpeed( 0 ),
@@ -1677,6 +1679,7 @@ public:
 
 	void Activate( const vec3_t startOrigin_,
 				   const vec3_t targetOrigin_,
+				   unsigned timeout,
 				   float reachRadius_ = 32.0f,
 				   float startAirAccelFrac_ = 0.0f,
 				   float endAirAccelFrac_ = 0.0f,

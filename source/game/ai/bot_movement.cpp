@@ -3142,7 +3142,7 @@ BotMovementFallback *BotDummyMovementAction::TryShortcutOtherFallbackByJumping( 
 	}
 
 	auto *fallback = &self->ai->botRef->jumpToSpotMovementFallback;
-	fallback->Activate( entityPhysicsState.Origin(), predictionResults.origin );
+	fallback->Activate( entityPhysicsState.Origin(), predictionResults.origin, predictionResults.millisAhead );
 	return fallback;
 }
 
@@ -3349,9 +3349,8 @@ BotMovementFallback *BotDummyMovementAction::TryFindJumpLikeReachFallback( BotMo
 
 	jumpTarget[2] += 1.0f - playerbox_stand_mins[2] + self->viewheight;
 	auto *fallback = &self->ai->botRef->jumpToSpotMovementFallback;
-	fallback->Activate( entityPhysicsState.Origin(), jumpTarget,
-						32.0f, startAirAccelFracs[i],
-						endAirAccelFracs[i], attemptsZBoosts[i] );
+	fallback->Activate( entityPhysicsState.Origin(), jumpTarget, predictionResults.millisAhead,
+						32.0f, startAirAccelFracs[i], endAirAccelFracs[i], attemptsZBoosts[i] );
 	return fallback;
 }
 
@@ -7977,12 +7976,14 @@ bool BotGenericGroundMovementFallback::TestActualWalkability( int targetAreaNum,
 
 void BotJumpToSpotMovementFallback::Activate( const vec3_t startOrigin_,
 											  const vec3_t targetOrigin_,
+											  unsigned timeout,
 											  float reachRadius_,
 											  float startAirAccelFrac_,
 											  float endAirAccelFrac_,
 											  float jumpBoostSpeed_ ) {
 	VectorCopy( targetOrigin_, this->targetOrigin );
 	VectorCopy( startOrigin_, this->startOrigin );
+	this->timeout = timeout + 150u;
 	this->reachRadius = reachRadius_;
 	clamp( startAirAccelFrac_, 0.0f, 1.0f );
 	clamp( endAirAccelFrac_, 0.0f, 1.0f );
@@ -8007,12 +8008,12 @@ bool BotJumpToSpotMovementFallback::TryDeactivate( BotMovementPredictionContext 
 	assert( status == PENDING );
 
 	// If the fallback is still active, invalidate it
-	if ( level.time - activatedAt > 750 ) {
+	if ( level.time - activatedAt > std::max( 250u, timeout ) ) {
 		return DeactivateWithStatus( INVALID );
 	}
 
 	// If the fallback movement has just started, skip tests
-	if( level.time - activatedAt < 325 ) {
+	if( level.time - activatedAt < std::min( 250u, timeout ) ) {
 		return false;
 	}
 
@@ -8246,12 +8247,13 @@ public:
 		predictor.SetColliderBounds( mins, maxs );
 	}
 
-	virtual bool Exec( const vec3_t startOrigin_, vec3_t spotOrigin_ );
+	// Returns an estimated jump travel time on success or zero on failure
+	virtual unsigned Exec( const vec3_t startOrigin_, vec3_t spotOrigin_ );
 };
 
 // We make it static non-memeber function to avoid lifting SpotAndScore to headers
 // The function assumes that the range (spotsBegin, spotsEnd) points to a max-heap
-bool BestJumpableSpotDetector::Exec( const vec3_t startOrigin_, vec3_t spotOrigin_ ) {
+unsigned BestJumpableSpotDetector::Exec( const vec3_t startOrigin_, vec3_t spotOrigin_ ) {
 	VectorCopy( startOrigin_, this->startOrigin );
 	this->startOrigin[2] += 4.0f;
 
@@ -8309,10 +8311,17 @@ bool BestJumpableSpotDetector::Exec( const vec3_t startOrigin_, vec3_t spotOrigi
 		}
 
 		VectorCopy( spotAndScore->origin, spotOrigin_ );
-		return true;
+
+#ifndef PUBLIC_BUILD
+		// Make sure the returned timeout value is feasible
+		if( predictionResults.millisAhead > 9999 ) {
+			AI_FailWith( "BestJumpableSpotsDetector::Exec()", "Don't extrapolate last step (we need a valid timeout)\n" );
+		}
+#endif
+		return predictionResults.millisAhead;
 	}
 
-	return false;
+	return 0;
 }
 
 class BestRegularJumpableSpotDetector: public BestJumpableSpotDetector {
@@ -8353,7 +8362,7 @@ public:
 		this->startTravelTimeToTarget = startTravelTimeToTarget_;
 	}
 
-	bool Exec( const vec3_t startOrigin_, vec3_t spotOrigin_ ) override {
+	unsigned Exec( const vec3_t startOrigin_, vec3_t spotOrigin_ ) override {
 #ifndef PUBLIC_BUILD
 		if( run2DSpeed <= 0 || jumpZSpeed <= 0 ) {
 			AI_FailWith( "BestRegularJumpableSpotsDetector::Exec()", "Illegal jump physics props (have they been set?)\n" );
@@ -8361,7 +8370,7 @@ public:
 #endif
 		// Cannot be initialized in constructor called for the global instance
 		this->aasWorld = AiAasWorld::Instance();
-		bool result = BestJumpableSpotDetector::Exec( startOrigin_, spotOrigin_ );
+		unsigned result = BestJumpableSpotDetector::Exec( startOrigin_, spotOrigin_ );
 		run2DSpeed = 0.0f;
 		jumpZSpeed = 0.0f;
 		// Nulliffy supplied references to avoid unintended reusing
@@ -8484,9 +8493,9 @@ public:
 	// Should be set for the query owned by the corresponding client
 	AiNavMeshQuery *navMeshQuery;
 
-	bool Exec( const vec3_t startOrigin_, vec3_t spotOrigin_ ) override {
+	unsigned Exec( const vec3_t startOrigin_, vec3_t spotOrigin_ ) override {
 		navMeshManager = AiNavMeshManager::Instance();
-		bool result = BestRegularJumpableSpotDetector::Exec( startOrigin_, spotOrigin_ );
+		unsigned result = BestRegularJumpableSpotDetector::Exec( startOrigin_, spotOrigin_ );
 		// Nullify the supplied reference to avoid unintended reusing
 		navMeshQuery = nullptr;
 		return result;
@@ -8605,8 +8614,8 @@ BotMovementFallback *BotDummyMovementAction::TryFindJumpToSpotFallback( BotMovem
 
 	vec3_t spotOrigin;
 	areaDetector->SetJumpPhysicsProps( context->GetRunSpeed(), context->GetJumpSpeed() );
-	if( areaDetector->Exec( entityPhysicsState.Origin(), spotOrigin ) ) {
-		fallback->Activate( entityPhysicsState.Origin(), spotOrigin );
+	if( unsigned jumpTravelTime = areaDetector->Exec( entityPhysicsState.Origin(), spotOrigin ) ) {
+		fallback->Activate( entityPhysicsState.Origin(), spotOrigin, jumpTravelTime );
 		return fallback;
 	}
 
@@ -8617,8 +8626,8 @@ BotMovementFallback *BotDummyMovementAction::TryFindJumpToSpotFallback( BotMovem
 
 	polyDetector->SetJumpPhysicsProps( context->GetRunSpeed(), context->GetJumpSpeed() );
 	polyDetector->navMeshQuery = self->ai->botRef->navMeshQuery;
-	if( polyDetector->Exec( entityPhysicsState.Origin(), spotOrigin ) ) {
-		fallback->Activate( entityPhysicsState.Origin(), spotOrigin );
+	if( unsigned jumpTravelTime = polyDetector->Exec( entityPhysicsState.Origin(), spotOrigin ) ) {
+		fallback->Activate( entityPhysicsState.Origin(), spotOrigin, jumpTravelTime );
 		return fallback;
 	}
 
