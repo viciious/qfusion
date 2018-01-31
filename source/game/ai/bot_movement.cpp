@@ -2914,9 +2914,11 @@ BotMovementFallback *BotDummyMovementAction::TryNodeBasedFallbacksLeft( BotMovem
 	const auto &entityPhysicsState = context->movementState->entityPhysicsState;
 
 	const unsigned millisInBlockedState = self->ai->botRef->MillisInBlockedState();
+	const bool isBotEasy = self->ai->botRef->Skill() < 0.33f;
 	// This is a very conservative condition that however should prevent looping these node-based fallbacks are prone to.
 	// Prefer jumping fallbacks that are almost seamless to the bunnying movement.
-	if( millisInBlockedState < 2500 ) {
+	// Note: threshold values are significanly lower for easy bots since they almost never use bunnying movement.
+	if( millisInBlockedState < ( isBotEasy ? 500 : 1500 ) ) {
 		return nullptr;
 	}
 
@@ -2933,7 +2935,7 @@ BotMovementFallback *BotDummyMovementAction::TryNodeBasedFallbacksLeft( BotMovem
 		}
 	}
 
-	if( millisInBlockedState > 2750 ) {
+	if( millisInBlockedState > ( isBotEasy ? 700 : 2000 ) ) {
 		vec3_t areaPoint;
 		int areaNum;
 		if( context->sameFloorClusterAreasCache.GetClosestToTargetPoint( context, areaPoint, &areaNum ) ) {
@@ -2951,7 +2953,7 @@ BotMovementFallback *BotDummyMovementAction::TryNodeBasedFallbacksLeft( BotMovem
 			}
 		}
 
-		if( millisInBlockedState > 3000 ) {
+		if( millisInBlockedState > ( isBotEasy ? 1250 : 2500 ) ) {
 			// Notify the nav target selection code
 			self->ai->botRef->OnMovementToNavTargetBlocked();
 		}
@@ -5949,7 +5951,27 @@ AreaAndScore *BotBunnyToBestShortcutAreaMovementAction::SelectCandidateAreas( Bo
 }
 
 void BotWalkCarefullyMovementAction::PlanPredictionStep( BotMovementPredictionContext *context ) {
+	// Do not even try using (accelerated) bunnying for easy bots.
+	// They however will still still perform various jumps,
+	// even during regular roaming on plain surfaces (thats what movement fallbacks do).
+	// Ramp/stairs areas and areas not in floor clusters are exceptions
+	// (these kinds of areas are still troublesome for bot movement).
 	BotBaseMovementAction *suggestedAction = &DefaultBunnyAction();
+	if( self->ai->botRef->Skill() < 0.33f ) {
+		const auto *aasWorld = AiAasWorld::Instance();
+		const int currGroundedAreaNum = context->CurrGroundedAasAreaNum();
+		// If the current area is not a ramp-like area
+		if( !( aasWorld->AreaSettings()[currGroundedAreaNum].areaflags & AREA_INCLINED_FLOOR ) ) {
+			// If the current area is not in a stairs cluster
+			if( !( aasWorld->AreaStairsClusterNums()[currGroundedAreaNum] ) ) {
+				// If the current area is in a floor cluster
+				if( aasWorld->AreaFloorClusterNums()[currGroundedAreaNum ] ) {
+					suggestedAction = &DummyAction();
+				}
+			}
+		}
+	}
+
 	if( !GenericCheckIsActionEnabled( context, suggestedAction ) ) {
 		return;
 	}
@@ -6432,9 +6454,9 @@ void BotMovementPredictionContext::CheatingAccelerate( float frac ) {
 	}
 
 	speedGainPerSecond *= groundSpeedScale;
-	if( self->ai->botRef->Skill() <= 0.33f ) {
-		speedGainPerSecond *= 0.33f;
-	}
+	// (CheatingAccelerate() is called for several kinds of fallback movement that are assumed to be reliable).
+	// Do not lower speed gain per second in this case (fallback movement should be reliable).
+	// A caller should set an appropriate frac if CheatingAccelerate() is used for other kinds of movement.
 
 	clamp_high( frac, 1.0f );
 	frac = SQRTFAST( frac );
@@ -7369,14 +7391,12 @@ void BotCombatDodgeSemiRandomlyToTargetMovementAction::PlanPredictionStep( BotMo
 		}
 
 		const float skill = self->ai->botRef->Skill();
-		if( skill > 0.33f ) {
-			if( !botInput->IsSpecialButtonSet() && entityPhysicsState.Speed2D() < 650 ) {
-				const auto &oldPMove = context->oldPlayerState->pmove;
-				const auto &newPMove = context->currPlayerState->pmove;
-				// If not skimming
-				if( !( newPMove.skim_time && newPMove.skim_time != oldPMove.skim_time ) ) {
-					context->CheatingAccelerate( skill );
-				}
+		if( !botInput->IsSpecialButtonSet() && entityPhysicsState.Speed2D() < 650 ) {
+			const auto &oldPMove = context->oldPlayerState->pmove;
+			const auto &newPMove = context->currPlayerState->pmove;
+			// If not skimming
+			if( !( newPMove.skim_time && newPMove.skim_time != oldPMove.skim_time ) ) {
+				context->CheatingAccelerate( skill > 0.33f ? skill : 0.5f * skill );
 			}
 		}
 	}
