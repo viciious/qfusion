@@ -4577,10 +4577,12 @@ float BotLandOnSavedAreasMovementAction::SaveLandingAreasForJumppadTargetArea( c
 
 	// Get areas around the jumppad area
 	const auto &jumppadTargetArea = aasAreas[jumppadTargetAreaNum];
-	Vec3 mins( -256, -256, -16 );
-	Vec3 maxs( +256, +256, +16 );
-	mins += jumppadTargetArea.mins;
-	maxs += jumppadTargetArea.maxs;
+	Vec3 mins( -320, -320, -16 );
+	Vec3 maxs( +320, +320, +16 );
+	// It's better to use the target entity and not the target area center,
+	// because the center might be biased and it leads to poor area selection e.g. on major wdm7 jumppad.
+	mins += jumppadEntity->target_ent->s.origin;
+	maxs += jumppadEntity->target_ent->s.origin;
 	int bboxAreas[48];
 	const int numBBoxAreas = aasWorld->BBoxAreas( mins, maxs, bboxAreas, 48 );
 
@@ -4651,7 +4653,7 @@ float BotLandOnSavedAreasMovementAction::SaveLandingAreasForJumppadTargetArea( c
 float BotLandOnSavedAreasMovementAction::SaveFilteredCandidateAreas( const edict_t *jumppadEntity,
 																	 int jumppadTargetAreaNum,
 																	 const FilteredAreas &filteredAreas ) {
-	Assert( savedLandingAreas.empty() );
+	savedLandingAreas.clear();
 	const auto *aasWorld = AiAasWorld::Instance();
 	const auto *aasAreas = aasWorld->Areas();
 
@@ -4669,12 +4671,7 @@ float BotLandOnSavedAreasMovementAction::SaveFilteredCandidateAreas( const edict
 
 	float maxAreaZ = std::numeric_limits<float>::min();
 	for( int areaNum: savedLandingAreas ) {
-		const auto &area = aasAreas[areaNum];
-		Assert( area.mins[2] < jumppadEntity->target_ent->s.origin[2] );
-		Assert( area.mins[2] > jumppadEntity->r.absmin[2] );
-		if( maxAreaZ < area.mins[2] ) {
-			maxAreaZ = area.mins[2];
-		}
+		maxAreaZ = std::max( maxAreaZ, aasAreas[areaNum].mins[2] );
 	}
 
 	return maxAreaZ;
@@ -4882,11 +4879,63 @@ void BotLandOnSavedAreasMovementAction::CheckPredictionStepResults( BotMovementP
 
 	// Check which area bot has landed in
 	Assert( currAreaIndex >= 0 && currAreaIndex == (int)totalTestedAreas && currAreaIndex < (int)savedLandingAreas.size() );
-	const int landingArea = savedLandingAreas[currAreaIndex];
-	if( landingArea == entityPhysicsState.CurrAasAreaNum() || landingArea == entityPhysicsState.DroppedToFloorAasAreaNum() ) {
+	const int targetAreaNum = savedLandingAreas[currAreaIndex];
+	int currAreaNums[2] = { 0, 0 };
+	const int numCurrAreas = entityPhysicsState.PrepareRoutingStartAreas( currAreaNums );
+	// If the bot is in the target area
+	if( currAreaNums[0] == targetAreaNum || currAreaNums[1] == targetAreaNum ) {
 		Debug( "A prediction step has lead to touching a ground in the target landing area, should stop planning\n" );
 		context->isCompleted = true;
 		return;
+	}
+
+	const auto *aasWorld = AiAasWorld::Instance();
+	const auto *aasAreas = aasWorld->Areas();
+	const auto *aasAreaFloorClusterNums = aasWorld->AreaFloorClusterNums();
+	// If the target area is in some floor cluster
+	if( int targetFloorClusterNum = aasAreaFloorClusterNums[targetAreaNum] ) {
+		int i = 0;
+		for(; i < numCurrAreas; ++i ) {
+			if( aasAreaFloorClusterNums[currAreaNums[i]] == targetFloorClusterNum ) {
+				break;
+			}
+		}
+		// Some of the current areas is in the same cluster
+		if( i != numCurrAreas ) {
+			Debug( "A prediction step has lead to touching a ground in the floor cluster of the landing area\n" );
+			context->isCompleted = true;
+			return;
+		}
+	} else {
+		// Check whether the target area is reachable from the current area by walking and seems to be straight-walkable
+		int bestTravelTime = std::numeric_limits<int>::max();
+		const auto *routeCache = self->ai->botRef->routeCache;
+		for( int i = 0; i < numCurrAreas; ++i ) {
+			int travelFlags = TFL_WALK | TFL_WALKOFFLEDGE | TFL_AIR;
+			if( int travelTime = routeCache->TravelTimeToGoalArea( currAreaNums[i], targetAreaNum, travelFlags ) ) {
+				bestTravelTime = std::min( travelTime, bestTravelTime );
+			}
+		}
+		// If the target area is short-range reachable by walking (in 150 seconds^-2)
+		if( bestTravelTime < 150 ) {
+			Vec3 testedTargetPoint( aasAreas[targetAreaNum].center );
+			// We are sure the target area is grounded
+			testedTargetPoint.Z() = aasAreas[targetAreaNum].mins[2] + 1.0f - playerbox_stand_mins[2];
+			// Add a unit offset from ground
+			Vec3 currPoint( entityPhysicsState.Origin() );
+			currPoint.Z() += 1.0f;
+			// We have to check against entities in this case
+			trace_t trace;
+			edict_t *ignore = const_cast<edict_t *>( self );
+			float *mins = playerbox_stand_mins;
+			float *maxs = playerbox_stand_maxs;
+			G_Trace( &trace, currPoint.Data(), mins, maxs, testedTargetPoint.Data(), ignore, MASK_PLAYERSOLID );
+			if( trace.fraction == 1.0f ) {
+				Debug( "A prediction step has lead to touching a ground in a short-range neighbour area of the target area\n" );
+				context->isCompleted = true;
+				return;
+			}
+		}
 	}
 
 	Debug( "A prediction step has lead to touching a ground in an unexpected area\n" );
