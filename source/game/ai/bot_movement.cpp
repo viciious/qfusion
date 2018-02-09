@@ -6599,15 +6599,13 @@ bool BotGenericRunBunnyingMovementAction::CheckStepSpeedGainOrLoss( BotMovementP
 
 	// Check for unintended bouncing back (starting from some speed threshold)
 	if( oldSquare2DSpeed > 100 * 100 && newSquare2DSpeed > 1 * 1 ) {
-		if( this->SequenceDuration( context ) > 128 ) {
-			Vec3 oldVelocity2DDir( oldVelocity[0], oldVelocity[1], 0 );
-			oldVelocity2DDir *= 1.0f / oldEntityPhysicsState.Speed2D();
-			Vec3 newVelocity2DDir( newVelocity[0], newVelocity[1], 0 );
-			newVelocity2DDir *= 1.0f / newEntityPhysicsState.Speed2D();
-			if( oldVelocity2DDir.Dot( newVelocity2DDir ) < 0.1f ) {
-				Debug( "A prediction step has lead to an unintended bouncing back\n" );
-				return false;
-			}
+		Vec3 oldVelocity2DDir( oldVelocity[0], oldVelocity[1], 0 );
+		oldVelocity2DDir *= 1.0f / oldEntityPhysicsState.Speed2D();
+		Vec3 newVelocity2DDir( newVelocity[0], newVelocity[1], 0 );
+		newVelocity2DDir *= 1.0f / newEntityPhysicsState.Speed2D();
+		if( oldVelocity2DDir.Dot( newVelocity2DDir ) < 0.3f ) {
+			Debug( "A prediction step has lead to an unintended bouncing back\n" );
+			return false;
 		}
 	}
 
@@ -6773,6 +6771,9 @@ void BotGenericRunBunnyingMovementAction::CheckPredictionStepResults( BotMovemen
 	// Reset unreachable target timer
 	currentUnreachableTargetSequentialMillis = 0;
 
+	// Whether prediction should not be terminated (with a success) on this frame
+	bool disallowPredictionTermination = false;
+
 	if( currTravelTimeToNavTarget <= minTravelTimeToNavTargetSoFar ) {
 		minTravelTimeToNavTargetSoFar = currTravelTimeToNavTarget;
 		minTravelTimeAreaNumSoFar = context->CurrAasAreaNum();
@@ -6826,22 +6827,26 @@ void BotGenericRunBunnyingMovementAction::CheckPredictionStepResults( BotMovemen
 				return;
 			}
 		}
+
+		// Don't terminate on this frame even if other termination conditions match
+		// There is a speed loss that is very likely caused by bot bumping into walls/obstacles
+		disallowPredictionTermination = true;
 	}
 
-	if( originAtSequenceStart.SquareDistanceTo( newEntityPhysicsState.Origin() ) < 72 * 72 ) {
+	if( originAtSequenceStart.SquareDistanceTo( newEntityPhysicsState.Origin() ) < 64 * 64 ) {
 		if( SequenceDuration( context ) < 512 ) {
 			context->SaveSuggestedActionForNextFrame( this );
 			return;
 		}
 
 		// Prevent wasting CPU cycles on further prediction
-		Debug( "The bot still has not covered 72 units yet in 512 millis\n" );
+		Debug( "The bot still has not covered 64 units yet in 512 millis\n" );
 		context->SetPendingRollback();
 		return;
 	}
 
 	if( newEntityPhysicsState.GroundEntity() ) {
-		Debug( "The bot has covered 96 units and is on ground, should stop prediction\n" );
+		Debug( "The bot has covered 64 units and is on ground, should stop prediction\n" );
 		context->isCompleted = true;
 		return;
 	}
@@ -6859,21 +6864,9 @@ void BotGenericRunBunnyingMovementAction::CheckPredictionStepResults( BotMovemen
 		return;
 	}
 
-	// Try stop prediction if the bot is inside a huge "good" area
-	const auto *aasWorld = AiAasWorld::Instance();
-	const int currAreaNum = context->CurrAasAreaNum();
-	const auto &area = aasWorld->Areas()[currAreaNum];
-	const auto &areaSettings = aasWorld->AreaSettings()[currAreaNum];
-
-	if( areaSettings.areaflags & AREA_GROUNDED ) {
-		const float *origin = newEntityPhysicsState.Origin();
-		if( area.mins[0] < origin[0] - 48 && area.maxs[0] > origin[0] + 48 ) {
-			if( area.mins[1] < origin[1] - 48 && area.maxs[1] > origin[1] + 48 ) {
-				Debug( "The bot is not very high above the ground and is inside a \"good\" area\n" );
-				context->isCompleted = true;
-				return;
-			}
-		}
+	if( disallowPredictionTermination ) {
+		context->SaveSuggestedActionForNextFrame( this );
+		return;
 	}
 
 	Assert( context->NavTargetAasAreaNum() );
@@ -6883,7 +6876,7 @@ void BotGenericRunBunnyingMovementAction::CheckPredictionStepResults( BotMovemen
 	// The tracing is expensive but we did all possible cutoffs above
 
 	Vec3 predictedOrigin( newEntityPhysicsState.Origin() );
-	float predictionSeconds = 0.2f;
+	float predictionSeconds = 0.3f;
 	for( int i = 0; i < 3; ++i ) {
 		predictedOrigin.Data()[i] += newEntityPhysicsState.Velocity()[i] * predictionSeconds;
 	}
@@ -6891,7 +6884,7 @@ void BotGenericRunBunnyingMovementAction::CheckPredictionStepResults( BotMovemen
 
 	trace_t trace;
 	StaticWorldTrace( &trace, newEntityPhysicsState.Origin(), predictedOrigin.Data(),
-					  MASK_WATER| MASK_SOLID, vec3_origin, playerbox_stand_maxs );
+					  MASK_WATER | MASK_SOLID, playerbox_stand_mins, playerbox_stand_maxs );
 	constexpr auto badContents = CONTENTS_LAVA | CONTENTS_SLIME | CONTENTS_NODROP | CONTENTS_DONOTENTER;
 	if( trace.fraction == 1.0f || !ISWALKABLEPLANE( &trace.plane ) || ( trace.contents & badContents ) ) {
 		// Can't say much. The test is very coarse, continue prediction.
@@ -6901,6 +6894,7 @@ void BotGenericRunBunnyingMovementAction::CheckPredictionStepResults( BotMovemen
 
 	Vec3 groundPoint( trace.endpos );
 	groundPoint.Z() += 4.0f;
+	const auto *aasWorld = AiAasWorld::Instance();
 	int groundAreaNum = aasWorld->FindAreaNum( groundPoint );
 	if( !groundAreaNum ) {
 		// Can't say much. The test is very coarse, continue prediction.
@@ -6922,7 +6916,7 @@ void BotGenericRunBunnyingMovementAction::CheckPredictionStepResults( BotMovemen
 
 	const auto *routeCache = self->ai->botRef->routeCache;
 	int travelTime = routeCache->PreferredRouteToGoalArea( groundAreaNum, context->NavTargetAasAreaNum() );
-	if( travelTime && travelTime < currTravelTimeToNavTarget ) {
+	if( travelTime && travelTime <= currTravelTimeToNavTarget ) {
 		Debug( "The bot is not very high above the ground and looks like it lands in a \"good\" area\n" );
 		context->isCompleted = true;
 		return;
