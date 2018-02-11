@@ -157,8 +157,8 @@ static void G_UpdateServerInfo( void ) {
 		char score[MAX_INFO_STRING];
 
 		score[0] = 0;
-		Q_strncatz( score, va( " %s: %i", GS_TeamName( TEAM_ALPHA ), teamlist[TEAM_ALPHA].stats.score ), sizeof( score ) );
-		Q_strncatz( score, va( " %s: %i", GS_TeamName( TEAM_BETA ), teamlist[TEAM_BETA].stats.score ), sizeof( score ) );
+		Q_strncatz( score, va( " %s: %d", GS_TeamName( TEAM_ALPHA ), teamlist[TEAM_ALPHA].stats.score ), sizeof( score ) );
+		Q_strncatz( score, va( " %s: %d", GS_TeamName( TEAM_BETA ), teamlist[TEAM_BETA].stats.score ), sizeof( score ) );
 
 		if( strlen( score ) >= MAX_INFO_VALUE ) {
 			// prevent "invalid info cvar value" flooding

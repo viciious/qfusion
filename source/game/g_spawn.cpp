@@ -881,7 +881,7 @@ void G_InitLevel( char *mapname, char *entities, int entstrlen, int64_t levelTim
 		game.edicts[i + 1].s.number = i + 1;
 		game.edicts[i + 1].r.client = &game.clients[i];
 		game.edicts[i + 1].r.inuse = ( trap_GetClientState( i ) >= CS_CONNECTED ) ? true : false;
-		memset( &game.clients[i].level, 0, sizeof( game.clients[0].level ) );
+		game.clients[i].level.Reset();
 		game.clients[i].level.timeStamp = level.time;
 	}
 

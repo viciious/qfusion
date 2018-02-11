@@ -540,30 +540,12 @@ void G_AddPlayerReport( edict_t *ent, bool final ) {
 		quit->timePlayed += ( level.time - cl->teamstate.timeStamp ) / 1000;
 		quit->final = final;
 
-		quit->stats.armor_taken += cl->level.stats.armor_taken;
-		quit->stats.deaths += cl->level.stats.deaths;
 		quit->stats.awards += cl->level.stats.awards;
-		quit->stats.frags += cl->level.stats.frags;
-		quit->stats.health_taken += cl->level.stats.health_taken;
 		quit->stats.score += cl->level.stats.score;
-		quit->stats.suicides += cl->level.stats.suicides;
-		quit->stats.teamfrags += cl->level.stats.teamfrags;
-		quit->stats.total_damage_given += cl->level.stats.total_damage_given;
-		quit->stats.total_damage_received += cl->level.stats.total_damage_received;
-		quit->stats.total_teamdamage_given += cl->level.stats.total_teamdamage_given;
-		quit->stats.total_teamdamage_received += cl->level.stats.total_teamdamage_received;
-		quit->stats.ga_taken += cl->level.stats.ga_taken;
-		quit->stats.ya_taken += cl->level.stats.ya_taken;
-		quit->stats.ra_taken += cl->level.stats.ra_taken;
-		quit->stats.mh_taken += cl->level.stats.mh_taken;
-		quit->stats.uh_taken += cl->level.stats.uh_taken;
-		quit->stats.quads_taken += cl->level.stats.quads_taken;
-		quit->stats.shells_taken += cl->level.stats.shells_taken;
-		quit->stats.regens_taken += cl->level.stats.regens_taken;
-		quit->stats.bombs_planted += cl->level.stats.bombs_planted;
-		quit->stats.bombs_defused += cl->level.stats.bombs_defused;
-		quit->stats.flags_capped += cl->level.stats.flags_capped;
-		quit->stats.fairplay_count += cl->level.stats.fairplay_count;
+
+		for( const auto &keyAndValue : cl->level.stats ) {
+			quit->stats.AddToEntry( keyAndValue );
+		}
 
 		for( i = 0; i < ( AMMO_TOTAL - AMMO_GUNBLADE ); i++ ) {
 			quit->stats.accuracy_damage[i] += cl->level.stats.accuracy_damage[i];
@@ -624,8 +606,7 @@ void G_AddPlayerReport( edict_t *ent, bool final ) {
 		}
 	} else {
 		// create a new quit structure
-		quit = ( gclient_quit_t * )G_Malloc( sizeof( *quit ) );
-		memset( quit, 0, sizeof( *quit ) );
+		quit = new( G_Malloc( sizeof( gclient_quit_t ) ) )gclient_quit_t;
 
 		// fill in the data
 		Q_strncpyz( quit->netname, cl->netname, sizeof( quit->netname ) );
@@ -633,7 +614,8 @@ void G_AddPlayerReport( edict_t *ent, bool final ) {
 		quit->timePlayed = ( level.time - cl->teamstate.timeStamp ) / 1000;
 		quit->final = final;
 		quit->mm_session = mm_session;
-		memcpy( &quit->stats, &cl->level.stats, sizeof( quit->stats ) );
+		quit->stats = std::move( cl->level.stats );
+		// TODO: Not sure what reasons are
 		quit->stats.fragAllocator = NULL;
 
 		// put it to the list
@@ -669,7 +651,7 @@ static stat_query_t *G_Match_GenerateReport( void ) {
 	stat_query_section_t *playersarray;
 
 	//stat_query_section_t *weapindexarray;
-	gclient_quit_t *cl, *potm;
+	gclient_quit_t *cl;
 	int i, teamGame, duelGame;
 	static const char *weapnames[WEAP_TOTAL] = { NULL };
 	score_stats_t *stats;
@@ -717,42 +699,10 @@ static stat_query_t *G_Match_GenerateReport( void ) {
 	// TODO: write the weapon indexes
 	// weapindexarray = sq_api->CreateSection( query, 0, "weapindices" );
 
-	// find player of the match (best score)
-	// FIXME: is it the right place for this stuff here?
-	potm = NULL;
-	for( cl = game.quits; cl; cl = cl->next ) {
-		stats = &cl->stats;
-		if( !potm || stats->score > potm->stats.score ) {
-			potm = cl;
-		}
-	}
-
-	// to receieve "Player of the Match" award the player must also have the "Fair Play" award
-	if( potm && potm->stats.fairplay_count <= 0 ) {
-		potm = NULL;
-	}
-
-	if( potm ) {
-		edict_t *ent;
-		for( ent = game.edicts + 1; PLAYERNUM( ent ) < gs.maxclients; ent++ ) {
-			// TODO: !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
-			// TODO: Does it require local sessions to be distinct?
-			// TODO: !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
-			if( ent->r.client->mm_session != potm->mm_session ) {
-				continue;
-			}
-			if( ent->r.inuse ) {
-				G_PlayerAward( ent, S_COLOR_YELLOW "Player of the Match!" );
-			}
-			break;
-		}
-		G_PrintMsg( NULL, "Player of the match: %s" S_COLOR_WHITE "\n", potm->netname );
-	}
-
 	// Write player properties
 	playersarray = sq_api->CreateArray( query, 0, "players" );
 	for( cl = game.quits; cl; cl = cl->next ) {
-		stat_query_section_t *playersection, *accsection, *awardssection;
+		stat_query_section_t *playersection, *accsection, *awardssection, *statsSection;
 		gameaward_t *ga;
 		int numAwards;
 
@@ -765,26 +715,12 @@ static stat_query_t *G_Match_GenerateReport( void ) {
 		sq_api->SetNumber( playersection, "score", cl->stats.score );
 		sq_api->SetNumber( playersection, "timeplayed", cl->timePlayed );
 		sq_api->SetNumber( playersection, "final", cl->final );
-		sq_api->SetNumber( playersection, "frags", cl->stats.frags );
-		sq_api->SetNumber( playersection, "deaths", cl->stats.deaths );
-		sq_api->SetNumber( playersection, "suicides", cl->stats.suicides );
-		sq_api->SetNumber( playersection, "numrounds", cl->stats.numrounds );
-		sq_api->SetNumber( playersection, "teamfrags", cl->stats.teamfrags );
-		sq_api->SetNumber( playersection, "dmg_given", cl->stats.total_damage_given );
-		sq_api->SetNumber( playersection, "dmg_taken", cl->stats.total_damage_received );
-		sq_api->SetNumber( playersection, "health_taken", cl->stats.health_taken );
-		sq_api->SetNumber( playersection, "armor_taken", cl->stats.armor_taken );
-		sq_api->SetNumber( playersection, "ga_taken", cl->stats.ga_taken );
-		sq_api->SetNumber( playersection, "ya_taken", cl->stats.ya_taken );
-		sq_api->SetNumber( playersection, "ra_taken", cl->stats.ra_taken );
-		sq_api->SetNumber( playersection, "mh_taken", cl->stats.mh_taken );
-		sq_api->SetNumber( playersection, "uh_taken", cl->stats.uh_taken );
-		sq_api->SetNumber( playersection, "quads_taken", cl->stats.quads_taken );
-		sq_api->SetNumber( playersection, "shells_taken", cl->stats.shells_taken );
-		sq_api->SetNumber( playersection, "regens_taken", cl->stats.regens_taken );
-		sq_api->SetNumber( playersection, "bombs_planted", cl->stats.bombs_planted );
-		sq_api->SetNumber( playersection, "bombs_defused", cl->stats.bombs_defused );
-		sq_api->SetNumber( playersection, "flags_capped", cl->stats.flags_capped );
+
+		statsSection = sq_api->CreateSection( query, playersection, "various_stats" );
+
+		for( const auto &keyAndValue: cl->stats ) {
+			sq_api->SetNumber( statsSection, keyAndValue.first, keyAndValue.second );
+		}
 
 		if( teamGame != 0 ) {
 			sq_api->SetNumber( playersection, "team", cl->team - TEAM_ALPHA );
@@ -827,7 +763,7 @@ static stat_query_t *G_Match_GenerateReport( void ) {
 		if( i < ( AMMO_TOTAL - WEAP_TOTAL ) ) {
 			int j;
 
-			accsection = sq_api->CreateSection( query, playersection, "weapons" );
+			accsection = sq_api->CreateArray( query, playersection, "weapons" );
 
 			// we only loop thru the lower section of weapons since we put both
 			// weak and strong shots inside the same weapon
@@ -847,7 +783,8 @@ static stat_query_t *G_Match_GenerateReport( void ) {
 						weapnames[j] = it->shortname;
 					}
 				}
-				weapsection = sq_api->CreateSection( query, accsection, weapnames[j] );
+
+				weapsection = sq_api->CreateSection( query, accsection, NULL );
 
 				// STRONG
 				hits = stats->accuracy_hits[j];
@@ -856,11 +793,15 @@ static stat_query_t *G_Match_GenerateReport( void ) {
 				// copied from cg_scoreboard.c, but changed the last -1 to 0 (no hits is zero acc, right??)
 				acc = (double) ( hits > 0 ? ( ( hits ) == ( shots ) ? 100 : ( min( (int)( floor( ( 100.0f * ( hits ) ) / ( (float)( shots ) ) + 0.5f ) ), 99 ) ) ) : 0 );
 
-				sq_api->SetNumber( weapsection, "strong_hits", hits );
-				sq_api->SetNumber( weapsection, "strong_shots", shots );
-				sq_api->SetNumber( weapsection, "strong_acc", acc );
-				sq_api->SetNumber( weapsection, "strong_dmg", stats->accuracy_damage[j] );
-				sq_api->SetNumber( weapsection, "strong_frags", stats->accuracy_frags[j] );
+				sq_api->SetString( weapsection, "name", weapnames[j] );
+
+				statsSection = sq_api->CreateSection( query, weapsection, "various_stats" );
+
+				sq_api->SetNumber( statsSection, "strong_hits", hits );
+				sq_api->SetNumber( statsSection, "strong_shots", shots );
+				sq_api->SetNumber( statsSection, "strong_acc", acc );
+				sq_api->SetNumber( statsSection, "strong_dmg", stats->accuracy_damage[j] );
+				sq_api->SetNumber( statsSection, "strong_frags", stats->accuracy_frags[j] );
 
 				// WEAK
 				hits = stats->accuracy_hits[weak];
@@ -869,11 +810,11 @@ static stat_query_t *G_Match_GenerateReport( void ) {
 				// copied from cg_scoreboard.c, but changed the last -1 to 0 (no hits is zero acc, right??)
 				acc = (double) ( hits > 0 ? ( ( hits ) == ( shots ) ? 100 : ( min( (int)( floor( ( 100.0f * ( hits ) ) / ( (float)( shots ) ) + 0.5f ) ), 99 ) ) ) : 0 );
 
-				sq_api->SetNumber( weapsection, "weak_hits", hits );
-				sq_api->SetNumber( weapsection, "weak_shots", shots );
-				sq_api->SetNumber( weapsection, "weak_acc", acc );
-				sq_api->SetNumber( weapsection, "weak_dmg", stats->accuracy_damage[weak] );
-				sq_api->SetNumber( weapsection, "weak_frags", stats->accuracy_frags[weak] );
+				sq_api->SetNumber( statsSection, "weak_hits", hits );
+				sq_api->SetNumber( statsSection, "weak_shots", shots );
+				sq_api->SetNumber( statsSection, "weak_acc", acc );
+				sq_api->SetNumber( statsSection, "weak_dmg", stats->accuracy_damage[weak] );
+				sq_api->SetNumber( statsSection, "weak_frags", stats->accuracy_frags[weak] );
 			}
 		}
 

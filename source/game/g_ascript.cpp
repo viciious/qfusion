@@ -1224,7 +1224,7 @@ static const asClassDescriptor_t asTeamListClassDescriptor =
 
 // CLASS: Stats
 static void objectScoreStats_Clear( score_stats_t *obj ) {
-	memset( obj, 0, sizeof( *obj ) );
+	obj->Clear();
 }
 
 static int objectScoreStats_AccShots( int ammo, score_stats_t *obj ) {
@@ -1271,12 +1271,28 @@ static void objectScoreStats_ScoreSet( int newscore, score_stats_t *obj ) {
 	obj->score = newscore;
 }
 
-static void objectScoreStats_ScoreAdd( int score, score_stats_t *obj ) {
-	obj->score += score;
+static void objectScoreStats_ScoreAdd( int delta, score_stats_t *obj ) {
+	obj->score += delta;
+}
+
+static int64_t objectScoreStats_GetEntry( const asstring_t *name, const score_stats_t *obj ) {
+	return obj->GetEntry( name->buffer );
+}
+
+static int64_t objectScoreStats_GetEntry2( const asstring_t *name, int64_t defaultValue, const score_stats_t *obj ) {
+	return obj->GetEntry( name->buffer, defaultValue );
+}
+
+static void objectScoreStats_SetEntry( const asstring_t *name, int64_t value, score_stats_t *obj ) {
+	obj->SetEntry( name->buffer, value );
+}
+
+static void objectScoreStats_AddToEntry( const asstring_t *name, int64_t delta, score_stats_t *obj ) {
+	obj->AddToEntry( name->buffer, delta );
 }
 
 static void objectScoreStats_RoundAdd( score_stats_t *obj ) {
-	obj->numrounds++;
+	obj->AddRound();
 }
 
 static const asFuncdef_t scorestats_Funcdefs[] =
@@ -1300,6 +1316,10 @@ static const asMethod_t scorestats_Methods[] =
 	{ ASLIB_FUNCTION_DECL( int, accuracyHitsDirect, ( int ammo ) const ), asFUNCTION( objectScoreStats_AccHitsDirect ), asCALL_CDECL_OBJLAST },
 	{ ASLIB_FUNCTION_DECL( int, accuracyHitsAir, ( int ammo ) const ), asFUNCTION( objectScoreStats_AccHitsAir ), asCALL_CDECL_OBJLAST },
 	{ ASLIB_FUNCTION_DECL( int, accuracyDamage, ( int ammo ) const ), asFUNCTION( objectScoreStats_AccDamage ), asCALL_CDECL_OBJLAST },
+	{ ASLIB_FUNCTION_DECL( int64, getEntry, ( const String @name ) const ), asFUNCTION( objectScoreStats_GetEntry ), asCALL_CDECL_OBJLAST },
+	{ ASLIB_FUNCTION_DECL( int64, getEntry, ( const String @name, int64 defaultValue ) const ), asFUNCTION( objectScoreStats_GetEntry2 ), asCALL_CDECL_OBJLAST },
+	{ ASLIB_FUNCTION_DECL( void, setEntry, ( const String @name, int64 value ) ), asFUNCTION( objectScoreStats_SetEntry ), asCALL_CDECL_OBJLAST },
+	{ ASLIB_FUNCTION_DECL( void, addToEntry, ( const String @name, int64 delta ) ), asFUNCTION( objectScoreStats_AddToEntry ), asCALL_CDECL_OBJLAST },
 
 	ASLIB_METHOD_NULL
 };
@@ -1307,17 +1327,7 @@ static const asMethod_t scorestats_Methods[] =
 static const asProperty_t scorestats_Properties[] =
 {
 	{ ASLIB_PROPERTY_DECL( const int, score ), ASLIB_FOFFSET( score_stats_t, score ) },
-	{ ASLIB_PROPERTY_DECL( const int, deaths ), ASLIB_FOFFSET( score_stats_t, deaths ) },
-	{ ASLIB_PROPERTY_DECL( const int, frags ), ASLIB_FOFFSET( score_stats_t, frags ) },
-	{ ASLIB_PROPERTY_DECL( const int, suicides ), ASLIB_FOFFSET( score_stats_t, suicides ) },
-	{ ASLIB_PROPERTY_DECL( const int, teamFrags ), ASLIB_FOFFSET( score_stats_t, teamfrags ) },
 	{ ASLIB_PROPERTY_DECL( const int, awards ), ASLIB_FOFFSET( score_stats_t, awards ) },
-	{ ASLIB_PROPERTY_DECL( const int, totalDamageGiven ), ASLIB_FOFFSET( score_stats_t, total_damage_given ) },
-	{ ASLIB_PROPERTY_DECL( const int, totalDamageReceived ), ASLIB_FOFFSET( score_stats_t, total_damage_received ) },
-	{ ASLIB_PROPERTY_DECL( const int, totalTeamDamageGiven ), ASLIB_FOFFSET( score_stats_t, total_teamdamage_given ) },
-	{ ASLIB_PROPERTY_DECL( const int, totalTeamDamageReceived ), ASLIB_FOFFSET( score_stats_t, total_teamdamage_received ) },
-	{ ASLIB_PROPERTY_DECL( const int, healthTaken ), ASLIB_FOFFSET( score_stats_t, health_taken ) },
-	{ ASLIB_PROPERTY_DECL( const int, armorTaken ), ASLIB_FOFFSET( score_stats_t, armor_taken ) },
 
 	ASLIB_PROPERTY_NULL
 };

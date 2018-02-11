@@ -438,7 +438,7 @@ void G_ClientClearStats( edict_t *ent ) {
 		return;
 	}
 
-	memset( &ent->r.client->level.stats, 0, sizeof( ent->r.client->level.stats ) );
+	ent->r.client->level.stats.Clear();
 }
 
 /*
@@ -744,7 +744,7 @@ void ClientBegin( edict_t *ent ) {
 	const char *mm_login;
 
 	memset( &client->ucmd, 0, sizeof( client->ucmd ) );
-	memset( &client->level, 0, sizeof( client->level ) );
+	client->level.Reset();
 	client->level.timeStamp = level.time;
 	G_Client_UpdateActivity( client ); // activity detected
 
@@ -1296,7 +1296,7 @@ bool ClientConnect( edict_t *ent, char *userinfo, bool fakeClient, bool tvClient
 	ent->r.solid = SOLID_NOT;
 	ent->r.client = game.clients + PLAYERNUM( ent );
 	ent->r.svflags = ( SVF_NOCLIENT | ( fakeClient ? SVF_FAKECLIENT : 0 ) );
-	memset( ent->r.client, 0, sizeof( gclient_t ) );
+	ent->r.client->Reset();
 	ent->r.client->ps.playerNum = PLAYERNUM( ent );
 	ent->r.client->connecting = true;
 	ent->r.client->isTV = tvClient == true;
@@ -1367,7 +1367,7 @@ void ClientDisconnect( edict_t *ent, const char *reason ) {
 	ent->r.inuse = false;
 	ent->r.svflags = SVF_NOCLIENT;
 
-	memset( ent->r.client, 0, sizeof( *ent->r.client ) );
+	ent->r.client->Reset();
 	ent->r.client->ps.playerNum = PLAYERNUM( ent );
 
 	trap_ConfigString( CS_PLAYERINFOS + PLAYERNUM( ent ), "" );

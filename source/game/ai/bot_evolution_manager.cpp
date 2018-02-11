@@ -203,26 +203,32 @@ float DefaultBotEvolutionManager::DefaultEvolutionScore( const edict_t *ent ) co
 
 	// We need some common action utility measurement unit. Give each action a weight in health/damage units.
 
-	float damageScore = stats.total_damage_given;
-	if( stats.total_damage_received > 0 ) {
-		damageScore *= stats.total_damage_given / (float)stats.total_damage_received;
+	float damageScore = stats.GetEntry( "total_damage_given" );
+	if( auto damageReceived = stats.GetEntry( "total_damage_received" ) ) {
+		damageScore *= damageScore / (float)damageReceived;
 	}
 
 	// Add 100 "damage" points for frags
-	float killsScore = 100 * stats.frags;
-	if( stats.deaths > 0 ) {
-		killsScore *= stats.frags / (float)stats.deaths;
+	float killsScore = 100 * stats.GetEntry( "frags" );
+	if( auto deaths = stats.GetEntry( "deaths" ) ) {
+		killsScore *= ( killsScore / 100 ) / (float)deaths;
 	}
 
-	float healthScore = stats.health_taken + ( 1 / 0.66f ) * stats.armor_taken;
+	float healthScore = stats.GetEntry( "health_taken" ) + ( 1 / 0.66f ) * stats.GetEntry( "armor_taken " );
 	// Add extra reward for MH/armors pickup
-	healthScore += 2 * 100 * ( stats.mh_taken + stats.uh_taken );
-	healthScore += 2 * ( 1 / 0.66f ) * ( 100 * stats.ra_taken + 75 * stats.ya_taken + 50 * stats.ga_taken );
+	healthScore += 2 * 100 * ( stats.GetEntry( "mh_taken" ) + stats.GetEntry( "uh_taken" ) );
+	float armorScore = 100 * stats.GetEntry( "ra_taken" );
+	armorScore += 75 * stats.GetEntry( "ya_taken" );
+	armorScore += 50 * stats.GetEntry( "ga_taken " );
+	healthScore += 2 * ( 1 / 0.66f ) * armorScore;
 
-	float powerupsScore = 500 * ( stats.quads_taken + stats.shells_taken + stats.regens_taken );
+	float powerupsScore = stats.GetEntry( "quads_taken" );
+	powerupsScore += stats.GetEntry( "shells_taken" );
+	powerupsScore += stats.GetEntry( "regens_taken" );
+	powerupsScore *= 500;
 
-	float flagsScore = 500 * stats.flags_capped;
-	float bombsScore = 200 * stats.bombs_planted + 300 * stats.bombs_defused;
+	float flagsScore = 500 * stats.GetEntry( "flags_capped " );
+	float bombsScore = 200 * stats.GetEntry( "bombs_planted" ) + 300 * stats.GetEntry( "bombs_defused" );
 
 	return damageScore + killsScore + healthScore + powerupsScore + flagsScore + bombsScore;
 }

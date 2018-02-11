@@ -43,13 +43,14 @@ void G_Teams_Init( void ) {
 	g_teams_maxplayers = trap_Cvar_Get( "g_teams_maxplayers", "0", CVAR_ARCHIVE );
 	g_teams_allow_uneven = trap_Cvar_Get( "g_teams_allow_uneven", "1", CVAR_ARCHIVE );
 
-	//unlock all teams and clear up team lists
-	memset( teamlist, 0, sizeof( teamlist ) );
+	for( int i = 0, end = sizeof( teamlist ) / sizeof( *teamlist ); i < end; ++i ) {
+		teamlist[i].Clear();
+	}
 
 	for( ent = game.edicts + 1; PLAYERNUM( ent ) < gs.maxclients; ent++ ) {
 		if( ent->r.inuse ) {
-			memset( &ent->r.client->teamstate, 0, sizeof( ent->r.client->teamstate ) );
-			memset( &ent->r.client->resp, 0, sizeof( ent->r.client->resp ) );
+			ent->r.client->teamstate.Reset();
+			ent->r.client->resp.Reset();
 			ent->s.team = ent->r.client->team = TEAM_SPECTATOR;
 			G_GhostClient( ent );
 			ent->movetype = MOVETYPE_NOCLIP; // allow freefly
@@ -315,7 +316,7 @@ void G_Teams_SetTeam( edict_t *ent, int team ) {
 	if( ent->r.client->team != TEAM_SPECTATOR && team != TEAM_SPECTATOR ) {
 		// keep scores when switching between non-spectating teams
 		int64_t timeStamp = ent->r.client->teamstate.timeStamp;
-		memset( &ent->r.client->teamstate, 0, sizeof( ent->r.client->teamstate ) );
+		ent->r.client->teamstate.Reset();
 		ent->r.client->teamstate.timeStamp = timeStamp;
 	} else {
 		// if player was on a team, send partial report to matchmaker
@@ -327,8 +328,8 @@ void G_Teams_SetTeam( edict_t *ent, int team ) {
 		}
 
 		// clear scores at changing team
-		memset( &ent->r.client->level.stats, 0, sizeof( ent->r.client->level.stats ) );
-		memset( &ent->r.client->teamstate, 0, sizeof( ent->r.client->teamstate ) );
+		ent->r.client->level.stats.Clear();
+		ent->r.client->teamstate.Reset();
 		ent->r.client->teamstate.timeStamp = level.time;
 	}
 
@@ -1345,7 +1346,7 @@ void G_Teams_Coach( edict_t *ent ) {
 
 				//clear up his scores
 				G_Match_Ready( ent ); // set ready and check readys
-				memset( &ent->r.client->level.stats, 0, sizeof( ent->r.client->level.stats ) );
+				ent->r.client->level.stats.Clear();
 
 				teamlist[ent->s.team].has_coach = true;
 				G_PrintMsg( NULL, "%s%s is now team %s coach \n", ent->r.client->netname,
