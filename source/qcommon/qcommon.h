@@ -900,13 +900,12 @@ CPU FEATURES
 ==============================================================
 */
 
-#define QCPU_HAS_RDTSC      0x00000001
-#define QCPU_HAS_MMX        0x00000002
-#define QCPU_HAS_MMXEXT     0x00000004
-#define QCPU_HAS_3DNOW      0x00000010
-#define QCPU_HAS_3DNOWEXT   0x00000020
-#define QCPU_HAS_SSE        0x00000040
-#define QCPU_HAS_SSE2       0x00000080
+// Query only features that seem to have some utility for the code base
+
+#define QF_CPU_FEATURE_SSE2    ( 0x1 )
+#define QF_CPU_FEATURE_SSE41   ( 0x2 )
+#define QF_CPU_FEATURE_SSE42   ( 0x4 )
+#define QF_CPU_FEATURE_AVX     ( 0x8 )
 
 unsigned int COM_CPUFeatures( void );
 

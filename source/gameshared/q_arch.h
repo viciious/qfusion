@@ -361,7 +361,7 @@ typedef int socket_handle_t;
 #define HAVE__INTERLOCKED_API
 #endif
 
-#if ( defined __i386__ || defined __x86_64__ )
+#if ( defined __i386__ || defined __x86_64__ || defined( _M_IX86 ) || defined( _M_AMD64 ) || defined( _M_X64 ) )
 #include <immintrin.h>
 
 // Unfortunately MSVC does not define __SSEn__ macros (but defines __AVXn__ !),
