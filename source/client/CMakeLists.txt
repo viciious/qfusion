@@ -35,6 +35,7 @@ file(GLOB CLIENT_HEADERS
 
 file(GLOB CLIENT_COMMON_SOURCES
     "../qcommon/*.c"
+	"../qcommon/*.cpp"
     "../server/*.c"
     "*.c"
     "../gameshared/q_*.c"
@@ -191,6 +192,12 @@ if (${CMAKE_SYSTEM_NAME} MATCHES "Linux")
     set(CLIENT_BINARY_TYPE "")
 
     set(BUNDLE_RESOURCES "")
+endif()
+
+if (MSVC)
+	set_source_files_properties("../qcommon/cm_trace_sse42.cpp" PROPERTIES COMPILE_FLAGS "/arch:AVX")
+else()
+	set_source_files_properties("../qcommon/cm_trace_sse42.cpp" PROPERTIES COMPILE_FLAGS "-msse4.2")
 endif()
 
 add_executable(${QFUSION_CLIENT_NAME} ${CLIENT_BINARY_TYPE} ${CLIENT_HEADERS} ${CLIENT_PLATFORM_HEADERS} ${CLIENT_COMMON_SOURCES} ${CLIENT_PLATFORM_SOURCES} ${BUNDLE_RESOURCES})

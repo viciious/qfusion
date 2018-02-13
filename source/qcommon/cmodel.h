@@ -18,10 +18,11 @@
 
  */
 
-typedef struct cmodel_state_s cmodel_state_t;
+#ifdef __cplusplus
+extern "C" {
+#endif
 
-// debug/performance counter vars
-int c_pointcontents, c_traces, c_brush_traces;
+typedef struct cmodel_state_s cmodel_state_t;
 
 struct cmodel_s *CM_LoadMap( cmodel_state_t *cms, const char *name, bool clientload, unsigned *checksum );
 struct cmodel_s *CM_InlineModel( cmodel_state_t *cms, int num ); // 1, 2, etc
@@ -37,6 +38,7 @@ const char *CM_ShaderrefName( cmodel_state_t *cms, int ref );
 // creates a clipping hull for an arbitrary bounding box
 struct cmodel_s *CM_ModelForBBox( cmodel_state_t *cms, vec3_t mins, vec3_t maxs );
 struct cmodel_s *CM_OctagonModelForBBox( cmodel_state_t *cms, vec3_t mins, vec3_t maxs );
+
 void CM_InlineModelBounds( cmodel_state_t *cms, struct cmodel_s *cmodel, vec3_t mins, vec3_t maxs );
 
 // returns an ORed contents mask
@@ -76,6 +78,7 @@ bool CM_LeafsInPVS( cmodel_state_t *cms, int leafnum1, int leafnum2 );
 
 //
 cmodel_state_t *CM_New( void *mempool );
+
 void CM_AddReference( cmodel_state_t *cms );
 void CM_ReleaseReference( cmodel_state_t *cms );
 
@@ -88,3 +91,7 @@ cmodel_state_t *CM_Clone( cmodel_state_t *cms );
 //
 void CM_Init( void );
 void CM_Shutdown( void );
+
+#ifdef __cplusplus
+}
+#endif

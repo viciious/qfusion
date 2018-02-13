@@ -59,7 +59,6 @@ static cvar_t *logconsole = NULL;
 static cvar_t *logconsole_append;
 static cvar_t *logconsole_flush;
 static cvar_t *logconsole_timestamp;
-static cvar_t *com_showtrace;
 static cvar_t *com_introPlayed3;
 
 static qmutex_t *com_print_mutex;
@@ -858,7 +857,6 @@ void Qcommon_Init( int argc, char **argv ) {
 	logconsole_flush =  Cvar_Get( "logconsole_flush", "0", CVAR_ARCHIVE );
 	logconsole_timestamp =  Cvar_Get( "logconsole_timestamp", "0", CVAR_ARCHIVE );
 
-	com_showtrace =     Cvar_Get( "com_showtrace", "0", 0 );
 	com_introPlayed3 =   Cvar_Get( "com_introPlayed3", "0", CVAR_ARCHIVE );
 
 	Cvar_Get( "gamename", APPLICATION, CVAR_READONLY );
@@ -948,14 +946,6 @@ void Qcommon_Frame( unsigned int realMsec ) {
 		extratime = ( extratime + (float)realMsec * timescale->value ) - (float)gameMsec;
 	} else {
 		gameMsec = realMsec;
-	}
-
-	if( com_showtrace->integer ) {
-		Com_Printf( "%4i traces %4i brush traces %4i points\n",
-					c_traces, c_brush_traces, c_pointcontents );
-		c_traces = 0;
-		c_brush_traces = 0;
-		c_pointcontents = 0;
 	}
 
 	wswcurl_perform();

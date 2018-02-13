@@ -33,6 +33,7 @@ LOCAL_SRC_FILES := \
   qalgo/md5.c \
   qalgo/q_trie.c \
   $(addprefix qcommon/,$(notdir $(wildcard $(LOCAL_PATH)/qcommon/*.c))) \
+  $(addprefix qcommon/,$(notdir $(wildcard $(LOCAL_PATH)/qcommon/*.cpp))) \
   $(addprefix server/,$(notdir $(wildcard $(LOCAL_PATH)/server/*.c))) \
   unix/unix_fs.c \
   unix/unix_net.c \

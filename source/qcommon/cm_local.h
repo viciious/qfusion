@@ -18,9 +18,12 @@ Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
 
 */
 
-#define CM_TRY_SIMD
+#ifdef __cplusplus
+extern "C" {
+#endif
 
-#if ( defined( CM_TRY_SIMD ) && defined( QF_SSE4 ) )
+#if ( defined( i386 ) || defined( __x86_64__ ) || defined( _M_IX86 ) || defined( _M_AMD64 ) || defined( _M_X64 ) )
+#define CM_TRY_SIMD
 #define CM_USE_SSE
 #endif
 
@@ -45,7 +48,7 @@ typedef struct {
 	int children[2];            // negative numbers are leafs
 } cnode_t;
 
-#ifdef CM_USE_SSE
+#ifdef CM_TRY_SIMD
 typedef struct {
 	vec4_t normal;
 	float dist;
@@ -61,13 +64,13 @@ typedef struct {
 	int surfFlags;
 } cbrushside_t;
 
-#ifdef CM_USE_SSE
+#ifdef CM_TRY_SIMD
 typedef vec4_t vec_bounds_t;
 #else
 typedef vec3_t vec_bounds_t;
 #endif
 
-typedef struct {
+typedef struct cbrush_s {
 	cbrushside_t *brushsides;
 
 	vec_bounds_t mins, maxs, center;
@@ -78,7 +81,7 @@ typedef struct {
 	int numsides;
 } cbrush_t;
 
-typedef struct {
+typedef struct cface_s {
 	cbrush_t *facets;
 
 	vec_bounds_t mins, maxs, center;
@@ -215,19 +218,20 @@ struct cmodel_state_s {
 	float *leaf_mins, *leaf_maxs;
 	int leaf_topnode;
 
-	// optional special handling of line tracing and point contents
-	void ( *CM_TransformedBoxTrace )( struct cmodel_state_s *cms, trace_t *tr, vec3_t start, vec3_t end, vec3_t mins, vec3_t maxs, struct cmodel_s *cmodel, int brushmask, vec3_t origin, vec3_t angles );
-	int ( *CM_TransformedPointContents )( struct cmodel_state_s *cms, vec3_t p, struct cmodel_s *cmodel, vec3_t origin, vec3_t angles );
+	struct CMTraceComputer *traceComputer;
 };
 
 //=======================================================================
 
-void    CM_InitBoxHull( cmodel_state_t *cms );
-void    CM_InitOctagonHull( cmodel_state_t *cms );
+struct CMTraceComputer *CM_GetTraceComputer( cmodel_state_t *cms );
 
-void    CM_BoundBrush( cmodel_state_t *cms, cbrush_t *brush );
+void CM_InitBoxHull( cmodel_state_t *cms );
 
-void    CM_FloodAreaConnections( cmodel_state_t *cms );
+void CM_InitOctagonHull( cmodel_state_t *cms );
+
+void CM_BoundBrush( cmodel_state_t *cms, cbrush_t *brush );
+
+void CM_FloodAreaConnections( cmodel_state_t *cms );
 
 uint8_t *CM_DecompressVis( const uint8_t *in, int rowsize, uint8_t *decompressed );
 
@@ -247,4 +251,8 @@ static inline void CM_CopyCMToRawPlane( const cm_plane_t *src, cplane_t *dest ) 
 	dest->type = src->type;
 	dest->signbits = src->signbits;
 }
+
+#ifdef __cplusplus
+}
+#endif
 

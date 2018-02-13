@@ -17,12 +17,12 @@ file(GLOB SERVER_HEADERS
 
 file(GLOB SERVER_SOURCES
 	"../qcommon/asyncstream.c"
-	"../qcommon/autoupdate.c"	
-    "../qcommon/cm_main.c"
-	"../qcommon/cm_q1bsp.c"
-	"../qcommon/cm_q2bsp.c"
-    "../qcommon/cm_q3bsp.c"
-    "../qcommon/cm_trace.c"
+	"../qcommon/autoupdate.c"
+	"../qcommon/cm_main.c"
+	"../qcommon/cm_q3bsp.c"
+	"../qcommon/cm_sample.c"
+	"../qcommon/cm_trace.cpp"
+	"../qcommon/cm_trace_sse42.cpp"
 	"../qcommon/compression.c"	
     "../qcommon/bsp.c"
     "../qcommon/patch.c"
@@ -82,6 +82,12 @@ else()
 
     set(SERVER_PLATFORM_LIBRARIES "pthread" "dl" "m")
     set(SERVER_BINARY_TYPE "")
+endif()
+
+if (MSVC)
+	set_source_files_properties("../qcommon/cm_trace_sse42.cpp" PROPERTIES COMPILE_FLAGS "/arch:AVX")
+else()
+	set_source_files_properties("../qcommon/cm_trace_sse42.cpp" PROPERTIES COMPILE_FLAGS "-msse4.2")
 endif()
 
 add_executable(${QFUSION_SERVER_NAME} ${SERVER_BINARY_TYPE} ${SERVER_HEADERS} ${SERVER_SOURCES} ${SERVER_PLATFORM_SOURCES})

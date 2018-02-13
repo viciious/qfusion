@@ -173,9 +173,6 @@ static void CM_Clear( cmodel_state_t *cms ) {
 	cms->map_name[0] = 0;
 
 	ClearBounds( cms->world_mins, cms->world_maxs );
-
-	cms->CM_TransformedBoxTrace = NULL;
-	cms->CM_TransformedPointContents = NULL;
 }
 
 /*
@@ -898,6 +895,8 @@ cmodel_state_t *CM_New( void *mempool ) {
 	cms->map_leafs = &cms->map_leaf_empty;
 	cms->map_areas = &cms->map_area_empty;
 	cms->map_entitystring = &cms->map_entitystring_empty;
+
+	cms->traceComputer = CM_GetTraceComputer( cms );
 
 	return cms;
 }
