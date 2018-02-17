@@ -1947,7 +1947,7 @@ public:
 class BotBunnyTestingMultipleLookDirsMovementAction : public BotGenericRunBunnyingMovementAction
 {
 protected:
-	static constexpr auto MAX_SUGGESTED_LOOK_DIRS = 3;
+	static constexpr auto MAX_SUGGESTED_LOOK_DIRS = 16;
 
 	StaticVector<Vec3, MAX_SUGGESTED_LOOK_DIRS> suggestedLookDirs;
 	// Contains areas that were used in dirs construction.
@@ -2003,6 +2003,12 @@ class BotBunnyStraighteningReachChainMovementAction : public BotBunnyTestingMult
 
 public:
 	BotBunnyStraighteningReachChainMovementAction( class Bot *bot_ );
+
+	void BeforePlanning() override {
+		BotBunnyTestingMultipleLookDirsMovementAction::BeforePlanning();
+		// Reset to the action default value every frame
+		maxSuggestedLookDirs = 2;
+	}
 };
 
 class BotBunnyToBestShortcutAreaMovementAction : public BotBunnyTestingMultipleLookDirsMovementAction
@@ -2021,6 +2027,12 @@ class BotBunnyToBestShortcutAreaMovementAction : public BotBunnyTestingMultipleL
 
 public:
 	BotBunnyToBestShortcutAreaMovementAction( class Bot *bot_ );
+
+	void BeforePlanning() override {
+		BotBunnyTestingMultipleLookDirsMovementAction::BeforePlanning();
+		// Reset to the action default value every frame
+		maxSuggestedLookDirs = 2;
+	}
 };
 
 class BotBunnyInterpolatingReachChainMovementAction : public BotGenericRunBunnyingMovementAction

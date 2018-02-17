@@ -66,7 +66,7 @@ bool AiManager::StringValueMap<T, N>::Insert( const char *key, T &&value ) {
 #define REGISTER_BUILTIN_ACTION( action ) this->RegisterBuiltinAction(#action )
 
 AiManager::AiManager( const char *gametype, const char *mapname )
-	: last( nullptr ) {
+	: last( nullptr ), cpuQuotaOwner( nullptr ), cpuQuotaGivenAt( 0 ) {
 	std::fill_n( teams, MAX_CLIENTS, TEAM_SPECTATOR );
 
 	REGISTER_BUILTIN_GOAL( BotGrabItemGoal );
@@ -199,6 +199,12 @@ void AiManager::UnlinkAi( ai_handle_t *ai ) {
 		} else {
 			last = nullptr;
 		}
+	}
+
+	// All links related to the unlinked AI become invalid.
+	// Reset CPU quota cycling state to prevent use-after-free.
+	if( ai == cpuQuotaOwner ) {
+		cpuQuotaOwner = nullptr;
 	}
 }
 
@@ -539,6 +545,8 @@ void AiManager::SetupBotGoalsAndActions( edict_t *ent ) {
 }
 
 void AiManager::Frame() {
+	UpdateCpuQuotaOwner();
+
 	if( !GS_TeamBasedGametype() ) {
 		AiBaseTeamBrain::GetBrainForTeam( TEAM_PLAYERS )->Update();
 		return;
@@ -647,4 +655,64 @@ bool AiManager::IsAreaReachableFromHubAreas( int targetArea, float *score ) cons
 	}
 
 	return numReach > 0;
+}
+
+void AiManager::UpdateCpuQuotaOwner() {
+	if( !cpuQuotaOwner ) {
+		cpuQuotaOwner = last;
+		return;
+	}
+
+	const auto *const oldQuotaOwner = cpuQuotaOwner;
+	// Start from the next AI in list
+	cpuQuotaOwner = cpuQuotaOwner->prev;
+	// Scan all bots that are after the current owner in the list
+	while( cpuQuotaOwner ) {
+		// Stop on the first bot that is in-game
+		if( !cpuQuotaOwner->aiRef->IsGhosting() ) {
+			break;
+		}
+		cpuQuotaOwner = cpuQuotaOwner->prev;
+	}
+
+	// If the scan has not reached the list end
+	if( cpuQuotaOwner ) {
+		return;
+	}
+
+	// Rewind to the list head
+	cpuQuotaOwner = last;
+
+	// Scan all bots that is before the current owner in the list
+	// Keep the current owner if there is no in-game bots before
+	while( cpuQuotaOwner && cpuQuotaOwner != oldQuotaOwner ) {
+		// Stop of the first bot that is in game
+		if( !cpuQuotaOwner->aiRef->IsGhosting() ) {
+			break;
+		}
+		cpuQuotaOwner = cpuQuotaOwner->prev;
+	}
+
+	// If the loop execution has not been interrupted by break,
+	// quota owner remains the same as before this call.
+	// This means a bot always gets a quota if there is no other active bots in game.
+}
+
+bool AiManager::TryGetExpensiveComputationQuota( const edict_t *ent ) {
+	if( !ent->ai ) {
+		return false;
+	}
+
+	if( ent->ai != cpuQuotaOwner ) {
+		return false;
+	}
+
+	// Allow expensive computations only once per frame
+	if( cpuQuotaGivenAt == level.time ) {
+		return false;
+	}
+
+	// Mark it
+	cpuQuotaGivenAt = level.time;
+	return true;
 }

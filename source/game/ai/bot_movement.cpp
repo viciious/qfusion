@@ -5604,7 +5604,6 @@ void BotBunnyTestingMultipleLookDirsMovementAction::SaveCandidateAreaDirs( BotMo
 BotBunnyStraighteningReachChainMovementAction::BotBunnyStraighteningReachChainMovementAction( Bot *bot_ )
 	: BotBunnyTestingMultipleLookDirsMovementAction( bot_, NAME, COLOR_RGB( 0, 192, 0 ) ) {
 	supportsObstacleAvoidance = true;
-	maxSuggestedLookDirs = 2;
 	// The constructor cannot be defined in the header due to this bot member access
 	suggestedAction = &bot_->bunnyToBestShortcutAreaMovementAction;
 }
@@ -5630,6 +5629,22 @@ void BotBunnyStraighteningReachChainMovementAction::SaveSuggestedLookDirs( BotMo
 	if( nextReachChain.empty() ) {
 		Debug( "Cannot straighten look vec: next reach. chain is empty\n" );
 		return;
+	}
+
+	// Make sure the action is dependent of this action
+	Assert( suggestedAction == &self->ai->botRef->bunnyToBestShortcutAreaMovementAction );
+	// * Quotas are allowed to request only once per frame,
+	// and subsequent calls for the same client fail (return with false).
+	// Set suggested look dirs for both actions, otherwise the second one (almost) never gets a quota.
+	// * Never try to acquire a quota here if a bot is really blocked.
+	// These predicted actions are very likely to fail again,
+	// and fallbacks do not get their quotas leading to blocking to bot suicide.
+	if( self->ai->botRef->MillisInBlockedState() < 100 && AiManager::Instance()->TryGetExpensiveComputationQuota( self ) ) {
+		this->maxSuggestedLookDirs = 11;
+		self->ai->botRef->bunnyToBestShortcutAreaMovementAction.maxSuggestedLookDirs = 5;
+	} else {
+		this->maxSuggestedLookDirs = 2;
+		self->ai->botRef->bunnyToBestShortcutAreaMovementAction.maxSuggestedLookDirs = 2;
 	}
 
 	const AiAasWorld *aasWorld = AiAasWorld::Instance();
@@ -5833,7 +5848,6 @@ AreaAndScore *BotBunnyStraighteningReachChainMovementAction::SelectCandidateArea
 BotBunnyToBestShortcutAreaMovementAction::BotBunnyToBestShortcutAreaMovementAction( Bot *bot_ )
 	: BotBunnyTestingMultipleLookDirsMovementAction( bot_, NAME, COLOR_RGB( 255, 64, 0 ) ) {
 	supportsObstacleAvoidance = false;
-	maxSuggestedLookDirs = 2;
 	// The constructor cannot be defined in the header due to this bot member access
 	suggestedAction = &bot_->walkOrSlideInterpolatingReachChainMovementAction;
 }
@@ -8695,7 +8709,7 @@ BotMovementFallback *BotDummyMovementAction::TryFindJumpAdvancingToTargetFallbac
 BotMovementFallback *BotDummyMovementAction::TryFindJumpToSpotFallback( BotMovementPredictionContext *context,
 																		bool testTravelTime ) {
 	// Cut off these extremely expensive computations
-	if( self != level.think_client_entity ) {
+	if( !AiManager::Instance()->TryGetExpensiveComputationQuota( self ) ) {
 		return nullptr;
 	}
 
@@ -8756,7 +8770,7 @@ BotMovementFallback *BotDummyMovementAction::TryFindLostNavTargetFallback( BotMo
 	Assert( !context->NavTargetAasAreaNum());
 
 	// This code is extremely expensive, prevent frametime spikes
-	if( self != level.think_client_entity ) {
+	if( AiManager::Instance()->TryGetExpensiveComputationQuota( self ) ) {
 		return nullptr;
 	}
 
