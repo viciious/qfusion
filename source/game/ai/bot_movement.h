@@ -1971,6 +1971,11 @@ protected:
 								AreaAndScore *candidateAreasBegin,
 								AreaAndScore *candidateAreasEnd );
 
+	// Used for candidate spots selection.
+	// Tracing a straight line between two points fails in stairs-like environment way too often.
+	// This routine uses extremely coarse arc approximation which still should be sufficient
+	// to avoid the mentioned failure in some environment kinds.
+	bool TraceArcInSolidWorld( const AiEntityPhysicsState &startPhysicsState, const vec3_t from, const vec3_t to );
 public:
 	BotBunnyTestingMultipleLookDirsMovementAction( class Bot *bot_, const char *name_, int debugColor_ )
 		: BotGenericRunBunnyingMovementAction( bot_, name_, debugColor_ ),

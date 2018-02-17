@@ -5406,6 +5406,54 @@ void BotBunnyToBestFloorClusterPointMovementAction::PlanPredictionStep( BotMovem
 	}
 }
 
+bool BotBunnyTestingMultipleLookDirsMovementAction::TraceArcInSolidWorld( const AiEntityPhysicsState &startPhysicsState,
+																		  const vec3_t from, const vec3_t to ) {
+	trace_t trace;
+	auto brushMask = MASK_WATER | MASK_SOLID;
+
+	const float velocityZ = startPhysicsState.Velocity()[2];
+	if( !startPhysicsState.GroundEntity() && velocityZ < 50.0f ) {
+		StaticWorldTrace( &trace, from, to, brushMask );
+		return trace.fraction != 1.0f;
+	}
+
+	Vec3 midPoint( to );
+	midPoint += from;
+	midPoint *= 0.5f;
+
+	// Lets figure out deltaZ making an assumption that all forward momentum is converted to the direction to the point one
+
+	const float squareDistanceToMidPoint = SQUARE( from[0] - midPoint.X() ) + SQUARE( from[1] - midPoint.Y() );
+	if( squareDistanceToMidPoint < 10 ) {
+		StaticWorldTrace( &trace, from, to, brushMask );
+		return trace.fraction != 1.0f;
+	}
+
+	const float timeToMidPoint = sqrtf( squareDistanceToMidPoint ) / startPhysicsState.Speed2D();
+	const float deltaZ = velocityZ * timeToMidPoint - 0.5f * level.gravity * ( timeToMidPoint * timeToMidPoint );
+
+	// Does not worth making an arc
+	// Note that we ignore negative deltaZ since the real trajectory differs anyway
+	if( deltaZ < 2.0f ) {
+		StaticWorldTrace( &trace, from, to, brushMask );
+		return trace.fraction != 1.0f;
+	}
+
+	midPoint.Z() += deltaZ;
+
+	StaticWorldTrace( &trace, from, midPoint.Data(), brushMask );
+	if( trace.fraction != 1.0f ) {
+		return false;
+	}
+
+	StaticWorldTrace( &trace, midPoint.Data(), to, brushMask );
+	if( trace.fraction != 1.0f ) {
+		return false;
+	}
+
+	return true;
+}
+
 void BotBunnyTestingMultipleLookDirsMovementAction::BeforePlanning() {
 	BotGenericRunBunnyingMovementAction::BeforePlanning();
 	currSuggestedLookDirNum = 0;
@@ -5675,7 +5723,6 @@ AreaAndScore *BotBunnyStraighteningReachChainMovementAction::SelectCandidateArea
 
 	Vec3 traceStartPoint( entityPhysicsState.Origin() );
 	traceStartPoint.Z() += playerbox_stand_viewheight;
-	trace_t trace;
 	for( int i = lastValidReachIndex; i >= 0; --i ) {
 		const int reachNum = nextReachChain[i].ReachNum();
 		const auto &reachability = aasReachabilities[reachNum];
@@ -5771,8 +5818,7 @@ AreaAndScore *BotBunnyStraighteningReachChainMovementAction::SelectCandidateArea
 				continue;
 			}
 		} else {
-			StaticWorldTrace( &trace, traceStartPoint.Data(), areaPoint.Data(), MASK_SOLID | MASK_WATER );
-			if( trace.fraction != 1.0f ) {
+			if( !TraceArcInSolidWorld( entityPhysicsState, traceStartPoint.Data(), areaPoint.Data() ) ) {
 				minScore = prevMinScore;
 				continue;
 			}
@@ -5874,7 +5920,6 @@ AreaAndScore *BotBunnyToBestShortcutAreaMovementAction::SelectCandidateAreas( Bo
 
 	Vec3 traceStartPoint( entityPhysicsState.Origin() );
 	traceStartPoint.Z() += playerbox_stand_viewheight;
-	trace_t trace;
 
 	const auto *dangerToEvade = self->ai->botRef->perceptionManager.PrimaryDanger();
 	// Reduce branching in the loop below
@@ -5929,7 +5974,7 @@ AreaAndScore *BotBunnyToBestShortcutAreaMovementAction::SelectCandidateAreas( Bo
 		}
 
 		const auto &area = aasAreas[areaNum];
-		Vec3 areaPoint( area.center[0], area.center[1], area.mins[2] + 4.0f );
+		Vec3 areaPoint( area.center[0], area.center[1], area.mins[2] - playerbox_stand_mins[2] );
 		// Skip areas higher than the bot (to allow moving on a stairs chain, we test distance/height ratio)
 		if( area.mins[2] > entityPhysicsState.Origin()[2] ) {
 			float distance = areaPoint.FastDistance2DTo( entityPhysicsState.Origin() );
@@ -5981,8 +6026,7 @@ AreaAndScore *BotBunnyToBestShortcutAreaMovementAction::SelectCandidateAreas( Bo
 
 		// Q: Why an optimization that tests walkability in a floor cluster is not applied?
 		// A: Gaps are allowed between the current and target areas, but the walkability test rejects these kinds of areas
-		SolidWorldTrace( &trace, traceStartPoint.Data(), areaPoint.Data() );
-		if( trace.fraction != 1.0f ) {
+		if( !TraceArcInSolidWorld( entityPhysicsState, traceStartPoint.Data(), areaPoint.Data() ) ) {
 			// Restore minTravelTimeSave (it might has been set to the value of the rejected area on this loop step)
 			minTravelTimeSave = prevMinTravelTimeSave;
 			continue;
