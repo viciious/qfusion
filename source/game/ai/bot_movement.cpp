@@ -7055,28 +7055,12 @@ void BotGenericRunBunnyingMovementAction::BeforePlanning() {
 	ResetObstacleAvoidanceState();
 }
 
-void BotWalkOrSlideInterpolatingReachChainMovementAction::SetupMovementInTargetArea( BotMovementPredictionContext *context ) {
+bool BotWalkOrSlideInterpolatingReachChainMovementAction::SetupMovementInTargetArea( BotMovementPredictionContext *context ) {
 	Vec3 intendedMoveVec( context->NavTargetOrigin() );
 	intendedMoveVec -= context->movementState->entityPhysicsState.Origin();
 	intendedMoveVec.NormalizeFast();
 
-	if( TrySetupCrouchSliding( context, intendedMoveVec ) ) {
-		return;
-	}
-
-	int keyMoves[2];
-	if( self->ai->botRef->HasEnemy() && !context->IsCloseToNavTarget() ) {
-		context->EnvironmentTraceCache().MakeRandomizedKeyMovesToTarget( context, intendedMoveVec, keyMoves );
-	} else {
-		context->EnvironmentTraceCache().MakeKeyMovesToTarget( context, intendedMoveVec, keyMoves );
-	}
-
-	auto *botInput = &context->record->botInput;
-	botInput->SetForwardMovement( keyMoves[0] );
-	botInput->SetRightMovement( keyMoves[1] );
-	botInput->SetIntendedLookDir( intendedMoveVec, true );
-	botInput->isUcmdSet = true;
-	botInput->canOverrideLookVec = true;
+	return TrySetupCrouchSliding( context, intendedMoveVec );
 }
 
 bool BotWalkOrSlideInterpolatingReachChainMovementAction::TrySetupCrouchSliding( BotMovementPredictionContext *context,
@@ -7148,9 +7132,12 @@ void BotWalkOrSlideInterpolatingReachChainMovementAction::PlanPredictionStep( Bo
 		return;
 	}
 
-	// Walk to the nav target in this case
+	// Try sliding to the nav target in this case
 	if( context->IsInNavTargetArea() ) {
-		SetupMovementInTargetArea( context );
+		if( !SetupMovementInTargetArea( context ) ) {
+			context->SetPendingRollback();
+			Debug( "Cannot setup movement in nav target area\n" );
+		}
 		return;
 	}
 

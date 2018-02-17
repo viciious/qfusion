@@ -2068,7 +2068,7 @@ class BotWalkOrSlideInterpolatingReachChainMovementAction : public BotBaseMoveme
 	int minTravelTimeToTarget;
 	int totalNumFrames;
 	int numSlideFrames;
-	inline void SetupMovementInTargetArea( BotMovementPredictionContext *context );
+	inline bool SetupMovementInTargetArea( BotMovementPredictionContext *context );
 	inline bool TrySetupCrouchSliding( BotMovementPredictionContext *context, const Vec3 &intendedLookDir );
 
 public:
