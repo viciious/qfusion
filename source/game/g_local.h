@@ -900,15 +900,15 @@ void SP_target_delay( edict_t *ent );
 void SP_target_teleporter( edict_t *self );
 void SP_target_kill( edict_t *self );
 
+
 //
 // g_svcmds.c
 //
-void SV_ResetPacketFiltersTimeouts( void );
-bool SV_FilterPacket( char *from );
+bool SV_FilterPacket( const char *from );
 void G_AddServerCommands( void );
 void G_RemoveCommands( void );
-void SV_ReadIPList( void );
-void SV_WriteIPList( void );
+void SV_InitIPList( void );
+void SV_ShutdownIPList( void );
 
 //
 // p_view.c
