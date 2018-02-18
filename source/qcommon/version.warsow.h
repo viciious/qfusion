@@ -91,7 +91,7 @@ Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
 
 #ifndef APP_UPDATE_URL
 #define APP_UPDATE_URL                  "http://update.warsow.net/"
-#define APP_SERVER_UPDATE_DIRECTORY     "autoupdate/"STR_TOSTR ( APP_VERSION_MAJOR ) "." STR_TOSTR( APP_VERSION_MINOR ) "/"
+#define APP_SERVER_UPDATE_DIRECTORY     "autoupdate/" STR_TOSTR ( APP_VERSION_MAJOR ) "." STR_TOSTR( APP_VERSION_MINOR ) "/"
 #define APP_SERVER_UPDATE_FILE          "filelist.txt"
 #define APP_CLIENT_UPDATE_FILE          "warsow_last_version.txt"
 #endif
