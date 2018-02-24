@@ -1839,6 +1839,9 @@ class BotCampASpotMovementAction : public BotBaseMovementAction
 {
 	unsigned disabledForApplicationFrameIndex;
 
+	bool TryUpdateKeyMoveDirs( BotMovementPredictionContext *context );
+	Vec3 GetUpdatedPendingLookDir( BotMovementPredictionContext *context );
+	bool TryApplyLookAtPoint( BotMovementPredictionContext *context );
 public:
 	DECLARE_MOVEMENT_ACTION_CONSTRUCTOR( BotCampASpotMovementAction, COLOR_RGB( 128, 0, 128 ) ) {
 		this->disabledForApplicationFrameIndex = std::numeric_limits<unsigned>::max();

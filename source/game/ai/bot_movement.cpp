@@ -4968,6 +4968,37 @@ void DirToKeyInput( const Vec3 &desiredDir, const vec3_t actualForwardDir, const
 	}
 }
 
+bool BotCampASpotMovementAction::TryUpdateKeyMoveDirs( BotMovementPredictionContext *context ) {
+	auto *campingSpotState = &context->movementState->campingSpotState;
+	if( campingSpotState->AreKeyMoveDirsValid() ) {
+		return false;
+	}
+
+	int keyMoves[2];
+	Vec3 botToSpotDir( campingSpotState->Origin() );
+	botToSpotDir -= context->movementState->entityPhysicsState.Origin();
+	botToSpotDir.Normalize();
+
+	context->EnvironmentTraceCache().MakeRandomizedKeyMovesToTarget( context, botToSpotDir, keyMoves );
+	campingSpotState->SetKeyMoveDirs( keyMoves[0], keyMoves[1] );
+	return true;
+}
+
+Vec3 BotCampASpotMovementAction::GetUpdatedPendingLookDir( BotMovementPredictionContext *context ) {
+	auto *lookAtPointState = &context->movementState->pendingLookAtPointState;
+	const auto &campingSpotState = context->movementState->campingSpotState;
+
+	if( !lookAtPointState->IsActive() ) {
+		AiPendingLookAtPoint lookAtPoint( campingSpotState.GetOrUpdateRandomLookAtPoint() );
+		lookAtPointState->Activate( lookAtPoint, 750 );
+	}
+
+	Vec3 intendedLookDir( lookAtPointState->pendingLookAtPoint.Origin() );
+	intendedLookDir -= context->movementState->entityPhysicsState.Origin();
+	intendedLookDir.Normalize();
+	return intendedLookDir;
+}
+
 void BotCampASpotMovementAction::PlanPredictionStep( BotMovementPredictionContext *context ) {
 	if( !GenericCheckIsActionEnabled( context, &DefaultWalkAction() ) ) {
 		return;
@@ -4988,11 +5019,10 @@ void BotCampASpotMovementAction::PlanPredictionStep( BotMovementPredictionContex
 	context->record->botInput.canOverrideLookVec = true;
 
 	const Vec3 spotOrigin( campingSpotState->Origin() );
-	float distance = spotOrigin.Distance2DTo( entityPhysicsState.Origin() );
+	const float distance = spotOrigin.Distance2DTo( entityPhysicsState.Origin() );
 
-	AiPendingLookAtPoint lookAtPoint( campingSpotState->GetOrUpdateRandomLookAtPoint() );
-
-	const Vec3 actualLookDir( entityPhysicsState.ForwardDir() );
+	// Set to the actual look dir by default
+	Vec3 intendedLookDir( entityPhysicsState.ForwardDir() );
 
 	// A "pending look at point" and aiming for attacking are mutually exclusive for reasons described below.
 	// Check whether we should prefer attacking.
@@ -5002,49 +5032,49 @@ void BotCampASpotMovementAction::PlanPredictionStep( BotMovementPredictionContex
 			context->movementState->pendingLookAtPointState.Deactivate();
 		}
 	} else {
-		Vec3 expectedLookDir( lookAtPoint.Origin() );
-		expectedLookDir -= spotOrigin;
-		expectedLookDir.NormalizeFast();
-		if( expectedLookDir.Dot( actualLookDir ) < 0.85 ) {
-			if( !context->movementState->pendingLookAtPointState.IsActive() ) {
-				AiPendingLookAtPoint pendingLookAtPoint( campingSpotState->GetOrUpdateRandomLookAtPoint() );
-				context->movementState->pendingLookAtPointState.Activate( pendingLookAtPoint, 300 );
-				botInput->ClearMovementDirections();
-				botInput->SetWalkButton( true );
-				return;
-			}
-		}
+		intendedLookDir = GetUpdatedPendingLookDir( context );
 	}
 
+	botInput->SetIntendedLookDir( intendedLookDir, true );
 
+	// Reset movement keys waiting for alinging view in the proper direction
+	if( intendedLookDir.Dot( entityPhysicsState.ForwardDir() ) < 0.85f ) {
+		botInput->ClearMovementDirections();
+		botInput->SetWalkButton( true );
+		// Use a coarse prediction in this case
+		context->predictionStepMillis = 48;
+		return;
+	}
+
+	// We need a fairly precise prediction while moving on ground
 	context->predictionStepMillis = 16;
+
 	// Keep actual look dir as-is, adjust position by keys only
-	botInput->SetIntendedLookDir( actualLookDir, true );
-	// This means we may strafe randomly
+	botInput->SetIntendedLookDir( intendedLookDir, true );
+
+	// If the bot is within the spot radius, random strafing is allowed
 	if( distance / campingSpotState->Radius() < 1.0f ) {
-		if( !campingSpotState->AreKeyMoveDirsValid() ) {
-			auto &traceCache = context->EnvironmentTraceCache();
-			int keyMoves[2];
-			Vec3 botToSpotDir( spotOrigin );
-			botToSpotDir -= entityPhysicsState.Origin();
-			botToSpotDir.NormalizeFast();
-			traceCache.MakeRandomizedKeyMovesToTarget( context, botToSpotDir, keyMoves );
-			campingSpotState->SetKeyMoveDirs( keyMoves[0], keyMoves[1] );
-		} else {
-			// Move dirs are kept and the bot is in the spot radius, use lesser prediction precision
+		// If there was no move dirs update and the bot is withing the spot radius, use lesser prediction precision
+		if( !TryUpdateKeyMoveDirs( context ) ) {
 			context->predictionStepMillis = 32;
 		}
-		botInput->SetForwardMovement( campingSpotState->ForwardMove() );
-		botInput->SetRightMovement( campingSpotState->RightMove() );
-		if( !botInput->ForwardMovement() && !botInput->RightMovement() ) {
-			botInput->SetUpMovement( -1 );
+
+		// All move dirs might be falsely considered blocked (while not really being blocked) in some environments
+		// Check whether at least a single movement direction is set
+		if( campingSpotState->ForwardMove() || campingSpotState->RightMove() ) {
+			botInput->SetForwardMovement( campingSpotState->ForwardMove() );
+			botInput->SetRightMovement( campingSpotState->RightMove() );
+			botInput->SetWalkButton( random() > campingSpotState->Alertness() * 0.75f );
+			return;
 		}
-	} else {
-		Vec3 botToSpotDir( spotOrigin );
-		botToSpotDir -= entityPhysicsState.Origin();
-		botToSpotDir.NormalizeFast();
-		DirToKeyInput( botToSpotDir, actualLookDir.Data(), entityPhysicsState.RightDir().Data(), botInput );
 	}
+
+	// If the bot is outside of the spot radius or there is no defined movement directions
+
+	Vec3 botToSpotDir( spotOrigin );
+	botToSpotDir -= entityPhysicsState.Origin();
+	botToSpotDir.Normalize();
+	DirToKeyInput( botToSpotDir, intendedLookDir.Data(), entityPhysicsState.RightDir().Data(), botInput );
 
 	botInput->SetWalkButton( random() > campingSpotState->Alertness() * 0.75f );
 }
