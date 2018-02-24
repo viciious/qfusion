@@ -4010,37 +4010,79 @@ void BotRidePlatformMovementAction::OnApplicationSequenceStopped( BotMovementPre
 	currTestedAreaIndex++;
 }
 
+void DirToKeyInput( const Vec3 &desiredDir, const vec3_t actualForwardDir, const vec3_t actualRightDir, BotInput *input );
+
+inline void DirToKeyInput( const Vec3 &desiredDir, const AiEntityPhysicsState &entityPhysicsState, BotInput *input ) {
+	DirToKeyInput( desiredDir, entityPhysicsState.ForwardDir().Data(), entityPhysicsState.RightDir().Data(), input );
+}
+
 void BotRidePlatformMovementAction::SetupIdleRidingPlatformMovement( BotMovementPredictionContext *context,
 																	 const edict_t *platform ) {
-	if( self->ai->botRef->savedPlatformAreas.empty() && context->NavTargetAasAreaNum() ) {
-		TrySaveExitAreas( context, platform );
-	}
+	TrySaveExitAreas( context, platform );
 
 	auto *botInput = &context->record->botInput;
+	const auto &entityPhysicsState = context->movementState->entityPhysicsState;
+
+	// Put all this shared clutter at the beginning
+
+	botInput->isUcmdSet = true;
+	botInput->canOverrideUcmd = true;
+	botInput->canOverrideLookVec = true;
+
+	Debug( "Stand idle on the platform, do not plan ahead\n" );
+	context->isCompleted = true;
+
+	// We are sure the platform has not arrived to the top, otherwise this method does not get called
+	if( VectorCompare( vec3_origin, platform->velocity ) && self->ai->botRef->MillisInBlockedState() > 500 ) {
+		// A rare but possible situation that happens e.g. on wdm1 near the GA
+		// A bot stands still and the platform is considered its groundentity but it does not move
+
+		// Look at the trigger in 2D world projection
+		Vec3 intendedLookDir( platform->s.origin );
+		intendedLookDir -= entityPhysicsState.Origin();
+		intendedLookDir.Z() = 0;
+		// Denormalization is possible, add a protection
+		float squareLength = intendedLookDir.SquaredLength();
+		if( squareLength > 1 ) {
+			intendedLookDir *= 1.0f / sqrtf( squareLength );
+			botInput->SetIntendedLookDir( intendedLookDir, true );
+			DirToKeyInput( intendedLookDir, entityPhysicsState, botInput );
+		} else {
+			// Set a random input that should not lead to blocking
+			botInput->SetIntendedLookDir( &axis_identity[AXIS_UP] );
+			botInput->SetForwardMovement( 1 );
+			botInput->SetRightMovement( 1 );
+		}
+
+		// Our aim is firing a trigger and nothing else, walk carefully
+		botInput->SetWalkButton( true );
+		return;
+	}
+
+	// The bot remains staying still on a platform in all other cases
+
 	if( self->ai->botRef->HasEnemy() ) {
 		Vec3 toEnemy( self->ai->botRef->EnemyOrigin() );
 		toEnemy -= context->movementState->entityPhysicsState.Origin();
 		botInput->SetIntendedLookDir( toEnemy, false );
-	} else {
-		float height = platform->moveinfo.start_origin[2] - platform->moveinfo.end_origin[2];
-		float frac = ( platform->s.origin[2] - platform->moveinfo.end_origin[2] ) / height;
-		if( frac > 0.5f && !self->ai->botRef->savedPlatformAreas.empty() ) {
-			const auto &area = AiAasWorld::Instance()->Areas()[self->ai->botRef->savedPlatformAreas.front()];
-			Vec3 lookVec( area.center );
-			lookVec -= context->movementState->entityPhysicsState.Origin();
-			botInput->SetIntendedLookDir( lookVec, false );
-		} else {
-			Vec3 lookVec( context->movementState->entityPhysicsState.ForwardDir() );
-			lookVec.Z() = 0.5f - 1.0f * frac;
-			botInput->SetIntendedLookDir( lookVec, false );
-		}
+		return;
 	}
 
-	botInput->isUcmdSet = true;
-	botInput->canOverrideUcmd = true;
+	float height = platform->moveinfo.start_origin[2] - platform->moveinfo.end_origin[2];
+	float frac = ( platform->s.origin[2] - platform->moveinfo.end_origin[2] ) / height;
+	// If the bot is fairly close to the destination and there are saved areas, start looking at the first one
+	if( frac > 0.5f && !self->ai->botRef->savedPlatformAreas.empty() ) {
+		const auto &area = AiAasWorld::Instance()->Areas()[self->ai->botRef->savedPlatformAreas.front()];
+		Vec3 lookVec( area.center );
+		lookVec -= context->movementState->entityPhysicsState.Origin();
+		botInput->SetIntendedLookDir( lookVec, false );
+		return;
+	}
 
-	Debug( "Stand idle on the platform, do not plan ahead\n" );
-	context->isCompleted = true;
+	// Keep looking in the current direction but change pitch
+	Vec3 lookVec( context->movementState->entityPhysicsState.ForwardDir() );
+	lookVec.Z() = 0.5f - 1.0f * frac;
+	botInput->SetIntendedLookDir( lookVec, false );
 }
 
 void BotRidePlatformMovementAction::SetupExitPlatformMovement( BotMovementPredictionContext *context,
@@ -4113,10 +4155,17 @@ const edict_t *BotRidePlatformMovementAction::GetPlatform( BotMovementPrediction
 
 void BotRidePlatformMovementAction::TrySaveExitAreas( BotMovementPredictionContext *context, const edict_t *platform ) {
 	auto &savedAreas = self->ai->botRef->savedPlatformAreas;
-	savedAreas.clear();
+	// Don't overwrite already present areas
+	if( !savedAreas.empty() ) {
+		return;
+	}
 
 	int navTargetAreaNum = self->ai->botRef->NavTargetAasAreaNum();
-	Assert( navTargetAreaNum );
+	// Skip if there is no nav target.
+	// SetupExitAreaMovement() handles the case when there is no exit areas.
+	if( !navTargetAreaNum ) {
+		return;
+	}
 
 	FindExitAreas( context, platform, tmpExitAreas );
 
