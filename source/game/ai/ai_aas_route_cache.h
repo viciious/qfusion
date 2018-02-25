@@ -43,6 +43,11 @@
 
 class AiAasRouteCache
 {
+	const int *const travelFlags;
+	// Used to provide a dummy writable address for several routing calls
+	// where we do not want to add extra branching for every call if an out parameter is unused.
+	mutable int dummyIntPtr[1];
+
 	static constexpr int CACHETYPE_PORTAL = 0;
 	static constexpr int CACHETYPE_AREA = 1;
 
@@ -173,122 +178,86 @@ class AiAasRouteCache
 		}
 	}
 
-	class FreelistPool
-	{
-public:
-		struct AreaAndPortalCacheChunkHeader {
-			AreaAndPortalCacheChunkHeader *prev;
-			AreaAndPortalCacheChunkHeader *next;
-		};
-
-private:
-		// Freelist head
-		AreaAndPortalCacheChunkHeader headChunk;
-		// Freelist free item
-		AreaAndPortalCacheChunkHeader *freeChunk;
-		// Actual chunks data
-		char *buffer;
-
-		// An actual chunk data size and a maximal count of chunks.
-		const unsigned chunkSize, maxChunks;
-		unsigned chunksInUse;
-
-public:
-		FreelistPool( void *buffer_, unsigned bufferSize, unsigned chunkSize_ );
-		virtual ~FreelistPool() {}
-
-		void *Alloc( int size );
-		void Free( void *ptr );
-
-		// True result does not guarantee that the pool owns the pointer.
-		// False result guarantees that the pool does not own the pointer.
-		inline bool MayOwn( const void *ptr ) {
-			return ptr >= buffer && ptr < buffer + maxChunks * ( chunkSize + sizeof( AreaAndPortalCacheChunkHeader ) );
-		}
-		inline bool IsFull() const { return freeChunk == nullptr; }
-		inline unsigned Size() const { return chunksInUse; }
-		inline unsigned Capacity() const { return maxChunks; }
-	};
-
-	// The enclosing class is either allocated via G_Malloc() that should be at least 8-byte aligned,
-	// or stored in a StaticVector that has 16-byte alignment.
-	class alignas ( 8 )AreaAndPortalChunksCache
-	{
-		static constexpr unsigned CHUNK_SIZE = 8192 - sizeof( FreelistPool::AreaAndPortalCacheChunkHeader );
-		// Since the real results cache has been implemented we can reduce chunks count
-		static constexpr unsigned MAX_CHUNKS = 384;
-
-		alignas( 8 ) char buffer[MAX_CHUNKS * ( CHUNK_SIZE + sizeof( FreelistPool::AreaAndPortalCacheChunkHeader ) )];
-
-		FreelistPool pooledChunks;
-		unsigned heapMemoryUsed;
-
-		// An envelope for heap-allocated chunks. Has at least 8-bit intrinsic alignment.
-		struct Envelope {
-			// For alignment purposes this should be an 8-byte item
-			uint64_t realSize;
-		};
-
-public:
-		AreaAndPortalChunksCache();
-
-		void *Alloc( int size );
-		void Free( void *ptr );
-
-		bool NeedsCleanup() {
-			if( pooledChunks.Size() / (float)pooledChunks.Capacity() > 0.66f ) {
-				return true;
-			}
-			return heapMemoryUsed > sizeof( buffer ) / 3;
-		}
-	};
-
-	AreaAndPortalChunksCache areaAndPortalChunksCache;
+	// A linked list for bins of relatively large size
+	class AreaAndPortalCacheBin *areaAndPortalCacheHead;
+	// A table of small size bins addressed by bin size
+	class AreaAndPortalCacheBin *areaAndPortalCacheTable[128];
 
 	class ResultCache
 	{
 public:
 		static constexpr unsigned MAX_CACHED_RESULTS = 512;
 		// A prime number
-		static constexpr unsigned NUM_HASH_BINS = 797;
+		// (we have increased it since bin pointers have been replaced by short integers,
+		// but not very much since we would not win in space and thus in CPU cache efficiency)
+		static constexpr unsigned NUM_HASH_BINS = 1181;
 
-		struct Node {
-			Node *prevInBin;
-			Node *nextInBin;
-			Node *prevInList;
-			Node *nextInList;
-			vec3_t fromOrigin;
-			int fromAreaNum;
-			int toAreaNum;
-			int travelFlags;
-			int reachability;
-			int travelTime;
-			uint32_t hash;
-			unsigned binIndex;
+		struct alignas( 8 )Node {
+			uint64_t key;
+
+			// A compact representation of linked list links.
+			// A negative index corresponds to a null pointer.
+			// Otherwise, an index points to a corresponding element in ResultCache::nodes array
+			struct alignas( 2 )Links {
+				int16_t prev;
+				int16_t next;
+
+				bool HasPrev() { return prev >= 0; }
+				bool HasNext() { return next >= 0; }
+			};
+
+			enum { BIN_LINKS, LIST_LINKS };
+
+			Links links[2];
+
+			uint16_t reachability;
+			uint16_t travelTime;
+			uint16_t binIndex;
+
+			// Totally 22 bytes, so only 2 bytes are wasted for 8-byte alignment
+
+			Links &ListLinks() { return links[LIST_LINKS]; }
+			const Links &ListLinks() const { return links[LIST_LINKS]; }
+			Links &BinLinks() { return links[BIN_LINKS]; }
+			const Links &BinLinks() const  { return links[BIN_LINKS]; }
 		};
 
-		static inline uint32_t Hash( const vec3_t fromOrigin, int fromAreaNum, int toAreaNum, int travelFlags ) {
-			uint32_t result = 31;
-			result = result * 17 + *reinterpret_cast<const uint32_t *>( fromOrigin + 0 );
-			result = result * 17 + *reinterpret_cast<const uint32_t *>( fromOrigin + 1 );
-			result = result * 17 + *reinterpret_cast<const uint32_t *>( fromOrigin + 2 );
-			result = result * 17 + fromAreaNum;
-			result = result * 17 + toAreaNum;
-			result = result * 17 + travelFlags;
-			return result;
+		// Assuming that area nums are limited by 16 bits, all parameters can be composed in a single integer
+		static inline uint64_t Key( int fromAreaNum, int toAreaNum, int travelFlags ) {
+			assert( fromAreaNum >= 0 && fromAreaNum <= 0xFFFF );
+			assert( toAreaNum >= 0 && toAreaNum <= 0xFFFF );
+			return ( (uint64_t)travelFlags << 32 ) | ( (uint16_t)fromAreaNum << 16 ) | ( (uint16_t)toAreaNum );
 		}
 
+		static inline uint16_t BinIndexForKey( uint64_t key ) {
+			// Convert a 64-bit key to 32-bit hash trying to preserve bits entropy.
+			// The primary purpose of it is avoiding 64-bit division in modulo computation
+			constexpr uint32_t mask32 = 0xFFFFFFFFu;
+			uint32_t loPart32 = (uint32_t)( key & mask32 );
+			uint32_t hiPart32 = (uint32_t)( ( key >> 32 ) & mask32 );
+			uint32_t hash = loPart32 * 17 + hiPart32;
+			static_assert( NUM_HASH_BINS < 0xFFFF, "Bin indices are assumed to be short" );
+			return (uint16_t)( hash % NUM_HASH_BINS );
+		}
 private:
 		Node nodes[MAX_CACHED_RESULTS];
-		Node *freeNode;
-		Node *newestUsedNode;
-		Node *oldestUsedNode;
+		// We could keep these links as pointers since they do not require a compact storage,
+		// but its better to stay uniform and use common link/unlink methods
+		int16_t freeNode;
+		int16_t newestUsedNode;
+		int16_t oldestUsedNode;
 
-		Node *bins[NUM_HASH_BINS];
+		int16_t bins[NUM_HASH_BINS];
 
+		static inline bool IsValidLink( int16_t link ) { return link >= 0; }
+		inline int16_t LinkOf( const Node *node ) { return (int16_t)( node - nodes ); }
 
-		inline void LinkToHashBin( uint32_t hash, Node *node );
+		// Constexpr usage leads to "symbol not found" crash on library loading.
+		enum { NULL_LINK = -1 };
+
+		inline void LinkToHashBin( uint16_t binIndex, Node *node );
 		inline void LinkToUsedList( Node *node );
+
 		inline Node *UnlinkOldestUsedNode();
 		inline void UnlinkOldestUsedNodeFromBin();
 		inline void UnlinkOldestUsedNodeFromList();
@@ -298,11 +267,10 @@ public:
 
 		void Clear();
 
-		// The hash must be computed by callers using Hash(). This is a bit ugly but encourages efficient usage patterns.
-		Node *GetCachedResultForHash( uint32_t hash, const vec3_t fromOrigin, int fromAreaNum,
-									  int toAreaNum, int travelFlags ) const;
-		Node *AllocAndRegisterForHash( uint32_t hash, const vec3_t fromOrigin, int fromAreaNum,
-									   int toAreaNum, int travelFlags );
+		// The key and bin index must be computed by callers using Key() and BinIndexForKey().
+		// This is a bit ugly but encourages efficient usage patterns.
+		const Node *GetCachedResultForKey( uint16_t binIndex, uint64_t key ) const;
+		Node *AllocAndRegisterForKey( uint16_t binIndex, uint64_t key );
 	};
 
 	ResultCache resultCache;
@@ -321,18 +289,13 @@ public:
 
 	int GetAreaContentsTravelFlags( int areanum );
 
-	inline void *AllocPooledChunk( int size ) {
-		return areaAndPortalChunksCache.Alloc( size );
-	}
-	inline void FreePooledChunk( void *ptr ) {
-		return areaAndPortalChunksCache.Free( ptr );
-	}
-	inline bool ShouldDrainCache() {
-		return areaAndPortalChunksCache.NeedsCleanup();
-	}
-
 	void *GetClearedMemory( int size );
 	void FreeMemory( void *ptr );
+
+	void *AllocAreaAndPortalCacheMemory( int size );
+	void FreeAreaAndPortalCacheMemory( void *ptr );
+
+	void FreeAreaAndPortalMemoryPools();
 
 	bool FreeOldestCache();
 	aas_routingcache_t *AllocRoutingCache( int numtraveltimes );
@@ -348,12 +311,11 @@ public:
 
 	struct RoutingRequest {
 		int areanum;
-		const float *origin;
 		int goalareanum;
 		int travelflags;
 
-		inline RoutingRequest( int areaNum_, const float *origin_, int goalAreaNum_, int travelFlags_ )
-			: areanum( areaNum_ ), origin( origin_ ), goalareanum( goalAreaNum_ ), travelflags( travelFlags_ ) {}
+		inline RoutingRequest( int areaNum_, int goalAreaNum_, int travelFlags_ )
+			: areanum( areaNum_ ), goalareanum( goalAreaNum_ ), travelflags( travelFlags_ ) {}
 	};
 
 	struct RoutingResult {
@@ -361,7 +323,7 @@ public:
 		int traveltime;
 	};
 
-	bool RoutingResultToGoalArea( int fromAreaNum, const vec3_t origin, int toAreaNum, int travelFlags, RoutingResult *result ) const;
+	bool RoutingResultToGoalArea( int fromAreaNum, int toAreaNum, int travelFlags, RoutingResult *result ) const;
 
 	bool RouteToGoalArea( const RoutingRequest &request, RoutingResult *result );
 	bool RouteToGoalPortal( const RoutingRequest &request, aas_routingcache_t *portalCache, RoutingResult *result );
@@ -384,7 +346,7 @@ public:
 	// Should be used only for shared route cache initialization
 	AiAasRouteCache( const AiAasWorld &aasWorld_ );
 	// Should be used for creation of new instances based on shared one
-	AiAasRouteCache( AiAasRouteCache *parent );
+	AiAasRouteCache( AiAasRouteCache *parent, const int *newTravelFlags );
 
 	static AiAasRouteCache *shared;
 
@@ -395,7 +357,7 @@ public:
 	static void Shutdown();
 
 	static AiAasRouteCache *Shared() { return shared; }
-	static AiAasRouteCache *NewInstance();
+	static AiAasRouteCache *NewInstance( const int *travelFlags_ );
 	static void ReleaseInstance( AiAasRouteCache *instance );
 
 	// A helper for emplace_back() calls on instances of this class
@@ -403,45 +365,51 @@ public:
 	~AiAasRouteCache();
 
 	inline int ReachabilityToGoalArea( int fromAreaNum, int toAreaNum, int travelFlags ) const {
-		return ReachabilityToGoalArea( fromAreaNum, nullptr, toAreaNum, travelFlags );
-	}
-
-	inline int ReachabilityToGoalArea( int fromAreaNum, const Vec3 &fromOrigin, int toAreaNum, int travelFlags ) const {
-		return ReachabilityToGoalArea( fromAreaNum, fromOrigin.Data(), toAreaNum, travelFlags );
-	}
-
-	inline int ReachabilityToGoalArea( int fromAreaNum, const vec3_t fromOrigin, int toAreaNum, int travelFlags ) const {
 		RoutingResult result;
-		if( RoutingResultToGoalArea( fromAreaNum, fromOrigin, toAreaNum, travelFlags, &result ) ) {
+		if( RoutingResultToGoalArea( fromAreaNum, toAreaNum, travelFlags, &result ) ) {
 			return result.reachnum;
 		}
 		return 0;
 	}
 
-	inline int TravelTimeToGoalArea( int fromAreaNum, int toAreaNum, int travelFlags ) const {
-		return TravelTimeToGoalArea( fromAreaNum, nullptr, toAreaNum, travelFlags );
-	}
-
-	inline int TravelTimeToGoalArea( int fromAreaNum, const Vec3 &fromOrigin, int toAreaNum, int travelFlags ) const {
-		return TravelTimeToGoalArea( fromAreaNum, fromOrigin.Data(), toAreaNum, travelFlags );
-	}
-
-	inline int TravelTimeToGoalArea( int fromAreaNum, const vec3_t fromOrigin, int toAreaNum, int travelFlags ) const {
+	inline int TravelTimeToGoalArea( int fromAreaNum,int toAreaNum, int travelFlags ) const {
 		RoutingResult result;
-		if( RoutingResultToGoalArea( fromAreaNum, fromOrigin, toAreaNum, travelFlags, &result ) ) {
+		if( RoutingResultToGoalArea( fromAreaNum, toAreaNum, travelFlags, &result ) ) {
 			return result.traveltime;
 		}
 		return 0;
 	}
 
-	inline bool ReachAndTravelTimeToGoalArea( int fromAreaNum, int toAreaNum, int travelFlags, int *reachNum, int *travelTime ) const {
-		RoutingResult result;
-		if( RoutingResultToGoalArea( fromAreaNum, nullptr, toAreaNum, travelFlags, &result ) ) {
-			*reachNum = result.reachnum;
-			*travelTime = result.traveltime;
-			return true;
-		}
-		return false;
+	// Finds a reachability/travel time to goal area testing preferred and allowed travel flags for the owner
+	// starting from preferred travel flags for the owner and stopping at first feasible result.
+	// Returns non-zero travel time on success and a reachability via the out parameter.
+	int PreferredRouteToGoalArea( int fromAreaNum, int toAreaNum, int *reachNum ) const;
+	// Tests all specified area nums for each flag before moving to the next one.
+	int PreferredRouteToGoalArea( const int *fromAreaNums, int numFromAreas, int toAreaNum, int *reachNum ) const;
+
+	// Finds a reachability/travel time to goal area testing preferred and allowed travel flags for the owner
+	// starting from preferred travel flags for the owner and choosing a best result.
+	// Returns non-zero travel time on success and a reachability via the out parameter.
+	int FastestRouteToGoalArea( int fromAreaNum, int toAreaNum, int *reachNum ) const;
+	// Returns best results for each combination of from area / travel flags.
+	int FastestRouteToGoalArea( const int *fromAreaNums, int numFromAreas, int toAreaNum, int *reachNum ) const;
+
+	// It's better to add separate prototypes than set out pointers to null by default and use branching on every call.
+	// We could also set these parameters to an address of some static variable, but it could lead to extra cache misses
+	// since all these variables are likely to be scattered in memory.
+	// The underlying calls read flags pointer that is very likely on the same cache line the dummyIntPtr is.
+
+	inline int PreferredRouteToGoalArea( int fromAreaNum, int toAreaNum ) const {
+		return PreferredRouteToGoalArea( fromAreaNum, toAreaNum, dummyIntPtr );
+	}
+	inline int PreferredRouteToGoalArea( const int *fromAreaNums, int numFromAreas, int toAreaNum ) const {
+		return PreferredRouteToGoalArea( fromAreaNums, numFromAreas, toAreaNum, dummyIntPtr );
+	}
+	inline int FastestRouteToGoalArea( int fromAreaNum, int toAreaNum ) const {
+		return FastestRouteToGoalArea( fromAreaNum, toAreaNum, dummyIntPtr );
+	}
+	inline int FastestRouteToGoalArea( const int *fromAreaNums, int numFromAreas, int toAreaNum ) const {
+		return FastestRouteToGoalArea( fromAreaNums, numFromAreas, toAreaNum, dummyIntPtr );
 	}
 
 	inline bool AreaDisabled( int areaNum ) const {

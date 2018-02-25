@@ -53,7 +53,7 @@ class Bot : public Ai
 	friend class BotWeaponSelector;
 	friend class BotRoamingManager;
 	friend class TacticalSpotsRegistry;
-	friend class BotVisitedAreasCache;
+	friend class BotNavMeshQueryCache;
 	friend class BotFallbackMovementPath;
 	friend class BotSameFloorClusterAreasCache;
 	friend class BotBaseGoal;
@@ -87,16 +87,22 @@ class Bot : public Ai
 	friend class BotWalkOrSlideInterpolatingReachChainMovementAction;
 	friend class BotCombatDodgeSemiRandomlyToTargetMovementAction;
 
+	friend class BotGenericGroundMovementFallback;
+	friend class BotUseWalkableNodeMovementFallback;
+	friend class BotUseRampExitMovementFallback;
+	friend class BotUseStairsExitMovementFallback;
+	friend class BotUseWalkableTriggerMovementFallback;
+	friend class BotFallDownMovementFallback;
+	friend class BotJumpOverBarrierMovementFallback;
 public:
 	static constexpr auto PREFERRED_TRAVEL_FLAGS =
-		TFL_WALK | TFL_WALKOFFLEDGE | TFL_JUMP | TFL_AIR | TFL_TELEPORT | TFL_JUMPPAD;
+		TFL_WALK | TFL_WALKOFFLEDGE | TFL_JUMP | TFL_STRAFEJUMP | TFL_AIR | TFL_TELEPORT | TFL_JUMPPAD;
 	static constexpr auto ALLOWED_TRAVEL_FLAGS =
 		PREFERRED_TRAVEL_FLAGS | TFL_WATER | TFL_WATERJUMP | TFL_SWIM | TFL_LADDER | TFL_ELEVATOR | TFL_BARRIERJUMP;
 
 	Bot( edict_t *self_, float skillLevel_ );
-	virtual ~Bot() override {
-		AiAasRouteCache::ReleaseInstance( routeCache );
-	}
+
+	~Bot() override;
 
 	inline float Skill() const { return skillLevel; }
 	inline bool IsReady() const { return level.ready[PLAYERNUM( self )]; }
@@ -222,6 +228,8 @@ public:
 		return entityPhysicsState;
 	}
 
+	bool TestWhetherCanSafelyKeepHighSpeed( BotMovementPredictionContext *context = nullptr );
+
 	// The movement code should use this method if there really are no
 	// feasible ways to continue traveling to the nav target.
 	void OnMovementToNavTargetBlocked();
@@ -330,6 +338,17 @@ private:
 	BotMovementState movementState;
 
 	BotMovementPredictionContext movementPredictionContext;
+
+	BotUseWalkableNodeMovementFallback useWalkableNodeMovementFallback;
+	BotUseRampExitMovementFallback useRampExitMovementFallback;
+	BotUseStairsExitMovementFallback useStairsExitMovementFallback;
+	BotUseWalkableTriggerMovementFallback useWalkableTriggerMovementFallback;
+
+	BotJumpToSpotMovementFallback jumpToSpotMovementFallback;
+	BotFallDownMovementFallback fallDownMovementFallback;
+	BotJumpOverBarrierMovementFallback jumpOverBarrierMovementFallback;
+
+	BotMovementFallback *activeMovementFallback;
 
 	int64_t vsayTimeout;
 
@@ -504,6 +523,8 @@ public:
 	const Enemy *lastChosenLostOrHiddenEnemy;
 	unsigned lastChosenLostOrHiddenEnemyInstanceId;
 
+	class AiNavMeshQuery *navMeshQuery;
+
 	void UpdateKeptInFovPoint();
 
 	void UpdateScriptWeaponsStatus();
@@ -568,9 +589,6 @@ public:
 	static constexpr unsigned MAX_SAVED_AREAS = BotMovementPredictionContext::MAX_SAVED_LANDING_AREAS;
 	StaticVector<int, MAX_SAVED_AREAS> savedLandingAreas;
 	StaticVector<int, MAX_SAVED_AREAS> savedPlatformAreas;
-
-	BotFallbackMovementPath fallbackMovementPath;
-	BotVisitedAreasCache visitedAreasCache;
 
 	void CheckTargetProximity();
 

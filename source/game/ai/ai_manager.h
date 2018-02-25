@@ -16,6 +16,11 @@ protected:
 
 	int teams[MAX_CLIENTS];
 	ai_handle_t *last;
+	ai_handle_t *cpuQuotaOwner;
+	int64_t cpuQuotaGivenAt;
+
+	int hubAreas[16];
+	int numHubAreas;
 
 	static AiManager *instance;
 	virtual void Frame() override;
@@ -159,6 +164,9 @@ public:
 
 	void SetupBotGoalsAndActions( edict_t *ent );
 
+	void FindHubAreas();
+
+	void UpdateCpuQuotaOwner();
 public:
 	void LinkAi( ai_handle_t *ai );
 	void UnlinkAi( ai_handle_t *ai );
@@ -191,6 +199,18 @@ public:
 		registeredGoals.ClearToLimit();
 		registeredActions.ClearToLimit();
 	}
+
+	bool IsAreaReachableFromHubAreas( int targetArea, float *score = nullptr ) const;
+
+	// Allows cycling rights to perform CPU-consuming operations among bots.
+	// This is similar to checking ent == level.think_client_entity but counts only bots
+	// making cycling and thus frametimes more even.
+	// These calls have semantics similar to "compare and swap":
+	// * If somebody has already requested an operation, returns false.
+	// * Otherwise, sets some internal lock and returns true.
+	// Note that subsequent calls in the same frame fail even for the same client
+	// (only a single expensive operation is allowed per frame globally).
+	bool TryGetExpensiveComputationQuota( const edict_t *ent );
 };
 
 #endif

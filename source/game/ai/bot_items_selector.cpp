@@ -250,6 +250,10 @@ SelectedNavEntity BotItemsSelector::SuggestGoalNavEntity( const SelectedNavEntit
 		currFloorClusterNum = aasFloorClusterNums[entityPhysicsState->DroppedToFloorAasAreaNum()];
 	}
 
+	int fromAreaNums[2] = { 0, 0 };
+	const int numFromAreas = entityPhysicsState->PrepareRoutingStartAreas( fromAreaNums );
+	const auto *routeCache = self->ai->botRef->routeCache;
+
 	const NavEntity *currGoalNavEntity = currSelectedNavEntity.navEntity;
 	float currGoalEntWeight = 0.0f;
 	float currGoalEntCost = 0.0f;
@@ -267,10 +271,8 @@ SelectedNavEntity BotItemsSelector::SuggestGoalNavEntity( const SelectedNavEntit
 		unsigned waitDuration = 1;
 
 		if( self->ai->botRef->CurrAreaNum() != navEnt->AasAreaNum() ) {
-			// We ignore cost of traveling in goal area, since:
-			// 1) to estimate it we have to retrieve reachability to goal area from last area before the goal area
-			// 2) it is relative low compared to overall travel cost, and movement in areas is cheap anyway
-			moveDuration = self->ai->botRef->botBrain.FindTravelTimeToGoalArea( navEnt->AasAreaNum() ) * 10U;
+			// This call returns an AAS travel time (and optionally a next reachability via out parameter)
+			moveDuration = routeCache->PreferredRouteToGoalArea( fromAreaNums, numFromAreas, navEnt->AasAreaNum() ) * 10U;
 			// AAS functions return 0 as a "none" value, 1 as a lowest feasible value
 			if( !moveDuration ) {
 				continue;

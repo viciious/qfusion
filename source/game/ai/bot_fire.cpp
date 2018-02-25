@@ -1,4 +1,5 @@
 #include "bot.h"
+#include "ai_trajectory_predictor.h"
 #include "ai_shutdown_hooks_holder.h"
 
 inline bool operator!=( const AiScriptWeaponDef &first, const AiScriptWeaponDef &second ) {
@@ -194,52 +195,22 @@ bool Bot::TryTraceShot( trace_t *tr, const Vec3 &newLookDir, const AimParams &ai
 		return true;
 	}
 
-	// For drop aim type weapons (a gravity is applied to a projectile) split projectile trajectory in segments
-	vec3_t segmentStart;
-	vec3_t segmentEnd;
-	VectorCopy( aimParams.fireOrigin, segmentEnd );
+	AiTrajectoryPredictor predictor;
+	predictor.SetStepMillis( 250 );
+	predictor.SetNumSteps( 6 );
+	predictor.SetExtrapolateLastStep( true );
+	predictor.SetEntitiesCollisionProps( true, ENTNUM( self ) );
+	predictor.AddStopEventFlags( AiTrajectoryPredictor::HIT_SOLID );
 
 	Vec3 projectileVelocity( newLookDir );
 	projectileVelocity *= fireDef.ProjectileSpeed();
 
-	const int numSegments = (int)( 2 + 4 * Skill() );
-	// Predict for 1 second
-	const float timeStep = 1.0f / numSegments;
-	const float halfGravity = 0.5f * level.gravity;
-	const float *fireOrigin = aimParams.fireOrigin;
+	AiTrajectoryPredictor::Results predictionResults;
+	// We can supply a custom trace so there is no need to copy results after Run() call
+	predictionResults.trace = tr;
 
-	float currTime = timeStep;
-	for( int i = 0; i < numSegments; ++i ) {
-		VectorCopy( segmentEnd, segmentStart );
-		segmentEnd[0] = fireOrigin[0] + projectileVelocity.X() * currTime;
-		segmentEnd[1] = fireOrigin[1] + projectileVelocity.Y() * currTime;
-		segmentEnd[2] = fireOrigin[2] + projectileVelocity.Z() * currTime - halfGravity * currTime * currTime;
-
-		G_Trace( tr, segmentStart, nullptr, nullptr, segmentEnd, self, MASK_AISOLID );
-		if( tr->fraction != 1.0f ) {
-			break;
-		}
-
-		currTime += timeStep;
-	}
-
-	if( tr->fraction != 1.0f ) {
-		return true;
-	}
-
-	// If hit point has not been found for predicted for 1 second trajectory
-	// Check a trace from the last segment end to an infinite point
-	VectorCopy( segmentEnd, segmentStart );
-	currTime = 999.0f;
-	segmentEnd[0] = fireOrigin[0] + projectileVelocity.X() * currTime;
-	segmentEnd[1] = fireOrigin[1] + projectileVelocity.Y() * currTime;
-	segmentEnd[2] = fireOrigin[2] + projectileVelocity.Z() * currTime - halfGravity * currTime * currTime;
-	G_Trace( tr, segmentStart, nullptr, nullptr, segmentEnd, self, MASK_AISOLID );
-	if( tr->fraction == 1.0f ) {
-		return false;
-	}
-
-	return true;
+	auto stopEvents = predictor.Run( projectileVelocity.Data(), aimParams.fireOrigin, &predictionResults );
+	return ( stopEvents & ( AiTrajectoryPredictor::HIT_SOLID | AiTrajectoryPredictor::HIT_ENTITY ) ) != 0;
 }
 
 bool Bot::CheckSplashTeamDamage( const vec3_t hitOrigin, const AimParams &aimParams, const GenericFireDef &fireDef ) {

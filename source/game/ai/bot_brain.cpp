@@ -459,7 +459,7 @@ nextArea:;
 }
 
 bool BotBrain::FindDodgeDangerSpot( const Danger &danger, vec3_t spotOrigin ) {
-	TacticalSpotsRegistry::OriginParams originParams( self, 128.0f + 192.0f * BotSkill(), RouteCache() );
+	TacticalSpotsRegistry::OriginParams originParams( self, 128.0f + 192.0f * BotSkill(), self->ai->botRef->routeCache );
 	TacticalSpotsRegistry::DodgeDangerProblemParams problemParams( danger.hitPoint, danger.direction, danger.IsSplashLike() );
 	problemParams.SetCheckToAndBackReachability( false );
 	problemParams.SetMinHeightAdvantageOverOrigin( -64.0f );
@@ -622,7 +622,10 @@ void BotBrain::PrepareCurrWorldState( WorldState *worldState ) {
 		worldState->NavTargetOriginVar().SetValue( navEntity->Origin() );
 		// Find a travel time to the goal itme nav entity in milliseconds
 		// We hope this router call gets cached by AAS subsystem
-		unsigned travelTime = 10U * FindTravelTimeToGoalArea( navEntity->AasAreaNum() );
+		int areaNums[2] = { 0, 0 };
+		int numAreas = self->ai->botRef->EntityPhysicsState()->PrepareRoutingStartAreas( areaNums );
+		const auto *routeCache = self->ai->botRef->routeCache;
+		unsigned travelTime = 10U * routeCache->PreferredRouteToGoalArea( areaNums, numAreas, navEntity->AasAreaNum() );
 		// AAS returns 1 seconds^-2 as a lowest feasible value
 		if( travelTime <= 10 ) {
 			travelTime = 0;

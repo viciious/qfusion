@@ -1,6 +1,8 @@
 project (game)
 
 include_directories(${ANGELSCRIPT_INCLUDE_DIR})
+include_directories("../../third-party/recastnavigation/Recast/Include")
+include_directories("../../third-party/recastnavigation/Detour/Include")
 
 file(GLOB GAME_HEADERS
     "*.h"
@@ -8,6 +10,8 @@ file(GLOB GAME_HEADERS
 	"../gameshared/*.h"
 	"../qalgo/base64.h"
 	"../qalgo/md5.h"
+	"../../third-party/recastnavigation/Recast/Include/*.h"
+	"../../third-party/recastnavigation/Detour/Include/*.h"
 )
 
 file(GLOB GAME_SOURCES
@@ -17,6 +21,8 @@ file(GLOB GAME_SOURCES
     "../matchmaker/mm_rating.c"
 	"../qalgo/base64.c"
 	"../qalgo/md5.c"
+	"../../third-party/recastnavigation/Recast/Source/*.cpp"
+	"../../third-party/recastnavigation/Detour/Source/*.cpp"
 )
 
 add_library(game SHARED ${GAME_SOURCES} ${GAME_HEADERS})

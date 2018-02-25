@@ -237,8 +237,8 @@ void GetHashAndLength( const char *str, unsigned *hash, unsigned *length );
 unsigned GetHashForLength( const char *str, unsigned length );
 
 // A cheaper version of G_Trace() that does not check against entities
-inline void SolidWorldTrace( trace_t *trace, const vec3_t from, const vec3_t to,
-							 const vec3_t mins = vec3_origin, const vec3_t maxs = vec3_origin ) {
+inline void StaticWorldTrace( trace_t *trace, const vec3_t from, const vec3_t to, int contentsMask,
+							  const vec3_t mins = vec3_origin, const vec3_t maxs = vec3_origin ) {
 	assert( from );
 	float *from_ = const_cast<float *>( from );
 	assert( to );
@@ -247,7 +247,13 @@ inline void SolidWorldTrace( trace_t *trace, const vec3_t from, const vec3_t to,
 	float *mins_ = const_cast<float *>( mins );
 	assert( maxs );
 	float *maxs_ = const_cast<float *>( maxs );
-	trap_CM_TransformedBoxTrace( trace, from_, to_, mins_, maxs_, nullptr, MASK_SOLID, nullptr, nullptr );
+	trap_CM_TransformedBoxTrace( trace, from_, to_, mins_, maxs_, nullptr, contentsMask, nullptr, nullptr );
+}
+
+// This shorthand is for backward compatibility and some degree of convenience
+inline void SolidWorldTrace( trace_t *trace, const vec3_t from, const vec3_t to,
+							 const vec3_t mins = vec3_origin, const vec3_t maxs = vec3_origin ) {
+	StaticWorldTrace( trace, from, to, MASK_SOLID, mins, maxs );
 }
 
 struct EntAndScore {

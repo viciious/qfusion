@@ -4,7 +4,10 @@ LOCAL_MODULE := game
 LOCAL_MODULE_FILENAME := lib$(LOCAL_MODULE)_android_$(TARGET_ARCH_ABI)
 
 LOCAL_CFLAGS := -DGAME_MODULE
-LOCAL_C_INCLUDES := $(QFUSION_PATH)/third-party/angelscript/sdk/angelscript/include
+LOCAL_C_INCLUDES := \
+    $(QFUSION_PATH)/third-party/angelscript/sdk/angelscript/include \
+    $(QFUSION_PATH)/third-party/recastnavigation/Recast/Include \
+    $(QFUSION_PATH)/third-party/recastnavigation/Detour/Include
 
 LOCAL_SRC_FILES := \
   ../gameshared/gs_gameteams.c \
@@ -21,6 +24,8 @@ LOCAL_SRC_FILES := \
   ../qalgo/base64.c \
   ../qalgo/md5.c \
   $(addprefix ai/,$(notdir $(wildcard $(LOCAL_PATH)/ai/*.cpp))) \
-  $(notdir $(wildcard $(LOCAL_PATH)/*.cpp))
+  $(notdir $(wildcard $(LOCAL_PATH)/*.cpp)) \
+  $(wildcard $(QFUSION_PATH)/third-party/recastnavigation/Recast/Source/*.cpp) \
+  $(wildcard $(QFUSION_PATH)/third-party/recastnavigation/Detour/Source/*.cpp)
 
 include $(BUILD_SHARED_LIBRARY)

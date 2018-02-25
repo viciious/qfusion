@@ -1,5 +1,6 @@
 #include "bot.h"
 #include "ai_aas_world.h"
+#include "ai_nav_mesh_manager.h"
 #include <algorithm>
 
 #ifndef _MSC_VER
@@ -10,7 +11,8 @@
 #endif
 
 Bot::Bot( edict_t *self_, float skillLevel_ )
-	: Ai( self_, &botBrain, AiAasRouteCache::NewInstance(), &movementState.entityPhysicsState, PREFERRED_TRAVEL_FLAGS, ALLOWED_TRAVEL_FLAGS ),
+	: Ai( self_, &botBrain, AiAasRouteCache::NewInstance( &travelFlags[0] ),
+		  &movementState.entityPhysicsState, PREFERRED_TRAVEL_FLAGS, ALLOWED_TRAVEL_FLAGS ),
 	weightConfig( self_ ),
 	perceptionManager( self_ ),
 	botBrain( this, skillLevel_ ),
@@ -68,6 +70,14 @@ Bot::Bot( edict_t *self_, float skillLevel_ )
 	walkOrSlideInterpolatingReachChainMovementAction( this ),
 	combatDodgeSemiRandomlyToTargetMovementAction( this ),
 	movementPredictionContext( self_ ),
+	useWalkableNodeMovementFallback( self_ ),
+	useRampExitMovementFallback( self_ ),
+	useStairsExitMovementFallback( self_ ),
+	useWalkableTriggerMovementFallback( self_ ),
+	jumpToSpotMovementFallback( self_ ),
+	fallDownMovementFallback( self_ ),
+	jumpOverBarrierMovementFallback( self_ ),
+	activeMovementFallback( nullptr ),
 	vsayTimeout( level.time + 10000 ),
 	isInSquad( false ),
 	defenceSpotId( -1 ),
@@ -85,8 +95,7 @@ Bot::Bot( edict_t *self_, float skillLevel_ )
 	inputRotationBlockingTimer( 0 ),
 	lastInputRotationFailureAt( 0 ),
 	lastChosenLostOrHiddenEnemy( nullptr ),
-	lastChosenLostOrHiddenEnemyInstanceId( 0 ),
-	visitedAreasCache( self_ ) {
+	lastChosenLostOrHiddenEnemyInstanceId( 0 ) {
 	self->r.client->movestyle = GS_CLASSICBUNNY;
 	// Enable skimming for bots (since it is useful and should not be noticed from a 3rd person POV).
 	self->r.client->ps.pmove.stats[PM_STAT_FEATURES] &= PMFEAT_CORNERSKIMMING;
@@ -96,6 +105,14 @@ Bot::Bot( edict_t *self_, float skillLevel_ )
 #ifndef _MSC_VER
 #pragma GCC diagnostic pop
 #endif
+
+Bot::~Bot() {
+	AiAasRouteCache::ReleaseInstance( routeCache );
+
+	if( navMeshQuery ) {
+		AiNavMeshManager::Instance()->FreeQuery( navMeshQuery );
+	}
+}
 
 void Bot::ApplyPendingTurnToLookAtPoint( BotInput *botInput, BotMovementPredictionContext *context ) const {
 	BotPendingLookAtPointState *pendingLookAtPointState;
@@ -703,10 +720,17 @@ void Bot::GhostingFrame() {
 	botBrain.ClearGoalAndPlan();
 
 	movementState.Reset();
-	fallbackMovementPath.Deactivate();
+	activeMovementFallback = nullptr;
 
 	blockedTimeoutAt = level.time + BLOCKED_TIMEOUT;
 	self->nextThink = level.time + 100;
+
+	// Release this quite huge object while it is not really needed.
+	// We have decided avoid its preallocation and ignore allocation failures.
+	if( navMeshQuery ) {
+		AiNavMeshManager::Instance()->FreeQuery( navMeshQuery );
+		navMeshQuery = nullptr;
+	}
 
 	// wait 4 seconds after entering the level
 	if( self->r.client->level.timeStamp + 4000 > level.time || !level.canSpawnEntities ) {

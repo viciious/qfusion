@@ -1,4 +1,5 @@
 #include "bot_fire_target_cache.h"
+#include "ai_trajectory_predictor.h"
 #include "ai_shutdown_hooks_holder.h"
 #include "bot.h"
 
@@ -565,6 +566,122 @@ static inline void TryAimingAtGround( trace_t *trace, AimParams *aimParams, edic
 	}
 }
 
+class HitPointPredictor final: private AiTrajectoryPredictor {
+public:
+
+	struct ProblemParams {
+		const Vec3 fireOrigin;
+		const Vec3 targetVelocity;
+		const edict_t *enemyEnt;
+		const float projectileSpeed;
+
+		ProblemParams( const vec3_t fireOrigin_, const vec3_t targetVelocity_,
+					   const edict_t *enemyEnt_, const float projectileSpeed_ )
+			: fireOrigin( fireOrigin_ ), targetVelocity( targetVelocity_ ),
+			  enemyEnt( enemyEnt_ ), projectileSpeed( projectileSpeed_ ) {}
+	};
+
+private:
+	const ProblemParams *problemParams;
+	float *fireTarget;
+
+	bool tryHitInAir;
+	bool hasFailed;
+
+	bool OnPredictionStep( const Vec3 &segmentStart, const Results *results ) override;
+public:
+	HitPointPredictor()
+		: problemParams( nullptr ),
+		  fireTarget( nullptr ),
+		  tryHitInAir( true ),
+		  hasFailed( false ) {}
+
+	bool Run( const ProblemParams &problemParams_, float skill, vec3_t fireTarget_ );
+};
+
+bool HitPointPredictor::Run( const ProblemParams &problemParams_, float skill, vec3_t fireTarget_ ) {
+	SetStepMillis( (unsigned)( 200.0f - 100.0f * skill ) );
+	SetNumSteps( (unsigned)( 6 + 12 * skill ) );
+
+	tryHitInAir = true;
+	hasFailed = false;
+	this->problemParams = &problemParams_;
+	this->fireTarget = fireTarget_;
+
+	SetEntitiesCollisionProps( true, ENTNUM( problemParams_.enemyEnt ) );
+	SetColliderBounds( vec3_origin, playerbox_stand_maxs );
+	AddStopEventFlags( HIT_SOLID );
+	SetExtrapolateLastStep( true );
+
+	Vec3 startOrigin( fireTarget_ );
+	AiTrajectoryPredictor::Results baseResults;
+	auto stopEvents = AiTrajectoryPredictor::Run( problemParams->targetVelocity, startOrigin, &baseResults );
+
+	// If a hit point has been found in OnPredictionStep(), a prediction gets interrupted
+	return ( stopEvents & INTERRUPTED ) && !hasFailed;
+}
+
+bool HitPointPredictor::OnPredictionStep( const Vec3 &segmentStart, const Results *results ) {
+	if( results->trace->fraction != 1.0f ) {
+		if( ( results->trace->contents & CONTENTS_NODROP ) || ( results->trace->surfFlags & SURF_NOIMPACT ) ) {
+			hasFailed = true;
+		} else {
+			VectorCopy( results->trace->endpos, fireTarget );
+			if( ISWALKABLEPLANE( &results->trace->plane ) ) {
+				// There are sophisticated algorithms applied on top of this result
+				// for determining where to shoot an explosive, don't stick to a ground.
+				fireTarget[2] += -playerbox_stand_mins[2];
+			}
+		}
+
+		// Interrupt base trajectory prediction
+		return false;
+	}
+
+	// Wait for hitting a solid
+	if( !tryHitInAir ) {
+		return true;
+	}
+
+	Vec3 segmentTargetVelocity( problemParams->targetVelocity );
+	// const float zPartAtSegmentStart = 0.001f * ( results->millisAhead - stepMillis ) * level.gravity;
+	// const float zPartAtSegmentEnd = 0.001f * results->millisAhead * level.gravity;
+	// segmentTargetVelocity.Z() -= 0.5f * ( zPartAtSegmentStart + zPartAtSegmentEnd );
+	segmentTargetVelocity.Z() -= 0.5f * 0.001f * ( 2.0f * results->millisAhead - stepMillis ) * level.gravity;
+
+	// TODO: Projectile speed used in PredictProjectileNoClip() needs correction
+	// We can't offset fire origin since we do not know direction to target yet
+	// Instead, increase projectile speed used in calculations according to currTime
+	// Exact formula is to be proven yet
+	Vec3 predictedTarget( segmentStart );
+	if( !PredictProjectileNoClip( problemParams->fireOrigin, problemParams->projectileSpeed,
+								  predictedTarget.Data(), segmentTargetVelocity ) ) {
+		tryHitInAir = false;
+		// Wait for hitting a solid
+		return true;
+	}
+
+	// Check whether predictedTarget is within [currPoint, nextPoint]
+	// where extrapolation that use currTargetVelocity is assumed to be valid.
+	Vec3 segmentEnd( results->origin );
+	Vec3 segmentVec( segmentEnd );
+	segmentVec -= segmentStart;
+	Vec3 predictedTargetToEndVec( segmentEnd );
+	predictedTargetToEndVec -= predictedTarget;
+	Vec3 predictedTargetToStartVec( segmentStart );
+	predictedTargetToStartVec -= predictedTarget;
+
+	if( segmentVec.Dot( predictedTargetToEndVec ) >= 0 && segmentVec.Dot( predictedTargetToStartVec ) <= 0 ) {
+		// Can hit in air
+		predictedTarget.CopyTo( fireTarget );
+		// Interrupt the base trajectory prediction
+		return false;
+	}
+
+	// Continue a base trajectory prediction
+	return true;
+}
+
 void BotFireTargetCache::PredictProjectileShot( const SelectedEnemies &selectedEnemies, float projectileSpeed,
 												AimParams *aimParams, bool applyTargetGravity ) {
 	if( projectileSpeed <= 0.0f ) {
@@ -574,113 +691,40 @@ void BotFireTargetCache::PredictProjectileShot( const SelectedEnemies &selectedE
 	trace_t trace;
 	edict_t *traceKey = const_cast<edict_t*>( selectedEnemies.TraceKey() );
 
-	// Copy for convenience
-	Vec3 fireOrigin( aimParams->fireOrigin );
-
 	if( applyTargetGravity ) {
-		// Aside from solving quite complicated system of equations that involve acceleration,
-		// we have to predict target collision with map environment.
-		// To solve it, we approximate target trajectory as a polyline
-		// that consists of linear segments plus an end ray from last segment point to infinity.
-		// We assume that target velocity is constant withing bounds of a segment.
+		HitPointPredictor predictor;
+		HitPointPredictor::ProblemParams predictionParams( aimParams->fireOrigin,
+														   selectedEnemies.LastSeenVelocity().Data(),
+														   selectedEnemies.TraceKey(),
+														   projectileSpeed );
 
-		constexpr float TIME_STEP = 0.15f; // Time is in seconds
-
-		Vec3 currPoint( aimParams->fireTarget );
-		float currTime = 0.0f;
-		float nextTime = TIME_STEP;
-
-
-		const int maxSegments = 2 + (int)( 2.1 * bot->ai->botRef->Skill() );
-
-		const float *targetVelocity = selectedEnemies.LastSeenVelocity().Data();
-
-		for( int i = 0; i < maxSegments; ++i ) {
-			Vec3 nextPoint( aimParams->fireTarget );
-			nextPoint.X() += targetVelocity[0] * nextTime;
-			nextPoint.Y() += targetVelocity[1] * nextTime;
-			nextPoint.Z() += targetVelocity[2] * nextTime - 0.5f * level.gravity * nextTime * nextTime;
-
-			// We assume that target has the same velocity as currPoint on a [currPoint, nextPoint] segment
-			Vec3 currTargetVelocity( targetVelocity );
-			currTargetVelocity.Z() -= level.gravity * currTime;
-
-			// TODO: Projectile speed used in PredictProjectileNoClip() needs correction
-			// We can't offset fire origin since we do not know direction to target yet
-			// Instead, increase projectile speed used in calculations according to currTime
-			// Exact formula is to be proven yet
-			Vec3 predictedTarget( currPoint );
-			if( !PredictProjectileNoClip( fireOrigin, projectileSpeed, predictedTarget.Data(), currTargetVelocity ) ) {
-				TryAimingAtGround( &trace, aimParams, traceKey );
-				return;
-			}
-
-			// Check whether predictedTarget is within [currPoint, nextPoint]
-			// where extrapolation that use currTargetVelocity is assumed to be valid.
-			Vec3 currToNextVec = nextPoint - currPoint;
-			Vec3 predictedTargetToNextVec = nextPoint - predictedTarget;
-			Vec3 predictedTargetToCurrVec = currPoint - predictedTarget;
-
-			if( currToNextVec.Dot( predictedTargetToNextVec ) >= 0 && currToNextVec.Dot( predictedTargetToCurrVec ) <= 0 ) {
-				// Trace from the segment start (currPoint) to the predictedTarget
-				G_Trace( &trace, currPoint.Data(), nullptr, nullptr, predictedTarget.Data(), traceKey, MASK_AISOLID );
-				if( trace.fraction == 1.0f ) {
-					// Target may be hit in air
-					VectorCopy( predictedTarget.Data(), aimParams->fireTarget );
-				} else {
-					// Segment from currPoint to predictedTarget hits solid, use trace end as a predicted target
-					VectorCopy( trace.endpos, aimParams->fireTarget );
-				}
-				return;
-			} else {
-				// Trace from the segment start (currPoint) to the segment end (nextPoint)
-				G_Trace( &trace, currPoint.Data(), nullptr, nullptr, nextPoint.Data(), traceKey, MASK_AISOLID );
-				if( trace.fraction != 1.0f ) {
-					// Trajectory segment hits solid, use trace end as a predicted target point and return
-					VectorCopy( trace.endpos, aimParams->fireTarget );
-					return;
-				}
-			}
-
-			// Test next segment
-			currTime = nextTime;
-			nextTime += TIME_STEP;
-			currPoint = nextPoint;
-		}
-
-		// We have tested all segments up to maxSegments and have not found an impact point yet.
-		// Approximate the rest of the trajectory as a ray.
-
-		Vec3 currTargetVelocity( targetVelocity );
-		currTargetVelocity.Z() -= level.gravity * currTime;
-
-		Vec3 predictedTarget( currPoint );
-		if( !PredictProjectileNoClip( fireOrigin, projectileSpeed, predictedTarget.Data(), currTargetVelocity ) ) {
+		if( !predictor.Run( predictionParams, bot->ai->botRef->Skill(), aimParams->fireTarget ) ) {
 			TryAimingAtGround( &trace, aimParams, traceKey );
-			return;
 		}
+		return;
+	}
 
-		G_Trace( &trace, currPoint.Data(), nullptr, nullptr, predictedTarget.Data(), traceKey, MASK_AISOLID );
-		if( trace.fraction == 1.0f ) {
-			VectorCopy( predictedTarget.Data(), aimParams->fireTarget );
-		} else {
-			VectorCopy( trace.endpos, aimParams->fireTarget );
-		}
+	Vec3 predictedTarget( aimParams->fireTarget );
+	if( !PredictProjectileNoClip( Vec3( aimParams->fireOrigin ),
+								  projectileSpeed,
+								  predictedTarget.Data(),
+								  selectedEnemies.LastSeenVelocity() ) ) {
+		TryAimingAtGround( &trace, aimParams, traceKey );
+		return;
+	}
+
+	// Test a segment between predicted target and initial target
+	// Aim at the trace hit point if there is an obstacle.
+	// Aim at the predicted target otherwise.
+	G_Trace( &trace, aimParams->fireTarget, nullptr, nullptr, predictedTarget.Data(), traceKey, MASK_AISOLID );
+	if( trace.fraction == 1.0f ) {
+		VectorCopy( predictedTarget.Data(), aimParams->fireTarget );
 	} else {
-		Vec3 predictedTarget( aimParams->fireTarget );
-		if( !PredictProjectileNoClip( Vec3( fireOrigin ),
-									  projectileSpeed,
-									  predictedTarget.Data(),
-									  selectedEnemies.LastSeenVelocity() ) ) {
-			TryAimingAtGround( &trace, aimParams, traceKey );
-			return;
-		}
-
-		G_Trace( &trace, aimParams->fireTarget, nullptr, nullptr, predictedTarget.Data(), traceKey, MASK_AISOLID );
-		if( trace.fraction == 1.0f ) {
-			VectorCopy( predictedTarget.Data(), aimParams->fireTarget );
-		} else {
-			VectorCopy( trace.endpos, aimParams->fireTarget );
+		VectorCopy( trace.endpos, aimParams->fireTarget );
+		if( ISWALKABLEPLANE( &trace.plane ) ) {
+			// There are sophisticated algorithms applied on top of this result
+			// for determining where to shoot an explosive, don't stick to a ground.
+			aimParams->fireTarget[2] += -playerbox_stand_mins[2];
 		}
 	}
 }

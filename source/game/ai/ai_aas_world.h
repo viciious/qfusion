@@ -77,6 +77,9 @@
 #define AREA_JUNK                   512     //area does not look like useful.
 #define AREA_INCLINED_FLOOR         1024    //area has an inclined floor (AAS treats these areas as having a flat one)
 #define AREA_SLIDABLE_RAMP          2048    //area is a slidable ramp (AREA_INCLINED_FLOOR is implied and set too)
+#define AREA_SKIP_COLLISION_16      4096    //if a bot is in any point of an area and is in air above ground,
+#define AREA_SKIP_COLLISION_32      8192    //it's legal to skip collision in PMove() for specified suffix
+#define AREA_SKIP_COLLISION_48      16384   //units around/above.
 
 //========== bounding box =========
 
@@ -293,6 +296,9 @@ class AiAasWorld
 	void TrySetAreaWallFlags( int areaNum );
 	void TrySetAreaJunkFlags( int areaNum );
 	void TrySetAreaRampFlags( int areaNum );
+
+	// Should be called after all other flags are computed
+	void TrySetAreaSkipCollisionFlags();
 
 	void FreeLinkHeap();
 	void FreeLinkedEntities();

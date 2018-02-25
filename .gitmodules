@@ -7,3 +7,6 @@
 [submodule "libsrcs"]
 	path = libsrcs
 	url = https://github.com/Qfusion/qfusion-libsrcs.git
+[submodule "third-party/recastnavigation"]
+	path = third-party/recastnavigation
+	url = https://github.com/Warsow/recastnavigation.git
