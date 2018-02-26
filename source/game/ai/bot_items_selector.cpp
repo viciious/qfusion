@@ -225,9 +225,9 @@ SelectedNavEntity BotItemsSelector::SuggestGoalNavEntity( const SelectedNavEntit
 		}
 
 		// This is a coarse and cheap test, helps to reject recently picked armors and powerups
-		unsigned spawnTime = navEnt->SpawnTime();
+		int64_t spawnTime = navEnt->SpawnTime();
 		// A feasible spawn time (non-zero) always >= level.time.
-		if( !spawnTime || level.time - spawnTime > 15000 ) {
+		if( !spawnTime || spawnTime - level.time > 15000 ) {
 			continue;
 		}
 
@@ -237,12 +237,45 @@ SelectedNavEntity BotItemsSelector::SuggestGoalNavEntity( const SelectedNavEntit
 		}
 	}
 
+	// Make sure the candidates list is not empty and thus we can access the best candidate
+	if( rawWeightCandidates.empty() ) {
+		Debug( "Can't find a feasible long-term goal nav. entity\n" );
+		return SelectedNavEntity( nullptr, std::numeric_limits<float>::max(), 0.0f, level.time + 200 );
+	}
+
 	// Sort all pre-selected candidates by their raw weights
 	std::sort( rawWeightCandidates.begin(), rawWeightCandidates.end() );
 
+	int fromAreaNums[2] = { 0, 0 };
+	const auto &entityPhysicsState = self->ai->botRef->EntityPhysicsState();
+	const int numFromAreas = entityPhysicsState->PrepareRoutingStartAreas( fromAreaNums );
+	const auto *routeCache = self->ai->botRef->routeCache;
+
+	// Pick the best raw weight nav entity.
+	// This nav entity is not necessarily the best final nav entity
+	// by the final weight that is influenced by routing cost,
+	// but the best raw weight means the high importance of it.
+	// The picked entity must be reachable from the current location
+	auto rawCandidatesIter = rawWeightCandidates.begin();
+	const auto rawCandidatesEnd = rawWeightCandidates.end();
+	const NavEntity *rawBestNavEnt = ( *rawCandidatesIter ).goal;
+	const int rawBestAreaNum = rawBestNavEnt->AasAreaNum();
+	unsigned botToBestRawEntMoveDuration = 0;
+	for(;; ) {
+		botToBestRawEntMoveDuration = 10U * routeCache->PreferredRouteToGoalArea( fromAreaNums, numFromAreas, rawBestAreaNum );
+		if( botToBestRawEntMoveDuration ) {
+			break;
+		}
+		++rawCandidatesIter;
+		if( rawCandidatesIter == rawCandidatesEnd ) {
+			Debug( "Can't find a feasible long-term goal nav. entity\n" );
+			return SelectedNavEntity( nullptr, std::numeric_limits<float>::max(), 0.0f, level.time + 200 );
+		}
+		rawBestNavEnt = ( *rawCandidatesEnd ).goal;
+	}
+
 	// Try checking whether the bot is in some floor cluster to give a greater weight for items in the same cluster
 	int currFloorClusterNum = 0;
-	const auto &entityPhysicsState = self->ai->botRef->EntityPhysicsState();
 	const auto *aasFloorClusterNums = AiAasWorld::Instance()->AreaFloorClusterNums();
 	if( aasFloorClusterNums[entityPhysicsState->CurrAasAreaNum()] ) {
 		currFloorClusterNum = aasFloorClusterNums[entityPhysicsState->CurrAasAreaNum()];
@@ -250,70 +283,94 @@ SelectedNavEntity BotItemsSelector::SuggestGoalNavEntity( const SelectedNavEntit
 		currFloorClusterNum = aasFloorClusterNums[entityPhysicsState->DroppedToFloorAasAreaNum()];
 	}
 
-	int fromAreaNums[2] = { 0, 0 };
-	const int numFromAreas = entityPhysicsState->PrepareRoutingStartAreas( fromAreaNums );
-	const auto *routeCache = self->ai->botRef->routeCache;
-
 	const NavEntity *currGoalNavEntity = currSelectedNavEntity.navEntity;
 	float currGoalEntWeight = 0.0f;
 	float currGoalEntCost = 0.0f;
 	const NavEntity *bestNavEnt = nullptr;
 	float bestWeight = 0.000001f;
 	float bestNavEntCost = 0.0f;
-	// Test not more than 16 best pre-selected by raw weight candidates.
-	// (We try to avoid too many expensive FindTravelTimeToGoalArea() calls,
-	// thats why we start from the best item to avoid wasting these calls for low-priority items)
-	for( unsigned i = 0, end = std::min( rawWeightCandidates.size(), 16U ); i < end; ++i ) {
-		const NavEntity *navEnt = rawWeightCandidates[i].goal;
-		float weight = rawWeightCandidates[i].weight;
 
-		unsigned moveDuration = 1;
-		unsigned waitDuration = 1;
+	const auto startCandidatesIter = rawCandidatesIter;
+	// Start from the first (and best) reachable nav entity.
+	// (This entity cannot be selected right now as there are additional tests).
+	// Test no more than 16 next entities to prevent performance drops.
+	for(; rawCandidatesIter - startCandidatesIter < 16 && rawCandidatesIter != rawCandidatesEnd; ++rawCandidatesIter ) {
+		const NavEntity *navEnt = ( *rawCandidatesIter ).goal;
+		float weight = ( *rawCandidatesIter ).weight;
 
-		if( self->ai->botRef->CurrAreaNum() != navEnt->AasAreaNum() ) {
-			// This call returns an AAS travel time (and optionally a next reachability via out parameter)
-			moveDuration = routeCache->PreferredRouteToGoalArea( fromAreaNums, numFromAreas, navEnt->AasAreaNum() ) * 10U;
-			// AAS functions return 0 as a "none" value, 1 as a lowest feasible value
-			if( !moveDuration ) {
+		const unsigned botToCandidateMoveDuration =
+			routeCache->PreferredRouteToGoalArea( fromAreaNums, numFromAreas, navEnt->AasAreaNum() ) * 10U;
+
+		// AAS functions return 0 as a "none" value, 1 as a lowest feasible value
+		if( !botToCandidateMoveDuration ) {
+			continue;
+		}
+
+		if( navEnt->IsDroppedEntity() ) {
+			// Do not pick an entity that is likely to dispose before it may be reached
+			if( navEnt->Timeout() <= level.time + botToCandidateMoveDuration ) {
 				continue;
-			}
-
-			if( navEnt->IsDroppedEntity() ) {
-				// Do not pick an entity that is likely to dispose before it may be reached
-				if( navEnt->Timeout() <= level.time + moveDuration ) {
-					continue;
-				}
 			}
 		}
 
-		unsigned spawnTime = navEnt->SpawnTime();
+		int64_t spawnTime = navEnt->SpawnTime();
 		// The entity is not spawned and respawn time is unknown
 		if( !spawnTime ) {
 			continue;
 		}
 
 		// Entity origin may be reached at this time
-		unsigned reachTime = level.time + moveDuration;
+		int64_t reachTime = level.time + botToCandidateMoveDuration;
+		unsigned waitDuration = 1;
 		if( reachTime < spawnTime ) {
-			waitDuration = spawnTime - reachTime;
+			waitDuration = (unsigned)( spawnTime - reachTime );
 		}
 
 		if( waitDuration > navEnt->MaxWaitDuration() ) {
 			continue;
 		}
 
-		float moveCost = MOVE_TIME_WEIGHT * moveDuration * navEnt->CostInfluence();
-		float cost = 0.0001f + moveCost + WAIT_TIME_WEIGHT * waitDuration * navEnt->CostInfluence();
-
-		weight = ( 1000 * weight ) / cost;
-
+		bool isShortRangeReachable = false;
 		// If the bot is inside a floor cluster
 		if( currFloorClusterNum ) {
-			// Greatly increase weight for items in the same floor cluster
+			// Increase weight for nav entities in the same floor cluster if the entity is fairly close to it,
+			// are spawned, is visible and is reachable by just by walking (to cut off entities behind gaps).
+			// Note: do not try making weights depend of velocity/view dir as it is prone to jitter.
 			if( currFloorClusterNum == aasFloorClusterNums[navEnt->AasAreaNum()] ) {
-				weight *= 4.0f;
+				if( IsShortRangeReachable( navEnt, fromAreaNums, numFromAreas ) ) {
+					isShortRangeReachable = true;
+					weight *= 2.0f;
+				}
 			}
 		}
+
+		// Check the travel time from the nav entity to the best raw weight nav entity
+		const unsigned candidateToRawBestEntMoveDuration =
+			routeCache->PreferredRouteToGoalArea( navEnt->AasAreaNum(), rawBestNavEnt->AasAreaNum() ) * 10U;
+
+		// If the best raw weight nav entity is not reachable from the entity
+		if( !candidateToRawBestEntMoveDuration ) {
+			continue;
+		}
+
+		// Take into account not only travel time to candidate, but also travel time from candidate to the raw best nav ent.
+		// If moving to the current candidate leads to increased travel time to the best raw nav entity.
+		// compared to the travel time to it from the current origin, consider it as a penalty.
+		// No penalty is applied for nav entities that are closer to the best raw nav entity than the bot.
+		// This bots are forced to advance to "best" map regions to complete objectives (capture flags, etc)
+		// while still grabbing stuff that is short-range reachable.
+		unsigned moveDurationPenalty = 0;
+		// Don't apply penalty for short-range reachable nav entities
+		if( !isShortRangeReachable ) {
+			if( candidateToRawBestEntMoveDuration > botToBestRawEntMoveDuration ) {
+				moveDurationPenalty = candidateToRawBestEntMoveDuration - botToBestRawEntMoveDuration;
+			}
+		}
+
+		const float moveCost = MOVE_TIME_WEIGHT * ( botToCandidateMoveDuration + moveDurationPenalty );
+		const float cost = moveCost + WAIT_TIME_WEIGHT * waitDuration;
+
+		weight = ( 1000 * weight ) / ( 0.001f + cost * navEnt->CostInfluence() );
 
 		// Store current weight of the current goal entity
 		if( currGoalNavEntity == navEnt ) {
@@ -357,4 +414,38 @@ SelectedNavEntity BotItemsSelector::SuggestGoalNavEntity( const SelectedNavEntit
 		}
 		return SelectedNavEntity( bestNavEnt, bestNavEntCost, GetGoalWeight( bestNavEnt->Id() ), level.time + 2500 );
 	}
+}
+
+bool BotItemsSelector::IsShortRangeReachable( const NavEntity *navEnt, const int *fromAreaNums, int numFromAreas ) const {
+	if( navEnt->Origin().SquareDistanceTo( self->s.origin ) > 256.0f * 256.0f ) {
+		return false;
+	}
+
+	if( !navEnt->IsSpawnedAtm() ) {
+		return false;
+	}
+
+	const auto *ent = game.edicts + navEnt->Id();
+	if( !EntitiesPvsCache::Instance()->AreInPvs( self, ent ) ) {
+		return false;
+	}
+
+	Vec3 viewOrigin( self->s.origin );
+	viewOrigin.Z() += self->viewheight;
+	trace_t trace;
+
+	SolidWorldTrace( &trace, viewOrigin.Data(), ent->s.origin );
+	if( trace.fraction != 1.0f ) {
+		return false;
+	}
+
+	const int travelFlags = TFL_WALK | TFL_AIR;
+	const auto *routeCache = self->ai->botRef->routeCache;
+	for( int i = 0; i < numFromAreas; ++i ) {
+		if( routeCache->TravelTimeToGoalArea( fromAreaNums[i], navEnt->AasAreaNum(), travelFlags ) ) {
+			return true;
+		}
+	}
+
+	return false;
 }
