@@ -437,20 +437,127 @@ void AiObjectiveBasedTeamBrain::ComputeOffenceScore( Candidates &candidates, int
 void AiObjectiveBasedTeamBrain::UpdateDefendersStatus( unsigned defenceSpotNum ) {
 	const DefenceSpot &spot = defenceSpots[defenceSpotNum];
 	const float *spotOrigin = defenceSpots[defenceSpotNum].entity->s.origin;
-	for( unsigned i = 0; i < defenders[defenceSpotNum].size(); ++i ) {
-		edict_t *bot = defenders[defenceSpotNum][i];
-		bot->ai->botRef->SetDefenceSpotId( spot.id );
-		float distance = 1.0f / Q_RSqrt( 0.001f + DistanceSquared( bot->s.origin, spotOrigin ) );
-		float distanceFactor = 1.0f;
-		if( distance < spot.radius ) {
-			if( distance < 0.33f * spot.radius ) {
-				distanceFactor = 0.0f;
-			} else {
-				distanceFactor = distance / spot.radius;
+	const auto &spotDefenders = defenders[defenceSpotNum];
+
+	// If there is an alert, just force bots to flee to the spot
+	if( spot.alertLevel ) {
+		for( edict_t *bot: spotDefenders ) {
+			float squareDistanceToSpot = DistanceSquared( bot->s.origin, spotOrigin );
+			// By default, assume the bot being outside of the spot radius
+			// Set very high weight and lowest offensiveness.
+			float overriddenWeight = 15.0f;
+			float overriddenOffensiveness = 0.0f;
+			if( squareDistanceToSpot < spot.radius * spot.radius ) {
+				// Make bots extremely aggressive
+				overriddenOffensiveness = 1.0f;
+				// Stop moving to the spot
+				if( squareDistanceToSpot < 72.0f * 72.0f ) {
+					overriddenWeight = 0.0f;
+				}
+			}
+			bot->ai->botRef->OverrideEntityWeight( spot.entity, overriddenWeight );
+			bot->ai->botRef->SetBaseOffensiveness( overriddenOffensiveness );
+		}
+		return;
+	}
+
+	trace_t trace;
+	const auto *aasWorld = AiAasWorld::Instance();
+	const int spotAreaNum = aasWorld->FindAreaNum( spot.entity );
+	const auto *aasFloorClusters = AiAasWorld::Instance()->AreaFloorClusterNums();
+
+	bool isSpotVisibleForDefenders = false;
+	// We must remember that usually there is a single defender if there is no alert
+	for( edict_t *bot: spotDefenders ) {
+		// Check whether the bot can see the spot
+
+		// If the spot is not even in PVS, force returning to the spot
+		if( !EntitiesPvsCache::Instance()->AreInPvs( bot, spot.entity ) ) {
+			bot->ai->botRef->OverrideEntityWeight( spot.entity, 15.0f );
+			bot->ai->botRef->SetBaseOffensiveness( 0.0f );
+			continue;
+		}
+
+		float squareDistanceToSpot = DistanceSquared( bot->s.origin, spot.entity->s.origin );
+
+		if( !isSpotVisibleForDefenders ) {
+			Vec3 viewOrigin( bot->s.origin );
+			viewOrigin.Z() += bot->viewheight;
+			// TODO: Think about wbomb1 A-site, should we really skip collision with entities?
+			SolidWorldTrace( &trace, viewOrigin.Data(), spot.entity->s.origin );
+			if( trace.fraction != 1.0f ) {
+				if( squareDistanceToSpot < ( spot.radius / 2 ) * ( spot.radius / 2 ) ) {
+					bot->ai->botRef->OverrideEntityWeight( spot.entity, 3.0f );
+					bot->ai->botRef->SetBaseOffensiveness( 0.7f );
+				} else {
+					bot->ai->botRef->OverrideEntityWeight( spot.entity, 15.0f );
+					bot->ai->botRef->SetBaseOffensiveness( 0.3f );
+				}
+				continue;
+			}
+			isSpotVisibleForDefenders = true;
+		}
+
+		if( squareDistanceToSpot > spot.radius * spot.radius ) {
+			// Return to the spot except being in the same cluster,
+			// or if the spot is not very high above the bot and is walkable
+			bool returnToSpot = true;
+			if( aasFloorClusters[spotAreaNum] ) {
+				const auto &entityPhysicsState = bot->ai->botRef->EntityPhysicsState();
+				int botGroundAreaNum = entityPhysicsState->DroppedToFloorAasAreaNum();
+				if( aasFloorClusters[spotAreaNum] == aasFloorClusters[botGroundAreaNum] ) {
+					returnToSpot = false;
+				} else if( spot.entity->s.origin[2] < bot->s.origin[2] + 48.0f ) {
+					int fromAreaNums[2] = { 0, 0 };
+					int numFromAreas = entityPhysicsState->PrepareRoutingStartAreas( fromAreaNums );
+					const auto *routeCache = bot->ai->botRef->routeCache;
+					int allowedTravelTimeMillis = (int)( ( 1000.0f * spot.radius ) / DEFAULT_PLAYERSPEED_STANDARD );
+					for( int i = 0; i < numFromAreas; ++i ) {
+						int travelTime = routeCache->TravelTimeToGoalArea( fromAreaNums[i], spotAreaNum, TFL_WALK | TFL_AIR );
+						if( travelTime && travelTime < allowedTravelTimeMillis ) {
+							returnToSpot = false;
+							break;
+						}
+					}
+				}
+			}
+			if( returnToSpot ) {
+				bot->ai->botRef->OverrideEntityWeight( spot.entity, 15.0f );
+				bot->ai->botRef->SetBaseOffensiveness( 0.3f );
+				continue;
 			}
 		}
-		bot->ai->botRef->OverrideEntityWeight( spot.entity, 12.0f * distanceFactor );
-		bot->ai->botRef->SetBaseOffensiveness( 1.0f - distanceFactor );
+
+		// Give the spot zero weight as long as the bot sees it
+		// TODO: Check whether the bot can hit the spot region with its current weaponset
+
+		Vec3 botToSpot( spot.entity->s.origin );
+		botToSpot -= bot->s.origin;
+		botToSpot.NormalizeFast();
+
+		if( botToSpot.Dot( bot->ai->botRef->EntityPhysicsState()->ForwardDir() ) > bot->ai->botRef->FovDotFactor() ) {
+			bot->ai->botRef->OverrideEntityWeight( spot.entity, 0.0f );
+			if( squareDistanceToSpot > spot.radius * spot.radius ) {
+				bot->ai->botRef->SetBaseOffensiveness( 0.3f );
+			} else {
+				bot->ai->botRef->SetBaseOffensiveness( 1.0f );
+			}
+			continue;
+		}
+
+		if( squareDistanceToSpot < ( 0.33f * spot.radius ) * ( 0.33f * spot.radius ) ) {
+			bot->ai->botRef->OverrideEntityWeight( spot.entity, 0.0f );
+			bot->ai->botRef->SetBaseOffensiveness( 1.0f );
+			continue;
+		}
+
+		if( squareDistanceToSpot < ( 0.66f * spot.radius ) * ( 0.66f * spot.radius ) ) {
+			bot->ai->botRef->OverrideEntityWeight( spot.entity, 1.0f );
+			bot->ai->botRef->SetBaseOffensiveness( 0.7f );
+		}
+
+		bot->ai->botRef->OverrideEntityWeight( spot.entity, 7.5f );
+		bot->ai->botRef->SetBaseOffensiveness( 0.5f );
 	}
 }
 
