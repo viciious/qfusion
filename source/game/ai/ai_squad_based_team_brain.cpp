@@ -772,17 +772,20 @@ void AiSquad::SetDroppedEntityAsBotGoal( edict_t *ent ) {
 	}
 
 	// The target ent should be set to a bot entity
-	if( !ent->target_ent || !ent->target_ent->r.inuse ) {
-		AI_FailWith( tag, "target_ent is not set or not in use" );
+	if( !ent->target_ent ) {
+		AI_FailWith( tag, "target_ent is not set" );
 	}
 
 	// Allow other bots (and itself) to grab this item too
 	// (But the suppliant has a priority since the goal has been set immediately)
 	AI_AddNavEntity( ent, (ai_nav_entity_flags)( AI_NAV_REACH_AT_TOUCH | AI_NAV_DROPPED ) );
 
-	// Check whether bot has been removed
+	// Check whether the bot has been removed
+	// We might as well check for team change but it is extremely rare,
+	// requires tracking the supplier team
+	// and also picking an item dropped for a bot as a former teammate won't harm
 	edict_t *bot = ent->target_ent;
-	if( !bot->ai || !bot->ai->botRef ) {
+	if( !bot->r.inuse || G_ISGHOSTING( bot ) || !bot->ai || !bot->ai->botRef ) {
 		return;
 	}
 
