@@ -158,7 +158,7 @@ void BotBrain::Think() {
 	// It is important to do all these actions before AiBaseBrain::Think() to trigger a plan update if needed
 
 	if( selectedEnemies.AreValid() ) {
-		if( level.time - selectedEnemies.LastSeenAt() >= reactionTime ) {
+		if( level.time - selectedEnemies.LastSeenAt() > std::min( 64u, reactionTime ) ) {
 			selectedEnemies.Invalidate();
 			UpdateSelectedEnemies();
 			UpdateBlockedAreasStatus();
