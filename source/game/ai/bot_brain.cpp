@@ -279,6 +279,7 @@ static int FindBestWeaponTier( const gclient_t *client ) {
 }
 
 void BotBrain::UpdateBlockedAreasStatus() {
+#if 0
 	if( self->ai->botRef->ShouldRushHeadless() ) {
 		self->ai->botRef->routeCache->ClearDisabledZones();
 		return;
@@ -337,6 +338,7 @@ void BotBrain::UpdateBlockedAreasStatus() {
 	} else {
 		self->ai->botRef->routeCache->ClearDisabledZones();
 	}
+#endif
 }
 
 float BotBrain::ComputeEnemyAreasBlockingFactor( const Enemy *enemy, float damageToKillBot, int botBestWeaponTier ) {
