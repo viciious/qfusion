@@ -137,10 +137,28 @@ class Enemy
 	// Same as front() of lastSeenVelocities, used for faster access
 	Vec3 lastSeenVelocity;
 
+	// Some intermediates that should be cached for consequent MightBlockArea() flags
+	mutable int64_t lookDirComputedAt;
+	mutable int64_t weaponHitFlagsComputedAt;
+	mutable int64_t boxLeafNumsComputedAt;
+
+	mutable int checkForWeaponHitFlags;
+	mutable int numBoxLeafNums;
+	mutable float checkForWeaponHitKillDamage;
+
+	mutable vec3_t lookDir;
+	// CM leaf nums computed for last seen origin
+	mutable int boxLeafNums[8];
+
 	Enemy *NextInTrackedList() { return listLinks[TRACKED_LIST_INDEX].next; }
 	Enemy *NextInActiveList() { return listLinks[ACTIVE_LIST_INDEX].next; }
 
 	inline bool IsInList( int listIndex ) const;
+
+	int GetCheckForWeaponHitFlags( float damageToKillTarget ) const;
+	int ComputeCheckForWeaponHitFlags( float damageToKillTarget ) const;
+	int GetBoxLeafNums( int **leafNums ) const;
+	bool IsAreaInPVS( int areaNum, const AiAasWorld *aasWorld ) const;
 public:
 	const edict_t *ent;  // If null, the enemy slot is unused
 
@@ -213,9 +231,13 @@ public:
 	inline int64_t LastAttackedByTime() const;
 	inline float TotalInflictedDamage() const;
 
-	inline bool IsValid() const { return ent != nullptr; }
+	inline bool IsValid() const {
+		return ent && !( G_ISGHOSTING( ent ) );
+	}
 
 	Vec3 LookDir() const;
+
+	bool MightBlockArea( float damageToKillTarget, int areaNum, int reachNum, const AiAasWorld *aasWorld ) const;
 
 	inline Vec3 Angles() const { return Vec3( ent->s.angles ); }
 

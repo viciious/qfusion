@@ -45,6 +45,26 @@ int BuiltinWeaponTier( int builtinWeapon ) {
 	}
 }
 
+int FindBestWeaponTier( const gclient_t *client ) {
+	const auto *inventory = client->ps.inventory;
+	constexpr int ammoShift = AMMO_GUNBLADE - WEAP_GUNBLADE;
+	constexpr int weakAmmoShift = AMMO_WEAK_GUNBLADE - WEAP_GUNBLADE;
+
+	int maxTier = 0;
+	for( int weapon = WEAP_GUNBLADE; weapon < WEAP_TOTAL; ++weapon ) {
+		if( !inventory[weapon] || ( !inventory[weapon + ammoShift] && !inventory[weapon + weakAmmoShift] ) ) {
+			continue;
+		}
+		int tier = BuiltinWeaponTier( weapon );
+		if( tier <= maxTier ) {
+			continue;
+		}
+		maxTier = tier;
+	}
+
+	return maxTier;
+}
+
 static void EscapePercent( const char *string, char *buffer, int bufferLen ) {
 	int j = 0;
 	for( const char *s = string; *s && j < bufferLen - 1; ++s ) {

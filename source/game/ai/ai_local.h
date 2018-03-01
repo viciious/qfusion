@@ -90,6 +90,7 @@ inline bool IsBuiltinWeaponContinuousFire( int builtinWeapon ) {
 }
 
 int BuiltinWeaponTier( int builtinWeapon );
+int FindBestWeaponTier( const gclient_t *client );
 
 void *GENERIC_asInstantiateGoal( void *factoryObject, edict_t *owner, class BotScriptGoal *nativeGoal );
 void *GENERIC_asInstantiateAction( void *factoryObject, edict_t *owner, class BotScriptAction *nativeAction );

@@ -50,6 +50,13 @@ void Enemy::Clear() {
 	lastSeenSnapshots.clear();
 	lastSeenAt = 0;
 
+	checkForWeaponHitFlags = 0;
+	checkForWeaponHitKillDamage = 0.0f;
+	numBoxLeafNums = 0;
+	lookDirComputedAt = 0;
+	boxLeafNumsComputedAt = 0;
+	weaponHitFlagsComputedAt = 0;
+
 	listLinks[TRACKED_LIST_INDEX].Clear();
 	listLinks[ACTIVE_LIST_INDEX].Clear();
 }
@@ -71,13 +78,167 @@ void Enemy::OnViewed( const float *specifiedOrigin ) {
 }
 
 Vec3 Enemy::LookDir() const {
-	if( ent->ai && ent->ai->botRef ) {
-		return ent->ai->botRef->EntityPhysicsState()->ForwardDir();
+	const auto levelTime = level.time;
+	if( lookDirComputedAt == levelTime ) {
+		return Vec3( lookDir );
 	}
 
-	vec3_t lookDir;
-	AngleVectors( ent->s.angles, lookDir, nullptr, nullptr );
+	lookDirComputedAt = levelTime;
+	if( ent->ai && ent->ai->botRef ) {
+		ent->ai->botRef->EntityPhysicsState()->ForwardDir().CopyTo( lookDir );
+	} else {
+		AngleVectors( ent->s.angles, lookDir, nullptr, nullptr );
+	}
+
 	return Vec3( lookDir );
+}
+
+enum { RAIL = 1, SHAFT = 2, ROCKET = 4 };
+
+int Enemy::GetCheckForWeaponHitFlags( float damageToKillTarget ) const {
+	auto levelTime = level.time;
+
+	if( weaponHitFlagsComputedAt == levelTime && checkForWeaponHitKillDamage == damageToKillTarget ) {
+		return checkForWeaponHitFlags;
+	}
+
+	weaponHitFlagsComputedAt = levelTime;
+	checkForWeaponHitKillDamage = damageToKillTarget;
+
+	return ( checkForWeaponHitFlags = ComputeCheckForWeaponHitFlags( damageToKillTarget ) );
+}
+
+int Enemy::ComputeCheckForWeaponHitFlags( float damageToKillTarget ) const {
+	if( !ent->r.client ) {
+		return 0;
+	}
+
+	int flags = 0;
+	if( damageToKillTarget < 150 ) {
+		if( RocketsReadyToFireCount() || WavesReadyToFireCount()) {
+			flags |= ROCKET;
+		}
+	}
+
+	if( InstasReadyToFireCount() ) {
+		flags |= RAIL;
+	} else if( ( HasQuad() || damageToKillTarget < 140 ) && BoltsReadyToFireCount() ) {
+		flags |= RAIL;
+	}
+
+	if( LasersReadyToFireCount() && damageToKillTarget < 80 ) {
+		flags |= SHAFT;
+	} else if( BulletsReadyToFireCount() && ( ( HasQuad() || damageToKillTarget < 30 ) ) ) {
+		flags |= SHAFT;
+	}
+
+	return flags;
+}
+
+bool Enemy::MightBlockArea( float damageToKillTarget, int areaNum, int reachNum, const AiAasWorld *aasWorld ) const {
+	assert( IsValid() );
+
+	int weaponHitFlags = GetCheckForWeaponHitFlags( damageToKillTarget );
+	const auto &reach = aasWorld->Reachabilities()[reachNum];
+	int travelType = reach.traveltype;
+	// Don't check for rail-like shots except the bot is vulnerable in air
+	if( travelType != TRAVEL_JUMPPAD && travelType != TRAVEL_JUMP && travelType != TRAVEL_STRAFEJUMP ) {
+		// If there is no falling or its insignificant
+		if( travelType != TRAVEL_WALKOFFLEDGE || DistanceSquared( reach.start, reach.end ) < 72 * 72 ) {
+			weaponHitFlags &= ~RAIL;
+		}
+	}
+
+	float baseRadius = 256.0f;
+	if( HasQuad() ) {
+		baseRadius = 768.0f;
+	}
+
+	const auto &area = aasWorld->Areas()[areaNum];
+	Vec3 enemyOrigin( LastSeenOrigin());
+	float squareDistance = enemyOrigin.DistanceTo( area.center );
+	if( squareDistance > baseRadius * baseRadius ) {
+		if( !weaponHitFlags ) {
+			return false;
+		}
+		if( !( weaponHitFlags & RAIL ) ) {
+			if( squareDistance > 1000 * 1000 ) {
+				return false;
+			}
+		}
+		if( weaponHitFlags == ROCKET ) {
+			if( enemyOrigin.Z() < area.mins[2] ) {
+				return false;
+			}
+		}
+
+		Vec3 toAreaDir( area.center );
+		toAreaDir -= enemyOrigin;
+		toAreaDir *= 1.0f / sqrtf( squareDistance );
+		float dot = toAreaDir.Dot( LookDir());
+		if( dot < 0.3f ) {
+			if( const auto *client = ent->r.client ) {
+				if( !client->ps.stats[PM_STAT_ZOOMTIME] ) {
+					return false;
+				}
+			}
+			if( squareDistance > 1500 * 1500 ) {
+				return false;
+			}
+		}
+		if( dot < 0 ) {
+			return false;
+		}
+	}
+
+	if( !IsAreaInPVS( areaNum, aasWorld ) ) {
+		return false;
+	}
+
+	trace_t trace;
+	SolidWorldTrace( &trace, area.center, enemyOrigin.Data() );
+	return trace.fraction == 1.0f;
+}
+
+int Enemy::GetBoxLeafNums( int **leafNums ) const {
+	auto levelTime = level.time;
+	if( boxLeafNumsComputedAt == levelTime ) {
+		*leafNums = boxLeafNums;
+		return numBoxLeafNums;
+	}
+
+	boxLeafNumsComputedAt = levelTime;
+
+	// We can't reuse entity leaf nums that were set on linking it to area grid since the origin differs
+	Vec3 enemyBoxMins( playerbox_stand_mins );
+	Vec3 enemyBoxMaxs( playerbox_stand_maxs );
+	Vec3 origin( LastSeenOrigin() );
+	enemyBoxMins += origin;
+	enemyBoxMaxs += origin;
+
+	int topNode;
+	numBoxLeafNums = trap_CM_BoxLeafnums( enemyBoxMins.Data(), enemyBoxMaxs.Data(), boxLeafNums, 8, &topNode );
+	clamp_high( numBoxLeafNums, 8 );
+
+	*leafNums = boxLeafNums;
+	return numBoxLeafNums;
+}
+
+bool Enemy::IsAreaInPVS( int areaNum, const AiAasWorld *aasWorld ) const {
+	const int *areaLeafNums = aasWorld->AreaMapLeafsList( areaNum ) + 1;
+
+	int *enemyLeafNums;
+	const int numEnemyLeafs = GetBoxLeafNums( &enemyLeafNums );
+
+	for( int i = 0; i < numEnemyLeafs; ++i ) {
+		for( int j = 0; j < areaLeafNums[-1]; ++j ) {
+			if( trap_CM_LeafsInPVS( enemyLeafNums[i], areaLeafNums[j] ) ) {
+				return true;
+			}
+		}
+	}
+
+	return false;
 }
 
 AiBaseEnemyPool::AiBaseEnemyPool( float avgSkill_ )

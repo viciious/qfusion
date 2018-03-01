@@ -258,26 +258,6 @@ struct DisableBlockedByEnemyZoneRequest final: public AiAasRouteCache::DisableZo
 	int FillRequestedAreasBuffer( int *areasBuffer, int bufferCapacity ) override;
 };
 
-static int FindBestWeaponTier( const gclient_t *client ) {
-	const auto *inventory = client->ps.inventory;
-	constexpr int ammoShift = AMMO_GUNBLADE - WEAP_GUNBLADE;
-	constexpr int weakAmmoShift = AMMO_WEAK_GUNBLADE - WEAP_GUNBLADE;
-
-	int maxTier = 0;
-	for( int weapon = WEAP_GUNBLADE; weapon < WEAP_TOTAL; ++weapon ) {
-		if( !inventory[weapon] || ( !inventory[weapon + ammoShift] && !inventory[weapon + weakAmmoShift] ) ) {
-			continue;
-		}
-		int tier = BuiltinWeaponTier( weapon );
-		if( tier <= maxTier ) {
-			continue;
-		}
-		maxTier = tier;
-	}
-
-	return maxTier;
-}
-
 void BotBrain::UpdateBlockedAreasStatus() {
 #if 0
 	if( self->ai->botRef->ShouldRushHeadless() ) {
@@ -339,50 +319,6 @@ void BotBrain::UpdateBlockedAreasStatus() {
 		self->ai->botRef->routeCache->ClearDisabledZones();
 	}
 #endif
-}
-
-float BotBrain::ComputeEnemyAreasBlockingFactor( const Enemy *enemy, float damageToKillBot, int botBestWeaponTier ) {
-	int enemyWeaponTier;
-	if( const auto *client = enemy->ent->r.client ) {
-		enemyWeaponTier = FindBestWeaponTier( client );
-		if( enemyWeaponTier < 1 && !HasPowerups( enemy->ent ) ) {
-			return 0.0f;
-		}
-	} else {
-		// Try guessing...
-		enemyWeaponTier = (int)( 1.0f + BoundedFraction( enemy->ent->aiIntrinsicEnemyWeight, 3.0f ) );
-	}
-
-	float damageToKillEnemy = DamageToKill( enemy->ent, g_armor_protection->value, g_armor_degradation->value );
-
-	if( HasShell( enemy->ent ) ) {
-		damageToKillEnemy *= 4.0f;
-	}
-
-	// We modify "damage to kill" in order to take quad bearing into account
-	if( HasQuad( enemy->ent ) && damageToKillEnemy > 50 ) {
-		damageToKillEnemy *= 2.0f;
-	}
-
-	if( damageToKillBot < 50 && damageToKillEnemy < 50 ) {
-		// Just check weapons. Note: GB has 0 tier, GL has 1 tier, the rest of weapons have a greater tier
-		return std::min( 1, enemyWeaponTier ) / (float)std::min( 1, botBestWeaponTier );
-	}
-
-	float ratioThreshold = 1.25f;
-	if( selectedEnemies.AreValid() && selectedEnemies.AreThreatening() && selectedEnemies.Contain( enemy ) ) {
-		// If the bot is outnumbered
-		if( selectedEnemies.end() - selectedEnemies.begin() > 1 ) {
-			ratioThreshold *= 1.25f;
-		}
-    }
-
-	ratioThreshold -= ( botBestWeaponTier - enemyWeaponTier ) * 0.25f;
-	if( damageToKillEnemy / damageToKillBot < ratioThreshold ) {
-		return 0.0f;
-	}
-
-	return damageToKillEnemy / damageToKillBot;
 }
 
 int DisableBlockedByEnemyZoneRequest::FillRequestedAreasBuffer( int *areasBuffer, int bufferCapacity ) {

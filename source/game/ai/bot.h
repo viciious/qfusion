@@ -638,6 +638,13 @@ public:
 	SelectedMiscTactics &GetMiscTactics() { return botBrain.selectedTactics; }
 	const SelectedMiscTactics &GetMiscTactics() const { return botBrain.selectedTactics; }
 
+	const AiAasRouteCache *RouteCache() const { return routeCache; }
+
+	const Enemy *TrackedEnemiesHead() const {
+		// TODO: Again this is weird, why non-const protected method is preferred by a compiler?
+		return ( (const AiBaseEnemyPool *)( botBrain.activeEnemyPool ) )->TrackedEnemiesHead();
+	}
+
 	const Danger *PrimaryDanger() const { return perceptionManager.PrimaryDanger(); }
 
 	inline bool WillAdvance() const { return botBrain.WillAdvance(); }
