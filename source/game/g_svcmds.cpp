@@ -51,6 +51,10 @@ static void Cmd_ConsoleKick_f( void ) {
 		return;
 	}
 
+	if( const char *host = G_GetClientHostForFilter( ent ) ) {
+		trap_Cmd_ExecuteText( EXEC_APPEND, va( "addip %s 1", host ) );
+	}
+
 	trap_DropClient( ent, DROP_TYPE_NORECONNECT, "Kicked" );
 }
 
