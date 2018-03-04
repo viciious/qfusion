@@ -291,8 +291,11 @@ class GIPFilter {
 	Entry *AllocEntry();
 	Entry *AllocAndLinkEntry( unsigned addressIndex, unsigned groupIndex, unsigned binIndex );
 
-	template<typename EntryMatcher, typename IndexComputer>
+	template<typename PrefixMatcher, typename IPMatcher, typename IndexComputer>
 	int TryAddEntry( const uint8_t *prefix, netadrtype_t type, unsigned groupIndex, int64_t timeout );
+
+	template<typename IPMatcher>
+	void RemoveNarrowerFilters( const Entry *newlyAddedEntry );
 public:
 	static constexpr auto NO_TIMEOUT = std::numeric_limits<int64_t>::max();
 
@@ -318,6 +321,7 @@ public:
 
 	// We don't want to expose guts
 	class EntryRef {
+		friend class GIPFilter;
 		friend class GIPFilter::const_iterator;
 		Entry *entry;
 
@@ -951,19 +955,19 @@ int GIPFilter::AddFilterFromString( const char *s, int64_t timeout ) {
 	}
 
 	if( addressType == NA_IP ) {
-		return TryAddEntry<V4PrefixMatcher, V4BinIndexComputer>( prefix, addressType, groupIndex, timeout );
+		return TryAddEntry<V4PrefixMatcher, V4IPMatcher, V4BinIndexComputer>( prefix, addressType, groupIndex, timeout );
 	}
-	return TryAddEntry<V6PrefixMatcher, V6BinIndexComputer>( prefix, addressType, groupIndex, timeout );
+	return TryAddEntry<V6PrefixMatcher, V4IPMatcher, V6BinIndexComputer>( prefix, addressType, groupIndex, timeout );
 }
 
-template<typename EntryMatcher, typename IndexComputer>
+template<typename PrefixMatcher, typename IPMatcher, typename IndexComputer>
 int GIPFilter::TryAddEntry( const uint8_t *prefix, netadrtype_t addressType, unsigned groupIndex, int64_t timeout ) {
 	const unsigned addressIndex = AddressIndexForType( addressType );
 
 	GroupHeader *group = &groupsForAddress[addressIndex][groupIndex];
 
 	if( entries ) {
-		if( MatchIP<EntryMatcher, IndexComputer>( prefix, group ) ) {
+		if( MatchIP<PrefixMatcher, IndexComputer>( prefix, group ) ) {
 			G_Printf( "IP filter: The prefix is already present\n" );
 			return -1;
 		}
@@ -973,11 +977,42 @@ int GIPFilter::TryAddEntry( const uint8_t *prefix, netadrtype_t addressType, uns
 		entry->type = addressType;
 		entry->timeout = timeout;
 		memcpy( entry->prefix, prefix, AddressLengthForIndex( addressIndex ) );
+		// Remove all filters which prefixes are a subset of prefixes matched by new entry.
+		// Use an IP matcher to match entry prefixes using the newly added entry prefix and mask.
+		// It would be better to try entries removal before entry allocation attempt to free some,
+		// but the capacity exhaustion is very unlikely and it requires rewriting a fair amount of matchers code.
+		RemoveNarrowerFilters<IPMatcher>( entry );
 		return +1;
 	}
 
 	G_Printf( "IP filter: The capacity has been exceeded\n" );
 	return 0;
+}
+
+template<typename IPMatcher>
+void GIPFilter::RemoveNarrowerFilters( const Entry *newlyAddedEntry ) {
+	char buffer[MAX_STRING_CHARS];
+	IPMatcher matcher;
+
+	Entry *nextEntry = nullptr;
+	for( Entry *entry = usedListHead; entry; entry = nextEntry ) {
+		nextEntry = entry->next[LIST_LINKS];
+		if( entry->type != newlyAddedEntry->type ) {
+			continue;
+		}
+		if( entry == newlyAddedEntry ) {
+			continue;
+		}
+		// Try matching an current entry prefix with the newly added entry prefix and mask
+		if( !matcher( newlyAddedEntry, entry->prefix ) ) {
+			continue;
+		}
+
+		if( EntryRef( entry ).PrintTo( buffer, sizeof( buffer ) ) ) {
+			G_Printf( "Removing %s for being narrower than the added filter\n", buffer );
+		}
+		UnlinkAndFreeEntry( entry );
+	}
 }
 
 int GIPFilter::RemoveFilterByString( const char *s ) {
