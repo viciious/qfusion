@@ -210,11 +210,6 @@ void AiObjectiveBasedTeamBrain::Think() {
 
 	for( unsigned spotNum = 0; spotNum < offenseSpots.size(); ++spotNum )
 		UpdateAttackersStatus( spotNum );
-
-	// Other candidates should support a carrier
-	if( const edict_t *carrier = FindCarrier() ) {
-		SetSupportCarrierOrders( carrier, candidates );
-	}
 }
 
 void AiObjectiveBasedTeamBrain::ResetBotOrders( Bot *bot ) {
@@ -574,100 +569,5 @@ void AiObjectiveBasedTeamBrain::UpdateAttackersStatus( unsigned offenceSpotNum )
 			bot->ai->botRef->OverrideEntityWeight( spotEnt, 3.0f );
 		}
 		bot->ai->botRef->SetBaseOffensiveness( 0.0f );
-	}
-}
-
-const edict_t *AiObjectiveBasedTeamBrain::FindCarrier() const {
-	for( int i = 1; i <= gs.maxclients; ++i ) {
-		edict_t *ent = game.edicts + i;
-		if( !ent->r.inuse || !ent->r.client ) {
-			continue;
-		}
-		if( ent->r.client->team != this->team ) {
-			continue;
-		}
-		if( IsCarrier( ent ) ) {
-			return ent;
-		}
-	}
-	return nullptr;
-}
-
-void AiObjectiveBasedTeamBrain::SetSupportCarrierOrders( const edict_t *carrier, Candidates &candidates ) {
-	float *carrierOrigin = const_cast<float *>( carrier->s.origin );
-	auto *groundTraceCache = AiGroundTraceCache::Instance();
-	auto *aasWorld = AiAasWorld::Instance();
-	auto *routeCache = AiAasRouteCache::Shared();
-
-	Vec3 groundedCarrierOrigin( carrierOrigin );
-	groundTraceCache->TryDropToFloor( carrier, 64.0f, groundedCarrierOrigin.Data() );
-
-	const int carrierAreaNum = aasWorld->FindAreaNum( carrierOrigin );
-	if( !carrierAreaNum ) {
-		for( const auto &botAndScore: candidates ) {
-			if( botAndScore.bot == carrier ) {
-				continue;
-			}
-			float *botOrigin = botAndScore.bot->s.origin;
-			float squareDistance = DistanceSquared( botOrigin, carrierOrigin );
-			// The carrier is too far, hurry up to support it
-			if( squareDistance > 768.0f * 768.0f ) {
-				botAndScore.bot->ai->botRef->OverrideEntityWeight( carrier, 9.0f );
-			} else {
-				botAndScore.bot->ai->botRef->OverrideEntityWeight( carrier, 4.5f );
-			}
-		}
-		return;
-	}
-
-	const auto *pvsCache = EntitiesPvsCache::Instance();
-	for( const auto &botAndScore: candidates ) {
-		if( botAndScore.bot == carrier ) {
-			continue;
-		}
-		float *botOrigin = botAndScore.bot->s.origin;
-		float squareDistance = DistanceSquared( botOrigin, carrierOrigin );
-		// The carrier is too far, hurry up to support it
-		if( squareDistance > 768.0f * 768.0f ) {
-			botAndScore.bot->ai->botRef->OverrideEntityWeight( carrier, 9.0f );
-			continue;
-		}
-
-		if( !pvsCache->AreInPvs( botAndScore.bot, carrier ) ) {
-			continue;
-		}
-
-		trace_t trace;
-		G_Trace( &trace, carrierOrigin, nullptr, nullptr, botAndScore.bot->s.origin, botAndScore.bot, MASK_AISOLID );
-		// The carrier is not visible, hurry up to support it
-		if( trace.fraction != 1.0f && carrier != game.edicts + trace.ent ) {
-			botAndScore.bot->ai->botRef->OverrideEntityWeight( carrier, 4.5f );
-			continue;
-		}
-		Vec3 groundedBotOrigin( botOrigin );
-		if( !groundTraceCache->TryDropToFloor( botAndScore.bot, 64.0f, groundedBotOrigin.Data() ) ) {
-			botAndScore.bot->ai->botRef->OverrideEntityWeight( carrier, 4.5f );
-			continue;
-		}
-		int botAreaNum = aasWorld->FindAreaNum( groundedBotOrigin );
-		if( !botAreaNum ) {
-			botAndScore.bot->ai->botRef->OverrideEntityWeight( carrier, 4.5f );
-			continue;
-		}
-		int travelTime = routeCache->TravelTimeToGoalArea( botAreaNum, carrierAreaNum, Bot::ALLOWED_TRAVEL_FLAGS );
-		// A carrier is not reachable in a short period of time
-		// AAS travel time is given in seconds^-2 and lowest feasible value is 1
-		if( !travelTime || travelTime > 250 ) {
-			botAndScore.bot->ai->botRef->OverrideEntityWeight( carrier, 4.5f );
-			continue;
-		}
-
-		// Decrease carrier weight if bot is already close to it
-		float distance = 1.0f / Q_RSqrt( squareDistance );
-		float distanceFactor = distance / 768.0f;
-		if( distanceFactor < 0.25f ) {
-			distanceFactor = 0.0f;
-		}
-		botAndScore.bot->ai->botRef->OverrideEntityWeight( carrier, 4.5f * distanceFactor );
 	}
 }

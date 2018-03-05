@@ -120,8 +120,6 @@ class AiObjectiveBasedTeamBrain : public AiSquadBasedTeamBrain
 
 	void UpdateDefendersStatus( unsigned defenceSpotNum );
 	void UpdateAttackersStatus( unsigned offenceSpotNum );
-	const edict_t *FindCarrier() const;
-	void SetSupportCarrierOrders( const edict_t *carrier, Candidates &candidates );
 
 	void EnableDefenceSpotAutoAlert( DefenceSpot *defenceSpot );
 	void DisableDefenceSpotAutoAlert( DefenceSpot *defenceSpot );
