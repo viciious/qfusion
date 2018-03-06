@@ -192,20 +192,44 @@ public:
 	inline float PlayerOffenciveAbilitiesRating() const {
 		return GT_asPlayerOffensiveAbilitiesRating( self->r.client );
 	}
-	inline int DefenceSpotId() const { return defenceSpotId; }
-	inline int OffenseSpotId() const { return offenseSpotId; }
+
+	struct ObjectiveSpotDef {
+		int id;
+		float navWeight;
+		float goalWeight;
+		bool isDefenceSpot;
+
+		ObjectiveSpotDef()
+			: id( -1 ), navWeight( 0.0f ), goalWeight( 0.0f ), isDefenceSpot( false ) {}
+
+		void Invalidate() { id = -1; }
+		bool IsActive() const { return id >= 0; }
+		int DefenceSpotId() const { return ( IsActive() && isDefenceSpot ) ? id : -1; }
+		int OffenseSpotId() const { return ( IsActive() && !isDefenceSpot ) ? id : -1; }
+	};
+
+	ObjectiveSpotDef &GetObjectiveSpot() {
+		return objectiveSpotDef;
+	}
+
 	inline void ClearDefenceAndOffenceSpots() {
-		defenceSpotId = -1;
-		offenseSpotId = -1;
+		objectiveSpotDef.Invalidate();
 	}
-	inline void SetDefenceSpotId( int spotId ) {
-		defenceSpotId = spotId;
-		offenseSpotId = -1;
+
+	// TODO: Provide goal weight as well as nav weight?
+	inline void SetDefenceSpot( int spotId, float weight ) {
+		objectiveSpotDef.id = spotId;
+		objectiveSpotDef.navWeight = objectiveSpotDef.goalWeight = weight;
+		objectiveSpotDef.isDefenceSpot = false;
 	}
-	inline void SetOffenseSpotId( int spotId ) {
-		defenceSpotId = -1;
-		offenseSpotId = spotId;
+
+	// TODO: Provide goal weight as well as nav weight?
+	inline void SetOffenseSpot( int spotId, float weight ) {
+		objectiveSpotDef.id = spotId;
+		objectiveSpotDef.navWeight = objectiveSpotDef.goalWeight = weight;
+		objectiveSpotDef.isDefenceSpot = false;
 	}
+
 	inline float Fov() const { return 110.0f + 69.0f * Skill(); }
 	inline float FovDotFactor() const { return cosf( (float)DEG2RAD( Fov() / 2 ) ); }
 
@@ -355,8 +379,7 @@ private:
 
 	bool isInSquad;
 
-	int defenceSpotId;
-	int offenseSpotId;
+	ObjectiveSpotDef objectiveSpotDef;
 
 	struct AlertSpot : public AiAlertSpot {
 		int64_t lastReportedAt;

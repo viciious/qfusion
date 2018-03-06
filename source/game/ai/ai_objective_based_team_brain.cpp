@@ -61,18 +61,22 @@ void AiObjectiveBasedTeamBrain::RemoveOffenseSpot( int id ) {
 	} );
 }
 
-void AiObjectiveBasedTeamBrain::ClearExternalEntityWeights( const edict_t *ent ) {
-	// TODO: AiBaseTeamBrain should maintain a list of its bots
-	for( int i = 0; i < gs.maxclients; ++i ) {
-		edict_t *player = PLAYERENT( i );
-		if( !player->r.inuse || !player->ai || !player->ai->botRef ) {
-			continue;
+template<typename Container >
+const edict_t *AiObjectiveBasedTeamBrain::GetUnderlyingEntity( const Container &container, int spotId ) const {
+	for( auto spot: container ) {
+		if( spot.id == spotId ) {
+			return spot.entity;
 		}
-		if( player->r.client->team != this->team ) {
-			continue;
-		}
-		player->ai->botRef->OverrideEntityWeight( ent, 0.0f );
 	}
+
+	return nullptr;
+}
+
+const edict_t *AiObjectiveBasedTeamBrain::GetSpotUnderlyingEntity( int spotId, bool isDefenceSpot ) const {
+	if( isDefenceSpot ) {
+		return GetUnderlyingEntity( defenceSpots, spotId );
+	}
+	return GetUnderlyingEntity( offenseSpots, spotId );
 }
 
 void AiObjectiveBasedTeamBrain::SetDefenceSpotAlert( int id, float alertLevel, unsigned timeoutPeriod ) {
@@ -214,13 +218,7 @@ void AiObjectiveBasedTeamBrain::Think() {
 
 void AiObjectiveBasedTeamBrain::ResetBotOrders( Bot *bot ) {
 	bot->ClearDefenceAndOffenceSpots();
-	for( const auto &defenceSpot: defenceSpots )
-		bot->OverrideEntityWeight( defenceSpot.entity, 0.0f );
-	for( const auto &offenceSpot: offenseSpots )
-		bot->OverrideEntityWeight( offenceSpot.entity, 0.0f );
 	bot->SetBaseOffensiveness( 0.5f );
-	for( int i = 1; i <= gs.maxclients; ++i )
-		bot->OverrideEntityWeight( game.edicts + i, 0.0f );
 }
 
 void AiObjectiveBasedTeamBrain::ResetAllBotsOrders() {
@@ -450,7 +448,7 @@ void AiObjectiveBasedTeamBrain::UpdateDefendersStatus( unsigned defenceSpotNum )
 					overriddenWeight = 0.0f;
 				}
 			}
-			bot->ai->botRef->OverrideEntityWeight( spot.entity, overriddenWeight );
+			bot->ai->botRef->SetDefenceSpot( spot.id, overriddenWeight );
 			bot->ai->botRef->SetBaseOffensiveness( overriddenOffensiveness );
 		}
 		return;
@@ -468,7 +466,7 @@ void AiObjectiveBasedTeamBrain::UpdateDefendersStatus( unsigned defenceSpotNum )
 
 		// If the spot is not even in PVS, force returning to the spot
 		if( !EntitiesPvsCache::Instance()->AreInPvs( bot, spot.entity ) ) {
-			bot->ai->botRef->OverrideEntityWeight( spot.entity, 15.0f );
+			bot->ai->botRef->SetDefenceSpot( spot.id, 15.0f );
 			bot->ai->botRef->SetBaseOffensiveness( 0.0f );
 			continue;
 		}
@@ -482,10 +480,10 @@ void AiObjectiveBasedTeamBrain::UpdateDefendersStatus( unsigned defenceSpotNum )
 			SolidWorldTrace( &trace, viewOrigin.Data(), spot.entity->s.origin );
 			if( trace.fraction != 1.0f ) {
 				if( squareDistanceToSpot < ( spot.radius / 2 ) * ( spot.radius / 2 ) ) {
-					bot->ai->botRef->OverrideEntityWeight( spot.entity, 3.0f );
+					bot->ai->botRef->SetDefenceSpot( spot.id, 3.0f );
 					bot->ai->botRef->SetBaseOffensiveness( 0.7f );
 				} else {
-					bot->ai->botRef->OverrideEntityWeight( spot.entity, 15.0f );
+					bot->ai->botRef->SetDefenceSpot( spot.id, 15.0f );
 					bot->ai->botRef->SetBaseOffensiveness( 0.3f );
 				}
 				continue;
@@ -517,7 +515,7 @@ void AiObjectiveBasedTeamBrain::UpdateDefendersStatus( unsigned defenceSpotNum )
 				}
 			}
 			if( returnToSpot ) {
-				bot->ai->botRef->OverrideEntityWeight( spot.entity, 15.0f );
+				bot->ai->botRef->SetDefenceSpot( spot.id, 15.0f );
 				bot->ai->botRef->SetBaseOffensiveness( 0.3f );
 				continue;
 			}
@@ -531,7 +529,7 @@ void AiObjectiveBasedTeamBrain::UpdateDefendersStatus( unsigned defenceSpotNum )
 		botToSpot.NormalizeFast();
 
 		if( botToSpot.Dot( bot->ai->botRef->EntityPhysicsState()->ForwardDir() ) > bot->ai->botRef->FovDotFactor() ) {
-			bot->ai->botRef->OverrideEntityWeight( spot.entity, 0.0f );
+			bot->ai->botRef->SetDefenceSpot( spot.id, 0.0f );
 			if( squareDistanceToSpot > spot.radius * spot.radius ) {
 				bot->ai->botRef->SetBaseOffensiveness( 0.3f );
 			} else {
@@ -541,33 +539,29 @@ void AiObjectiveBasedTeamBrain::UpdateDefendersStatus( unsigned defenceSpotNum )
 		}
 
 		if( squareDistanceToSpot < ( 0.33f * spot.radius ) * ( 0.33f * spot.radius ) ) {
-			bot->ai->botRef->OverrideEntityWeight( spot.entity, 0.0f );
+			bot->ai->botRef->SetDefenceSpot( spot.id, 0.0f );
 			bot->ai->botRef->SetBaseOffensiveness( 1.0f );
 			continue;
 		}
 
 		if( squareDistanceToSpot < ( 0.66f * spot.radius ) * ( 0.66f * spot.radius ) ) {
-			bot->ai->botRef->OverrideEntityWeight( spot.entity, 1.0f );
+			bot->ai->botRef->SetDefenceSpot( spot.id, 1.0f );
 			bot->ai->botRef->SetBaseOffensiveness( 0.7f );
 		}
 
-		bot->ai->botRef->OverrideEntityWeight( spot.entity, 7.5f );
+		bot->ai->botRef->SetDefenceSpot( spot.id, 7.5f );
 		bot->ai->botRef->SetBaseOffensiveness( 0.5f );
 	}
 }
 
 void AiObjectiveBasedTeamBrain::UpdateAttackersStatus( unsigned offenceSpotNum ) {
-	const edict_t *spotEnt = offenseSpots[offenceSpotNum].entity;
-	for( unsigned i = 0; i < attackers[offenceSpotNum].size(); ++i ) {
-		edict_t *bot = attackers[offenceSpotNum][i];
-		bot->ai->botRef->SetOffenseSpotId( offenseSpots[offenceSpotNum].id );
+	const auto &spot = offenseSpots[offenceSpotNum];
+	const auto &spotAttackers = attackers[offenceSpotNum];
+	for( const edict_t *botEnt: spotAttackers ) {
+		Bot *bot = botEnt->ai->botRef;
 		// If bot is not in squad, set an offence spot weight to a value of an ordinary valuable item.
 		// Thus bots will not attack alone and will grab some items instead in order to prepare to attack.
-		if( bot->ai->botRef->IsInSquad() ) {
-			bot->ai->botRef->OverrideEntityWeight( spotEnt, 9.0f );
-		} else {
-			bot->ai->botRef->OverrideEntityWeight( spotEnt, 3.0f );
-		}
-		bot->ai->botRef->SetBaseOffensiveness( 0.0f );
+		bot->SetOffenseSpot( spot.id, bot->IsInSquad() ? 9.0f : 3.0f );
+		bot->SetBaseOffensiveness( 0.0f );
 	}
 }

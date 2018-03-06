@@ -1263,12 +1263,12 @@ void objectBot_overrideEntityWeight(ai_handle_t *ai, edict_t *ent, float weight)
 
 int objectBot_get_defenceSpotId(const ai_handle_t *ai)
 {
-    return CHECK_BOT_HANDLE(ai)->botRef->DefenceSpotId();
+    return CHECK_BOT_HANDLE(ai)->botRef->GetObjectiveSpot().DefenceSpotId();
 }
 
 int objectBot_get_offenseSpotId(const ai_handle_t *ai)
 {
-    return CHECK_BOT_HANDLE(ai)->botRef->OffenseSpotId();
+    return CHECK_BOT_HANDLE(ai)->botRef->GetObjectiveSpot().OffenseSpotId();
 }
 
 void objectBot_setNavTarget(const ai_handle_t *ai, const asvec3_t *navTargetOrigin, float reachRadius)

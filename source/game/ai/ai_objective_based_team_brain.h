@@ -83,17 +83,12 @@ class AiObjectiveBasedTeamBrain : public AiSquadBasedTeamBrain
 	inline int RemoveItem( const char *name, Container &c, int id, OnRemoved onRemoved );
 
 	inline void OnDefenceSpotRemoved( DefenceSpot *defenceSpot ) {
-		ClearExternalEntityWeights( defenceSpot->entity );
 		if( defenceSpot->usesAutoAlert ) {
 			DisableDefenceSpotAutoAlert( defenceSpot );
 		}
 	}
 
-	inline void OnOffenseSpotRemoved( OffenseSpot *offenseSpot ) {
-		ClearExternalEntityWeights( offenseSpot->entity );
-	}
-
-	void ClearExternalEntityWeights( const edict_t *ent );
+	inline void OnOffenseSpotRemoved( OffenseSpot *offenseSpot ) {}
 
 	struct BotAndScore {
 		edict_t *bot;
@@ -128,6 +123,8 @@ class AiObjectiveBasedTeamBrain : public AiSquadBasedTeamBrain
 
 	void OnAlertReported( Bot *bot, int id, float alertLevel );
 
+	template<typename Container >
+	const edict_t *GetUnderlyingEntity( const Container &container, int spotId ) const;
 public:
 	AiObjectiveBasedTeamBrain( int team_ ) : AiSquadBasedTeamBrain( team_ ) {}
 	virtual ~AiObjectiveBasedTeamBrain() override {}
@@ -139,6 +136,10 @@ public:
 
 	void AddOffenseSpot( const AiOffenseSpot &spot );
 	void RemoveOffenseSpot( int id );
+
+	// Returns null if there is no such spot / the spot is no longer valid
+	// Note: this signature is actually user friendly contrary to the first impression and typed alternatives.
+	const edict_t *GetSpotUnderlyingEntity( int spotId, bool isDefenceSpot ) const;
 
 	virtual void OnBotAdded( Bot *bot ) override;
 	virtual void OnBotRemoved( Bot *bot ) override;

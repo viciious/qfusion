@@ -1,5 +1,6 @@
 #include "bot_items_selector.h"
 #include "bot.h"
+#include "ai_objective_based_team_brain.h"
 
 void BotItemsSelector::UpdateInternalItemAndGoalWeights() {
 	memset( internalEntityWeights, 0, sizeof( internalEntityWeights ) );
@@ -11,6 +12,16 @@ void BotItemsSelector::UpdateInternalItemAndGoalWeights() {
 		if( Inventory()[weapon] ) {
 			onlyGotGB = false;
 			break;
+		}
+	}
+
+	const edict_t *objectiveSpotEntity = nullptr;
+	const auto &spotDef = self->ai->botRef->objectiveSpotDef;
+	if( spotDef.IsActive() ) {
+		const auto *teamBrain = AiBaseTeamBrain::GetBrainForTeam( self->s.team );
+		const auto *objectiveBasedTeamBrain = dynamic_cast<const AiObjectiveBasedTeamBrain *>( teamBrain );
+		if( objectiveBasedTeamBrain ) {
+			objectiveSpotEntity = objectiveBasedTeamBrain->GetSpotUnderlyingEntity( spotDef.id, spotDef.isDefenceSpot );
 		}
 	}
 
@@ -34,6 +45,13 @@ void BotItemsSelector::UpdateInternalItemAndGoalWeights() {
 			ItemAndGoalWeights weights = ComputeItemWeights( goalEnt->Item(), onlyGotGB );
 			internalEntityWeights[goalEnt->Id()] = weights.itemWeight;
 			internalPickupGoalWeights[goalEnt->Id()] = weights.goalWeight;
+			continue;
+		}
+
+		if( goalEnt->IsBasedOnEntity( objectiveSpotEntity ) ) {
+			internalEntityWeights[goalEnt->Id()] = spotDef.navWeight;
+			internalPickupGoalWeights[goalEnt->Id()] = spotDef.goalWeight;
+			continue;
 		}
 	}
 }

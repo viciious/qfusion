@@ -80,8 +80,6 @@ Bot::Bot( edict_t *self_, float skillLevel_ )
 	activeMovementFallback( nullptr ),
 	vsayTimeout( level.time + 10000 ),
 	isInSquad( false ),
-	defenceSpotId( -1 ),
-	offenseSpotId( -1 ),
 	lastTouchedTeleportAt( 0 ),
 	lastTouchedJumppadAt( 0 ),
 	lastTouchedElevatorAt( 0 ),

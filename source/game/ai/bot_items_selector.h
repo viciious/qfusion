@@ -98,6 +98,8 @@ class BotItemsSelector
 
 	void UpdateInternalItemAndGoalWeights();
 
+	const edict_t *GetSpotEntityAndWeight( float *weight ) const;
+
 	struct ItemAndGoalWeights {
 		float itemWeight;
 		float goalWeight;
