@@ -20,6 +20,8 @@ Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
 
 #include "qcommon.h"
 #include "snap_write.h"
+#include "../gameshared/gs_public.h"
+#include "../gameshared/q_comref.h"
 
 // For every client contains an array of timestamps for entities.
 // Every timestamps array contains a frame timestamp when the entity was shadowed for a client.
@@ -151,9 +153,68 @@ static void SNAP_WriteDeltaGameStateToClient( client_snapshot_t *from, client_sn
 /*
 * SNAP_WritePlayerstateToClient
 */
-static void SNAP_WritePlayerstateToClient( msg_t *msg, const player_state_t *ops, player_state_t *ps ) {
+static void SNAP_WritePlayerstateToClient( msg_t *msg, const player_state_t *ops, player_state_t *ps, const client_snapshot_t *frame ) {
 	MSG_WriteUint8( msg, svc_playerinfo );
+
+	// Transmit private stats for spectators
+	if( frame->ps->stats[STAT_REALTEAM] == TEAM_SPECTATOR ) {
+		MSG_WriteDeltaPlayerState( msg, ops, ps );
+		return;
+	}
+
+	// Transmit private stats for teammates
+	int clientTeam = frame->ps->stats[STAT_TEAM];
+	if( clientTeam > TEAM_PLAYERS && clientTeam == ps->stats[STAT_TEAM] ) {
+		MSG_WriteDeltaPlayerState( msg, ops, ps );
+		return;
+	}
+
+	// Transmit as-is in this case
+	if( frame->multipov ) {
+		MSG_WriteDeltaPlayerState( msg, ops, ps );
+		return;
+	}
+
+	// Transmit as-is for the player itself
+	if( frame->ps->POVnum == ps->playerNum + 1 ) {
+		MSG_WriteDeltaPlayerState( msg, ops, ps );
+		return;
+	}
+
+	short backupHealth = ps->stats[STAT_HEALTH];
+	short backupArmor = ps->stats[STAT_ARMOR];
+	vec3_t backupOrigin;
+	vec3_t backupVelocity;
+	vec2_t backupAngles;
+	int backupInventory[MAX_ITEMS];
+	VectorCopy( ps->pmove.origin, backupOrigin );
+	VectorCopy( ps->pmove.velocity, backupVelocity );
+	Vector2Copy( ps->viewangles, backupAngles );
+	memcpy( backupInventory, ps->inventory, sizeof( backupInventory ) );
+
+	ps->stats[STAT_HEALTH] = 100;
+	ps->stats[STAT_ARMOR] = 100;
+	memset( ps->inventory, 0, sizeof( backupInventory ) );
+
+	// Transmit fake/garbage data if the player entity would be culled if there were no attached events
+	if( SNAP_IsShadowed( frame, ps->playerNum + 1 ) ) {
+		for( int i = 0; i < 2; ++i ) {
+			ps->viewangles[i] = -180.0f + 360.0f * random();
+		}
+		for( int i = 0; i < 3; ++i ) {
+			ps->pmove.origin[i] = -500.0f + 1000.0f * random();
+			ps->pmove.velocity[i] = -500.0f + 1000.0f * random();
+		}
+	}
+
 	MSG_WriteDeltaPlayerState( msg, ops, ps );
+
+	ps->stats[STAT_HEALTH] = backupHealth;
+	ps->stats[STAT_ARMOR] = backupArmor;
+	VectorCopy( backupOrigin, ps->pmove.origin );
+	VectorCopy( backupVelocity, ps->pmove.velocity );
+	Vector2Copy( backupAngles, ps->viewangles );
+	memcpy( ps->inventory, backupInventory, sizeof( ps->inventory ) );
 }
 
 /*
@@ -419,9 +480,9 @@ void SNAP_WriteFrameSnapToClient( ginfo_t *gi, client_t *client, msg_t *msg, int
 	// delta encode the playerstate
 	for( i = 0; i < frame->numplayers; i++ ) {
 		if( oldframe && oldframe->numplayers > i ) {
-			SNAP_WritePlayerstateToClient( msg, &oldframe->ps[i], &frame->ps[i] );
+			SNAP_WritePlayerstateToClient( msg, &oldframe->ps[i], &frame->ps[i], frame );
 		} else {
-			SNAP_WritePlayerstateToClient( msg, NULL, &frame->ps[i] );
+			SNAP_WritePlayerstateToClient( msg, NULL, &frame->ps[i], frame );
 		}
 	}
 	MSG_WriteUint8( msg, 0 );
