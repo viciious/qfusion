@@ -413,6 +413,9 @@ static bool SV_SendClientDatagram( client_t *client ) {
 	if( sv_snap_aggressive_fov_culling->integer ) {
 		snapHintFlags |= SNAP_HINT_USE_VIEW_DIR_CULLING;
 	}
+	if( sv_snap_shadow_events_data->integer ) {
+		snapHintFlags |= SNAP_HINT_SHADOW_EVENTS_DATA;
+	}
 
 	// send over all the relevant entity_state_t
 	// and the player_state_t

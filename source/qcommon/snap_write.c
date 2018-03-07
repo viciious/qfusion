@@ -21,6 +21,49 @@ Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
 #include "qcommon.h"
 #include "snap_write.h"
 
+// For every client contains an array of timestamps for entities.
+// Every timestamps array contains a frame timestamp when the entity was shadowed for a client.
+// Shadowing means providing fake/garbage data for clients
+// instead of real one if it won't break gameplay experience.
+static int64_t shadowedForClientAt[MAX_CLIENTS - 1][MAX_EDICTS];
+
+// Mark entity for shadowing
+static inline void SNAP_Shadow( const client_snapshot_t *frame, int entNum ) {
+	// TODO: Use POVnum?
+	shadowedForClientAt[frame->ps->playerNum][entNum] = frame->sentTimeStamp;
+}
+
+static inline bool SNAP_IsShadowed( const client_snapshot_t *frame, int entNum ) {
+	// TODO: Use POVnum?
+	return shadowedForClientAt[frame->ps->playerNum][entNum] == frame->sentTimeStamp;
+}
+
+static inline void SNAP_WriteDeltaEntity( msg_t *msg, const entity_state_t *from, const entity_state_t *to,
+										  const client_snapshot_t *frame, bool force ) {
+	if( !to ) {
+		MSG_WriteDeltaEntity( msg, from, to, force );
+		return;
+	}
+
+	if( !SNAP_IsShadowed( frame, to ) ) {
+		MSG_WriteDeltaEntity( msg, from, to, force );
+		return;
+	}
+
+
+	// Too bad `angles` is the only field we can really shadow
+	vec2_t backupAngles;
+	Vector2Copy( to->angles, backupAngles );
+
+	for( int i = 0; i < 2; ++i ) {
+		( (float *)( to->angles ) )[i] = -180.0f + 360.0f * random();
+	}
+
+	MSG_WriteDeltaEntity( msg, from, to, force );
+
+	Vector2Copy( backupAngles, (float *)( to->angles ) );
+}
+
 /*
 =========================================================================
 
@@ -73,7 +116,7 @@ static void SNAP_EmitPacketEntities( ginfo_t *gi, client_snapshot_t *from, clien
 			// in any bytes being emited if the entity has not changed at all
 			// note that players are always 'newentities', this updates their oldorigin always
 			// and prevents warping ( wsw : jal : I removed it from the players )
-			MSG_WriteDeltaEntity( msg, oldent, newent, false );
+			SNAP_WriteDeltaEntity( msg, oldent, newent, to, false );
 			oldindex++;
 			newindex++;
 			continue;
@@ -81,14 +124,14 @@ static void SNAP_EmitPacketEntities( ginfo_t *gi, client_snapshot_t *from, clien
 
 		if( newnum < oldnum ) {
 			// this is a new entity, send it from the baseline
-			MSG_WriteDeltaEntity( msg, &baselines[newnum], newent, true );
+			SNAP_WriteDeltaEntity( msg, &baselines[newnum], newent, to, true );
 			newindex++;
 			continue;
 		}
 
 		if( newnum > oldnum ) {
 			// the old entity isn't present in the new message
-			MSG_WriteDeltaEntity( msg, oldent, NULL, false );
+			SNAP_WriteDeltaEntity( msg, oldent, NULL, to, false );
 			oldindex++;
 			continue;
 		}
@@ -754,6 +797,7 @@ static bool SNAP_SnapCullEntity( cmodel_state_t *cms, edict_t *ent,
 	bool snd_use_pvs;
 	bool use_raycasting;
 	bool use_viewdir_culling;
+	bool shadow_real_events_data;
 
 	// filters: this entity has been disabled for comunication
 	if( ent->r.svflags & SVF_NOCLIENT ) {
@@ -803,6 +847,7 @@ static bool SNAP_SnapCullEntity( cmodel_state_t *cms, edict_t *ent,
 	snd_use_pvs = ( snapHintFlags & SNAP_HINT_CULL_SOUND_WITH_PVS ) != 0;
 	use_raycasting = ( snapHintFlags & SNAP_HINT_USE_RAYCAST_CULLING ) != 0;
 	use_viewdir_culling = ( snapHintFlags & SNAP_HINT_USE_VIEW_DIR_CULLING ) != 0;
+	shadow_real_events_data = ( snapHintFlags & SNAP_HINT_SHADOW_EVENTS_DATA ) != 0;
 
 	if( snd_use_pvs ) {
 		// Don't even bother about calling SnapCullSoundEntity() except the entity has only a sound to transmit
@@ -826,6 +871,14 @@ static bool SNAP_SnapCullEntity( cmodel_state_t *cms, edict_t *ent,
 		if( ent->s.sound || ent->s.events[0] ) {
 			// If sound attenuation is not sufficient to cutoff the entity
 			if( !SNAP_SnapCullSoundEntity( cms, ent, vieworg, ent->s.attenuation ) ) {
+				if( shadow_real_events_data ) {
+					// If the entity would have been culled if there were no events
+					if( !( ent->r.svflags & SVF_TRANSMITORIGIN2 ) ) {
+						if( SNAP_TryCullEntityByRaycasting( cms, clent, vieworg, ent ) ) {
+							SNAP_Shadow( frame, ent->s.number );
+						}
+					}
+				}
 				return false;
 			}
 		}
@@ -861,6 +914,14 @@ static bool SNAP_SnapCullEntity( cmodel_state_t *cms, edict_t *ent,
 
 	// If sound attenuation is not sufficient to cutoff the entity
 	if( !snd_culled ) {
+		if( shadow_real_events_data ) {
+			// If the entity would have been culled if there were no events
+			if( !( ent->r.svflags & SVF_TRANSMITORIGIN2 ) ) {
+				if( SNAP_TryCullEntityByRaycasting( cms, clent, vieworg, ent ) ) {
+					SNAP_Shadow( frame, ent->s.number );
+				}
+			}
+		}
 		return false;
 	}
 

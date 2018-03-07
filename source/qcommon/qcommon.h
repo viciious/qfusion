@@ -165,6 +165,10 @@ void SNAP_WriteFrameSnapToClient( struct ginfo_s *gi, struct client_s *client, m
 // Currently it is a last hope against cheaters in an untrusted environment,
 // but would be useful for slowly-turning vehicles in future.
 #define SNAP_HINT_USE_VIEW_DIR_CULLING    ( 4 )
+// If an entity would have been culled without attached sound events,
+// but cannot be culled due to mentioned attachments presence,
+// transmit fake angles, etc. to confuse a wallhack user
+#define SNAP_HINT_SHADOW_EVENTS_DATA      ( 8 )
 
 void SNAP_BuildClientFrameSnap( struct cmodel_state_s *cms, struct ginfo_s *gi, int64_t frameNum, int64_t timeStamp,
 								struct fatvis_s *fatvis, struct client_s *client,

@@ -364,6 +364,7 @@ extern cvar_t *sv_snap_aggressive_sound_culling;
 extern cvar_t *sv_snap_raycast_players_culling;
 // "fov" sounds more clear than "view dir" though its not very accurate
 extern cvar_t *sv_snap_aggressive_fov_culling;
+extern cvar_t *sv_snap_shadow_events_data;
 
 //===========================================================
 
