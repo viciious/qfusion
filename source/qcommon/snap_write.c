@@ -45,7 +45,7 @@ static inline void SNAP_WriteDeltaEntity( msg_t *msg, const entity_state_t *from
 		return;
 	}
 
-	if( !SNAP_IsShadowed( frame, to ) ) {
+	if( !SNAP_IsShadowed( frame, to->number ) ) {
 		MSG_WriteDeltaEntity( msg, from, to, force );
 		return;
 	}
@@ -534,14 +534,23 @@ static inline void SNAP_GetRandomPointInBox( const vec3_t origin, const vec3_t m
 	result[2] = origin[2] + mins[2] + random() * size[2];
 }
 
-static bool SNAP_TryCullEntityByRaycasting( cmodel_state_t *cms, edict_t *clent, const vec3_t vieworg, edict_t *ent ) {
-	// Currently only clients are supported
+static struct {
+	int64_t timestamp : 63;
+	bool result: 1;
+} clientsRaycastResultsTable[MAX_CLIENTS - 1][MAX_CLIENTS - 1];
+
+static bool SNAP_TryCullClientByRaycasting( cmodel_state_t *cms, edict_t *clent, const vec3_t vieworg, edict_t *ent );
+
+static bool SNAP_TryCullEntityByRaycasting( cmodel_state_t *cms, edict_t *clent,
+											const vec3_t vieworg, edict_t *ent,
+											client_snapshot_t *frame ) {
 	const gclient_t *entClient = ent->r.client;
 	if( !entClient ) {
 		return false;
 	}
 
 	const gclient_t *client = clent->r.client;
+
 	vec3_t clientViewOrigin;
 	VectorCopy( clent->s.origin, clientViewOrigin );
 	clientViewOrigin[2] += client->ps.viewheight;
@@ -550,6 +559,27 @@ static bool SNAP_TryCullEntityByRaycasting( cmodel_state_t *cms, edict_t *clent,
 	if( !VectorCompare( clientViewOrigin, vieworg ) ) {
 		return false;
 	}
+
+	// After all these checks we can consider the client-to-entity visibility relation symmetrical
+
+	int clientPlayerNum = clent->s.number - 1;
+	int entPlayerNum = ent->s.number - 1;
+	if( clientsRaycastResultsTable[clientPlayerNum][entPlayerNum].timestamp == frame->sentTimeStamp ) {
+		return clientsRaycastResultsTable[clientPlayerNum][entPlayerNum].result;
+	}
+
+	bool result = SNAP_TryCullClientByRaycasting( cms, clent, vieworg, ent );
+
+	clientsRaycastResultsTable[clientPlayerNum][entPlayerNum].timestamp = frame->sentTimeStamp;
+	clientsRaycastResultsTable[clientPlayerNum][entPlayerNum].result = result;
+	clientsRaycastResultsTable[entPlayerNum][clientPlayerNum].timestamp = frame->sentTimeStamp;
+	clientsRaycastResultsTable[entPlayerNum][clientPlayerNum].result = result;
+	return result;
+}
+
+static bool SNAP_TryCullClientByRaycasting( cmodel_state_t *cms, edict_t *clent, const vec3_t vieworg, edict_t *ent ) {
+	const gclient_t *const client = clent->r.client;
+	const gclient_t *const entClient = ent->r.client;
 
 	// Do not use vis culling for fast moving clients/entities due to being prone to glitches
 
@@ -574,38 +604,20 @@ static bool SNAP_TryCullEntityByRaycasting( cmodel_state_t *cms, edict_t *clent,
 
 	trace_t trace;
 	// Do a first raycast to the entity origin for a fast cutoff
-	if( SNAP_Raycast( cms, &trace, clientViewOrigin, to ) ) {
+	if( SNAP_Raycast( cms, &trace, vieworg, to ) ) {
 		return false;
 	}
 
 	// Do a second raycast at the entity chest/eyes level
 	to[2] += entClient->ps.viewheight;
-	if( SNAP_Raycast( cms, &trace, clientViewOrigin, to ) ) {
+	if( SNAP_Raycast( cms, &trace, vieworg, to ) ) {
 		return false;
 	}
 
 	// Test a random point in entity bounds now
 	SNAP_GetRandomPointInBox( ent->s.origin, ent->r.mins, ent->r.size, to );
-	if( SNAP_Raycast( cms, &trace, clientViewOrigin, to ) ) {
+	if( SNAP_Raycast( cms, &trace, vieworg, to ) ) {
 		return false;
-	}
-
-	// Now try applying a cutoff of further extremely expensive computations using client viewangles.
-	// This could lead to some glitches but we try to vary cutoff threshold by ping.
-	// Even in case when a high-ping player turns instantly back,
-	// an info about most players that should be visible in his POV is still provided.
-
-	vec3_t viewDir;
-	AngleVectors( client->ps.viewangles, viewDir, NULL, NULL );
-	VectorNormalize( viewDir );
-
-	vec3_t toEntDir;
-	VectorSubtract( ent->s.origin, clientViewOrigin, toEntDir );
-	VectorNormalize( toEntDir );
-
-	float pingDotFactor = -client->r.ping / 400.0f;
-	if( DotProduct( viewDir, toEntDir ) < pingDotFactor ) {
-		return true;
 	}
 
 	// Test all bbox corners at the current position.
@@ -622,7 +634,7 @@ static bool SNAP_TryCullEntityByRaycasting( cmodel_state_t *cms, edict_t *clent,
 		to[0] = ent->s.origin[0] + bounds[(i >> 2) & 1][0];
 		to[1] = ent->s.origin[1] + bounds[(i >> 1) & 1][1];
 		to[2] = ent->s.origin[2] + bounds[(i >> 0) & 1][2];
-		if( SNAP_Raycast( cms, &trace, clientViewOrigin, to ) ) {
+		if( SNAP_Raycast( cms, &trace, vieworg, to ) ) {
 			return false;
 		}
 	}
@@ -654,7 +666,7 @@ static bool SNAP_TryCullEntityByRaycasting( cmodel_state_t *cms, edict_t *clent,
 		vec3_t from;
 		vec3_t entOrigin;
 
-		VectorMA( clientViewOrigin, secondsAhead, clientVelocity, from );
+		VectorMA( vieworg, secondsAhead, clientVelocity, from );
 		VectorMA( ent->s.origin, secondsAhead, vec3_origin, entOrigin );
 
 		SNAP_GetRandomPointInBox( entOrigin, ent->r.mins, ent->r.size, to );
@@ -874,7 +886,7 @@ static bool SNAP_SnapCullEntity( cmodel_state_t *cms, edict_t *ent,
 				if( shadow_real_events_data ) {
 					// If the entity would have been culled if there were no events
 					if( !( ent->r.svflags & SVF_TRANSMITORIGIN2 ) ) {
-						if( SNAP_TryCullEntityByRaycasting( cms, clent, vieworg, ent ) ) {
+						if( SNAP_TryCullEntityByRaycasting( cms, clent, vieworg, ent, frame ) ) {
 							SNAP_Shadow( frame, ent->s.number );
 						}
 					}
@@ -888,7 +900,7 @@ static bool SNAP_SnapCullEntity( cmodel_state_t *cms, edict_t *ent,
 			return false;
 		}
 
-		if( use_raycasting && SNAP_TryCullEntityByRaycasting( cms, clent, vieworg, ent ) ) {
+		if( use_raycasting && SNAP_TryCullEntityByRaycasting( cms, clent, vieworg, ent, frame ) ) {
 			return true;
 		}
 
@@ -917,7 +929,7 @@ static bool SNAP_SnapCullEntity( cmodel_state_t *cms, edict_t *ent,
 		if( shadow_real_events_data ) {
 			// If the entity would have been culled if there were no events
 			if( !( ent->r.svflags & SVF_TRANSMITORIGIN2 ) ) {
-				if( SNAP_TryCullEntityByRaycasting( cms, clent, vieworg, ent ) ) {
+				if( SNAP_TryCullEntityByRaycasting( cms, clent, vieworg, ent, frame ) ) {
 					SNAP_Shadow( frame, ent->s.number );
 				}
 			}
@@ -934,7 +946,7 @@ static bool SNAP_SnapCullEntity( cmodel_state_t *cms, edict_t *ent,
 		return false;
 	}
 
-	if( use_raycasting && SNAP_TryCullEntityByRaycasting( cms, clent, vieworg, ent ) ) {
+	if( use_raycasting && SNAP_TryCullEntityByRaycasting( cms, clent, vieworg, ent, frame ) ) {
 		return true;
 	}
 
