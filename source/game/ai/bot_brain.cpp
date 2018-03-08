@@ -1,6 +1,6 @@
 #include "bot.h"
 #include "ai_ground_trace_cache.h"
-#include "ai_squad_based_team_brain.h"
+#include "ai_squad_based_team.h"
 #include "bot_brain.h"
 #include "tactical_spots_registry.h"
 #include <algorithm>

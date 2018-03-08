@@ -1,5 +1,5 @@
-#include "ai_squad_based_team_brain.h"
-#include "ai_objective_based_team_brain.h"
+#include "ai_squad_based_team.h"
+#include "ai_objective_based_team.h"
 #include "ai_ground_trace_cache.h"
 #include "bot.h"
 #include <algorithm>
@@ -1073,9 +1073,9 @@ bool AiSquad::TryAttachBot( Bot *bot ) {
 	return false;
 }
 
-void AiSquadBasedTeamBrain::Frame() {
+void AiSquadBasedTeam::Frame() {
 	// Call super method first, it may contain some logic
-	AiBaseTeamBrain::Frame();
+	AiBaseTeam::Frame();
 
 	// Drain invalid squads
 	for( auto &squad: squads ) {
@@ -1098,11 +1098,11 @@ void AiSquadBasedTeamBrain::Frame() {
 		squad.Update();
 }
 
-void AiSquadBasedTeamBrain::OnBotAdded( Bot *bot ) {
+void AiSquadBasedTeam::OnBotAdded( Bot *bot ) {
 	orphanBots.push_back( bot );
 }
 
-void AiSquadBasedTeamBrain::OnBotRemoved( Bot *bot ) {
+void AiSquadBasedTeam::OnBotRemoved( Bot *bot ) {
 	for( auto &squad: squads )
 		squad.OnBotRemoved( bot );
 
@@ -1115,9 +1115,9 @@ void AiSquadBasedTeamBrain::OnBotRemoved( Bot *bot ) {
 	}
 }
 
-void AiSquadBasedTeamBrain::Think() {
+void AiSquadBasedTeam::Think() {
 	// Call super method first, this call must not be omitted
-	AiBaseTeamBrain::Think();
+	AiBaseTeam::Think();
 
 	if( !orphanBots.empty() ) {
 		SetupSquads();
@@ -1304,7 +1304,7 @@ static unsigned MakeNewSquads( NearbyMatesList **sortedMatesLists, unsigned list
 	return newSquadsCount;
 }
 
-void AiSquadBasedTeamBrain::SetupSquads() {
+void AiSquadBasedTeam::SetupSquads() {
 	NearbyMatesList nearbyMates[MAX_CLIENTS];
 
 	SelectNearbyMates( nearbyMates, orphanBots, travelTimesMatrix );
@@ -1367,7 +1367,7 @@ void AiSquadBasedTeamBrain::SetupSquads() {
 		orphanBots.push_back( keptOrphans[i] );
 }
 
-unsigned AiSquadBasedTeamBrain::GetFreeSquadSlot() {
+unsigned AiSquadBasedTeam::GetFreeSquadSlot() {
 	for( unsigned i = 0; i < squads.size(); ++i ) {
 		if( !squads[i].InUse() ) {
 			squads[i].PrepareToAddBots();
@@ -1381,13 +1381,13 @@ unsigned AiSquadBasedTeamBrain::GetFreeSquadSlot() {
 	return squads.size() - 1;
 }
 
-AiSquadBasedTeamBrain *AiSquadBasedTeamBrain::InstantiateTeamBrain( int team, const char *gametype ) {
+AiSquadBasedTeam *AiSquadBasedTeam::InstantiateTeam( int team, const char *gametype ) {
 	// HACK!
 	// TODO: Add better way to detect objective-based gametypes
 	if( strstr( g_gametype->string, "bomb" ) || strstr( g_gametype->string, "ctf" ) ) {
-		void *mem = G_Malloc( sizeof( AiObjectiveBasedTeamBrain ) );
-		return new(mem) AiObjectiveBasedTeamBrain( team );
+		void *mem = G_Malloc( sizeof( AiObjectiveBasedTeam ) );
+		return new(mem) AiObjectiveBasedTeam( team );
 	}
-	void *mem = G_Malloc( sizeof( AiSquadBasedTeamBrain ) );
-	return new(mem) AiSquadBasedTeamBrain( team );
+	void *mem = G_Malloc( sizeof( AiSquadBasedTeam ) );
+	return new(mem) AiSquadBasedTeam( team );
 }

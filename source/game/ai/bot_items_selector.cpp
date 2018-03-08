@@ -1,6 +1,6 @@
 #include "bot_items_selector.h"
 #include "bot.h"
-#include "ai_objective_based_team_brain.h"
+#include "ai_objective_based_team.h"
 
 void BotItemsSelector::UpdateInternalItemAndGoalWeights() {
 	memset( internalEntityWeights, 0, sizeof( internalEntityWeights ) );
@@ -18,10 +18,9 @@ void BotItemsSelector::UpdateInternalItemAndGoalWeights() {
 	const edict_t *objectiveSpotEntity = nullptr;
 	const auto &spotDef = self->ai->botRef->objectiveSpotDef;
 	if( spotDef.IsActive() ) {
-		const auto *teamBrain = AiBaseTeamBrain::GetBrainForTeam( self->s.team );
-		const auto *objectiveBasedTeamBrain = dynamic_cast<const AiObjectiveBasedTeamBrain *>( teamBrain );
-		if( objectiveBasedTeamBrain ) {
-			objectiveSpotEntity = objectiveBasedTeamBrain->GetSpotUnderlyingEntity( spotDef.id, spotDef.isDefenceSpot );
+		const auto *team = AiBaseTeam::GetTeamForNum( self->s.team );
+		if( const auto *objectiveBasedTeam = dynamic_cast<const AiObjectiveBasedTeam *>( team ) ) {
+			objectiveSpotEntity = objectiveBasedTeam->GetSpotUnderlyingEntity( spotDef.id, spotDef.isDefenceSpot );
 		}
 	}
 

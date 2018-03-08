@@ -3,7 +3,7 @@
 
 #include "ai_frame_aware_updatable.h"
 
-class AiBaseTeamBrain : public AiFrameAwareUpdatable
+class AiBaseTeam : public AiFrameAwareUpdatable
 {
 	friend class Bot;  // Bots should be able to notify its team in destructor when they get dropped immediately
 	friend class AiManager;
@@ -14,8 +14,8 @@ class AiBaseTeamBrain : public AiFrameAwareUpdatable
 	mutable int svSkill;
 
 	// These vars are used instead of AiFrameAwareUpdatable for lazy intiailization
-	mutable int teamBrainAffinityModulo;
-	mutable int teamBrainAffinityOffset;
+	mutable int teamAffinityModulo;
+	mutable int teamAffinityOffset;
 	static constexpr int MAX_AFFINITY_OFFSET = 4;
 	// This array contains count of bots that use corresponding offset for each possible affinity offset
 	unsigned affinityOffsetsInUse[MAX_AFFINITY_OFFSET];
@@ -29,18 +29,18 @@ class AiBaseTeamBrain : public AiFrameAwareUpdatable
 
 	void InitTeamAffinity() const;  // Callers are const ones, and only mutable vars are modified
 
-	static void RegisterTeamBrain( int team, AiBaseTeamBrain *brain );
-	static void UnregisterTeamBrain( int team );
+	static void RegisterTeam( int teamNum, AiBaseTeam *team );
+	static void UnregisterTeam( int teamNum );
 
-	// A factory method for team brain creation.
-	// Instantiates appropriate kind of team brain for a current gametype.
-	static AiBaseTeamBrain *InstantiateTeamBrain( int team, const char *gametype );
+	// A factory method for team creation.
+	// Instantiates appropriate kind of team for a current gametype.
+	static AiBaseTeam *InstantiateTeam( int teamNum, const char *gametype );
 
 protected:
-	AiBaseTeamBrain( int team_ );
-	virtual ~AiBaseTeamBrain() override {}
+	AiBaseTeam( int teamNum_ );
+	virtual ~AiBaseTeam() override {}
 
-	const int team;
+	const int teamNum;
 
 	void AddBot( class Bot *bot );
 	void RemoveBot( class Bot *bot );
@@ -63,9 +63,11 @@ protected:
 
 	void Debug( const char *format, ... );
 
+	static void CheckTeamNum( int teamNum );
+	static AiBaseTeam **TeamRefForNum( int teamNum );
 public:
 	static void OnGametypeChanged( const char *gametype );
-	static AiBaseTeamBrain *GetBrainForTeam( int team );
+	static AiBaseTeam *GetTeamForNum( int teamNum );
 };
 
 #endif

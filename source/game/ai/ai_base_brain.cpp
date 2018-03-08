@@ -1,6 +1,6 @@
 #include "ai_base_brain.h"
 #include "ai_manager.h"
-#include "ai_base_team_brain.h"
+#include "ai_base_team.h"
 #include "ai_base_ai.h"
 #include "ai_ground_trace_cache.h"
 #include "ai_aas_world.h"

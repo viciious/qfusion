@@ -1,7 +1,7 @@
 #ifndef QFUSION_AI_OBJECTIVE_BASED_TEAM_BRAIN_H
 #define QFUSION_AI_OBJECTIVE_BASED_TEAM_BRAIN_H
 
-#include "ai_squad_based_team_brain.h"
+#include "ai_squad_based_team.h"
 
 // Visible for script
 struct AiDefenceSpot {
@@ -23,7 +23,7 @@ struct AiOffenseSpot {
 	unsigned maxAttackers;
 };
 
-class AiObjectiveBasedTeamBrain : public AiSquadBasedTeamBrain
+class AiObjectiveBasedTeam : public AiSquadBasedTeam
 {
 	static constexpr unsigned MAX_SPOT_ATTACKERS = 16;
 	static constexpr unsigned MAX_SPOT_DEFENDERS = 16;
@@ -126,8 +126,8 @@ class AiObjectiveBasedTeamBrain : public AiSquadBasedTeamBrain
 	template<typename Container >
 	const edict_t *GetUnderlyingEntity( const Container &container, int spotId ) const;
 public:
-	AiObjectiveBasedTeamBrain( int team_ ) : AiSquadBasedTeamBrain( team_ ) {}
-	virtual ~AiObjectiveBasedTeamBrain() override {}
+	AiObjectiveBasedTeam( int team_ ) : AiSquadBasedTeam( team_ ) {}
+	virtual ~AiObjectiveBasedTeam() override {}
 
 	void AddDefenceSpot( const AiDefenceSpot &spot );
 	void RemoveDefenceSpot( int id );

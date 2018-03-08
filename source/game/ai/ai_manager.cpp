@@ -1,6 +1,6 @@
 #include "ai_manager.h"
 #include "ai_base_brain.h"
-#include "ai_base_team_brain.h"
+#include "ai_base_team.h"
 #include "bot_evolution_manager.h"
 #include "ai_shutdown_hooks_holder.h"
 #include "bot.h"
@@ -150,10 +150,10 @@ void AiManager::OnBotJoinedTeam( edict_t *ent, int team ) {
 	const int oldTeam = teams[entNum];
 	if( oldTeam != team ) {
 		if( oldTeam != TEAM_SPECTATOR ) {
-			AiBaseTeamBrain::GetBrainForTeam( oldTeam )->RemoveBot( ent->ai->botRef );
+			AiBaseTeam::GetTeamForNum( oldTeam )->RemoveBot( ent->ai->botRef );
 		}
 		if( team != TEAM_SPECTATOR ) {
-			AiBaseTeamBrain::GetBrainForTeam( team )->AddBot( ent->ai->botRef );
+			AiBaseTeam::GetTeamForNum( team )->AddBot( ent->ai->botRef );
 		}
 		teams[entNum] = team;
 	}
@@ -163,7 +163,7 @@ void AiManager::OnBotDropped( edict_t *ent ) {
 	const int entNum = ENTNUM( ent );
 	const int oldTeam = teams[entNum];
 	if( oldTeam != TEAM_SPECTATOR ) {
-		AiBaseTeamBrain::GetBrainForTeam( oldTeam )->RemoveBot( ent->ai->botRef );
+		AiBaseTeam::GetTeamForNum( oldTeam )->RemoveBot( ent->ai->botRef );
 	}
 	teams[entNum] = TEAM_SPECTATOR;
 }
@@ -548,12 +548,12 @@ void AiManager::Frame() {
 	UpdateCpuQuotaOwner();
 
 	if( !GS_TeamBasedGametype() ) {
-		AiBaseTeamBrain::GetBrainForTeam( TEAM_PLAYERS )->Update();
+		AiBaseTeam::GetTeamForNum( TEAM_PLAYERS )->Update();
 		return;
 	}
 
 	for( int team = TEAM_ALPHA; team < GS_MAX_TEAMS; ++team ) {
-		AiBaseTeamBrain::GetBrainForTeam( team )->Update();
+		AiBaseTeam::GetTeamForNum( team )->Update();
 	}
 }
 

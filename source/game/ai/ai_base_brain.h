@@ -409,7 +409,7 @@ class AiBaseBrain : public AiFrameAwareUpdatable
 {
 	friend class Ai;
 	friend class AiManager;
-	friend class AiBaseTeamBrain;
+	friend class AiBaseTeam;
 	friend class AiBaseGoal;
 	friend class AiBaseAction;
 	friend class AiBaseActionRecord;

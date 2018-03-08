@@ -43,8 +43,8 @@ class Bot : public Ai
 {
 	friend class AiManager;
 	friend class BotEvolutionManager;
-	friend class AiBaseTeamBrain;
-	friend class AiObjectiveBasedTeamBrain;
+	friend class AiBaseTeam;
+	friend class AiObjectiveBasedTeam;
 	friend class BotBrain;
 	friend class AiSquad;
 	friend class AiBaseEnemyPool;

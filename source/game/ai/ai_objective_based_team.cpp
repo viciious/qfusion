@@ -1,10 +1,10 @@
 #include "ai_ground_trace_cache.h"
-#include "ai_objective_based_team_brain.h"
+#include "ai_objective_based_team.h"
 #include "ai_aas_route_cache.h"
 #include "bot.h"
 
 template <typename Container, typename T>
-inline int AiObjectiveBasedTeamBrain::AddItem( const char *name, Container &c, T &&item ) {
+inline int AiObjectiveBasedTeam::AddItem( const char *name, Container &c, T &&item ) {
 	if( item.id < 0 ) {
 		G_Printf( S_COLOR_YELLOW "%s has illegal id %d < 0", name, item.id );
 		return -1;
@@ -25,7 +25,7 @@ inline int AiObjectiveBasedTeamBrain::AddItem( const char *name, Container &c, T
 };
 
 template <typename Container, typename OnRemoved>
-inline int AiObjectiveBasedTeamBrain::RemoveItem( const char *name, Container &c, int id, OnRemoved onRemoved ) {
+inline int AiObjectiveBasedTeam::RemoveItem( const char *name, Container &c, int id, OnRemoved onRemoved ) {
 	for( unsigned i = 0, end = c.size(); i < end; ++i ) {
 		if( c[i].id == id ) {
 			onRemoved( &c[i] );
@@ -38,31 +38,31 @@ inline int AiObjectiveBasedTeamBrain::RemoveItem( const char *name, Container &c
 	return -1;
 }
 
-void AiObjectiveBasedTeamBrain::AddDefenceSpot( const AiDefenceSpot &spot ) {
+void AiObjectiveBasedTeam::AddDefenceSpot( const AiDefenceSpot &spot ) {
 	int slot = AddItem( "DefenceSpot", defenceSpots, DefenceSpot( spot ) );
 	if( slot >= 0 ) {
 		EnableDefenceSpotAutoAlert( &defenceSpots[slot] );
 	}
 }
 
-void AiObjectiveBasedTeamBrain::RemoveDefenceSpot( int id ) {
+void AiObjectiveBasedTeam::RemoveDefenceSpot( int id ) {
 	RemoveItem( "DefenceSpot", defenceSpots, id, [&]( DefenceSpot *s ) {
 		OnDefenceSpotRemoved( s );
 	} );
 }
 
-void AiObjectiveBasedTeamBrain::AddOffenseSpot( const AiOffenseSpot &spot ) {
+void AiObjectiveBasedTeam::AddOffenseSpot( const AiOffenseSpot &spot ) {
 	AddItem( "OffenceSpot", offenseSpots, OffenseSpot( spot ) );
 }
 
-void AiObjectiveBasedTeamBrain::RemoveOffenseSpot( int id ) {
+void AiObjectiveBasedTeam::RemoveOffenseSpot( int id ) {
 	RemoveItem( "OffenceSpot", offenseSpots, id, [&]( OffenseSpot *s ) {
 		OnOffenseSpotRemoved( s );
 	} );
 }
 
 template<typename Container >
-const edict_t *AiObjectiveBasedTeamBrain::GetUnderlyingEntity( const Container &container, int spotId ) const {
+const edict_t *AiObjectiveBasedTeam::GetUnderlyingEntity( const Container &container, int spotId ) const {
 	for( auto spot: container ) {
 		if( spot.id == spotId ) {
 			return spot.entity;
@@ -72,14 +72,14 @@ const edict_t *AiObjectiveBasedTeamBrain::GetUnderlyingEntity( const Container &
 	return nullptr;
 }
 
-const edict_t *AiObjectiveBasedTeamBrain::GetSpotUnderlyingEntity( int spotId, bool isDefenceSpot ) const {
+const edict_t *AiObjectiveBasedTeam::GetSpotUnderlyingEntity( int spotId, bool isDefenceSpot ) const {
 	if( isDefenceSpot ) {
 		return GetUnderlyingEntity( defenceSpots, spotId );
 	}
 	return GetUnderlyingEntity( offenseSpots, spotId );
 }
 
-void AiObjectiveBasedTeamBrain::SetDefenceSpotAlert( int id, float alertLevel, unsigned timeoutPeriod ) {
+void AiObjectiveBasedTeam::SetDefenceSpotAlert( int id, float alertLevel, unsigned timeoutPeriod ) {
 	for( unsigned i = 0; i < defenceSpots.size(); ++i ) {
 		if( defenceSpots[i].id == id ) {
 			clamp( alertLevel, 0.0f, 1.0f );
@@ -91,23 +91,23 @@ void AiObjectiveBasedTeamBrain::SetDefenceSpotAlert( int id, float alertLevel, u
 	G_Printf( S_COLOR_YELLOW "Can't find a DefenceSpot (id=%d)\n", id );
 }
 
-AiAlertSpot AiObjectiveBasedTeamBrain::DefenceSpot::ToAlertSpot() const {
+AiAlertSpot AiObjectiveBasedTeam::DefenceSpot::ToAlertSpot() const {
 	AiAlertSpot result( id, Vec3( entity->s.origin ), radius );
 	result.regularEnemyInfluenceScale = regularEnemyAlertScale;
 	result.carrierEnemyInfluenceScale = carrierEnemyAlertScale;
 	return result;
 }
 
-void AiObjectiveBasedTeamBrain::EnableDefenceSpotAutoAlert( DefenceSpot *defenceSpot ) {
+void AiObjectiveBasedTeam::EnableDefenceSpotAutoAlert( DefenceSpot *defenceSpot ) {
 	AiAlertSpot alertSpot( defenceSpot->ToAlertSpot() );
-	// TODO: Track a list of all bots in AiBaseTeamBrain
+	// TODO: Track a list of all bots in AiBaseTeam
 	for( int i = 1; i <= gs.maxclients; ++i ) {
 		edict_t *ent = game.edicts + i;
 		if( !ent->ai || !ent->ai->botRef ) {
 			continue;
 		}
 		// If an entity is an AI, it is a client.
-		if( ent->r.client->team != this->team ) {
+		if( ent->r.client->team != this->teamNum ) {
 			continue;
 		}
 		ent->ai->botRef->EnableAutoAlert( alertSpot, AlertCallback, this );
@@ -115,13 +115,13 @@ void AiObjectiveBasedTeamBrain::EnableDefenceSpotAutoAlert( DefenceSpot *defence
 	defenceSpot->usesAutoAlert = true;
 }
 
-void AiObjectiveBasedTeamBrain::DisableDefenceSpotAutoAlert( DefenceSpot *defenceSpot ) {
+void AiObjectiveBasedTeam::DisableDefenceSpotAutoAlert( DefenceSpot *defenceSpot ) {
 	for( int i = 1; i <= gs.maxclients; ++i ) {
 		edict_t *ent = game.edicts + i;
 		if( !ent->ai || !ent->ai->botRef ) {
 			continue;
 		}
-		if( ent->r.client->team != this->team ) {
+		if( ent->r.client->team != this->teamNum ) {
 			continue;
 		}
 		ent->ai->botRef->DisableAutoAlert( defenceSpot->id );
@@ -129,11 +129,11 @@ void AiObjectiveBasedTeamBrain::DisableDefenceSpotAutoAlert( DefenceSpot *defenc
 	defenceSpot->usesAutoAlert = false;
 }
 
-void AiObjectiveBasedTeamBrain::AlertCallback( void *receiver, Bot *bot, int id, float alertLevel ) {
-	( (AiObjectiveBasedTeamBrain*)receiver )->OnAlertReported( bot, id, alertLevel );
+void AiObjectiveBasedTeam::AlertCallback( void *receiver, Bot *bot, int id, float alertLevel ) {
+	( (AiObjectiveBasedTeam*)receiver )->OnAlertReported( bot, id, alertLevel );
 }
 
-void AiObjectiveBasedTeamBrain::OnAlertReported( Bot *bot, int id, float alertLevel ) {
+void AiObjectiveBasedTeam::OnAlertReported( Bot *bot, int id, float alertLevel ) {
 	for( unsigned i = 0; i < defenceSpots.size(); ++i ) {
 		if( defenceSpots[i].id == id ) {
 			// Several bots in team may not realize real alert level
@@ -175,8 +175,8 @@ void AiObjectiveBasedTeamBrain::OnAlertReported( Bot *bot, int id, float alertLe
 	FailWith( "OnAlertReported(): Can't find a DefenceSpot (id=%d)\n", id );
 }
 
-void AiObjectiveBasedTeamBrain::OnBotAdded( Bot *bot ) {
-	AiSquadBasedTeamBrain::OnBotAdded( bot );
+void AiObjectiveBasedTeam::OnBotAdded( Bot *bot ) {
+	AiSquadBasedTeam::OnBotAdded( bot );
 
 	for( auto &spot: defenceSpots )
 		if( spot.usesAutoAlert ) {
@@ -184,8 +184,8 @@ void AiObjectiveBasedTeamBrain::OnBotAdded( Bot *bot ) {
 		}
 }
 
-void AiObjectiveBasedTeamBrain::OnBotRemoved( Bot *bot ) {
-	AiSquadBasedTeamBrain::OnBotRemoved( bot );
+void AiObjectiveBasedTeam::OnBotRemoved( Bot *bot ) {
+	AiSquadBasedTeam::OnBotRemoved( bot );
 
 	ResetBotOrders( bot );
 
@@ -195,9 +195,9 @@ void AiObjectiveBasedTeamBrain::OnBotRemoved( Bot *bot ) {
 		}
 }
 
-void AiObjectiveBasedTeamBrain::Think() {
+void AiObjectiveBasedTeam::Think() {
 	// Call super method first, it contains an obligatory logic
-	AiSquadBasedTeamBrain::Think();
+	AiSquadBasedTeam::Think();
 
 	Candidates candidates;
 	FindAllCandidates( candidates );
@@ -216,12 +216,12 @@ void AiObjectiveBasedTeamBrain::Think() {
 		UpdateAttackersStatus( spotNum );
 }
 
-void AiObjectiveBasedTeamBrain::ResetBotOrders( Bot *bot ) {
+void AiObjectiveBasedTeam::ResetBotOrders( Bot *bot ) {
 	bot->ClearDefenceAndOffenceSpots();
 	bot->SetBaseOffensiveness( 0.5f );
 }
 
-void AiObjectiveBasedTeamBrain::ResetAllBotsOrders() {
+void AiObjectiveBasedTeam::ResetAllBotsOrders() {
 	for( int i = 0; i <= gs.maxclients; ++i ) {
 		edict_t *ent = game.edicts + i;
 		if( !ent->r.inuse || !ent->ai || !ent->ai->botRef ) {
@@ -231,7 +231,7 @@ void AiObjectiveBasedTeamBrain::ResetAllBotsOrders() {
 	}
 }
 
-void AiObjectiveBasedTeamBrain::FindAllCandidates( Candidates &candidates ) {
+void AiObjectiveBasedTeam::FindAllCandidates( Candidates &candidates ) {
 	for( int i = 0; i <= gs.maxclients; ++i ) {
 		edict_t *ent = game.edicts + i;
 		if( !ent->r.inuse || !ent->ai || !ent->ai->botRef ) {
@@ -241,7 +241,7 @@ void AiObjectiveBasedTeamBrain::FindAllCandidates( Candidates &candidates ) {
 		if( G_ISGHOSTING( ent ) ) {
 			continue;
 		}
-		if( ent->r.client->team != this->team ) {
+		if( ent->r.client->team != this->teamNum ) {
 			continue;
 		}
 
@@ -249,7 +249,7 @@ void AiObjectiveBasedTeamBrain::FindAllCandidates( Candidates &candidates ) {
 	}
 }
 
-void AiObjectiveBasedTeamBrain::AssignDefenders( Candidates &candidates ) {
+void AiObjectiveBasedTeam::AssignDefenders( Candidates &candidates ) {
 	for( unsigned i = 0; i < defenceSpots.size(); ++i )
 		defenders[i].clear();
 
@@ -305,7 +305,7 @@ void AiObjectiveBasedTeamBrain::AssignDefenders( Candidates &candidates ) {
 	}
 }
 
-void AiObjectiveBasedTeamBrain::ComputeDefenceRawScore( Candidates &candidates ) {
+void AiObjectiveBasedTeam::ComputeDefenceRawScore( Candidates &candidates ) {
 	const float armorProtection = g_armor_protection->value;
 	const float armorDegradation = g_armor_degradation->value;
 	for( auto &botAndScore: candidates ) {
@@ -346,7 +346,7 @@ void AiObjectiveBasedTeamBrain::ComputeDefenceRawScore( Candidates &candidates )
 	}
 }
 
-void AiObjectiveBasedTeamBrain::ComputeDefenceScore( Candidates &candidates, int spotNum ) {
+void AiObjectiveBasedTeam::ComputeDefenceScore( Candidates &candidates, int spotNum ) {
 	const float *origin = defenceSpots[spotNum].entity->s.origin;
 	for( auto &botAndScore: candidates ) {
 		float squareDistance = DistanceSquared( botAndScore.bot->s.origin, origin );
@@ -355,7 +355,7 @@ void AiObjectiveBasedTeamBrain::ComputeDefenceScore( Candidates &candidates, int
 	}
 }
 
-void AiObjectiveBasedTeamBrain::AssignAttackers( Candidates &candidates ) {
+void AiObjectiveBasedTeam::AssignAttackers( Candidates &candidates ) {
 	for( unsigned i = 0; i < offenseSpots.size(); ++i )
 		attackers[i].clear();
 
@@ -404,7 +404,7 @@ void AiObjectiveBasedTeamBrain::AssignAttackers( Candidates &candidates ) {
 	}
 }
 
-void AiObjectiveBasedTeamBrain::ComputeOffenceRawScore( Candidates &candidates ) {
+void AiObjectiveBasedTeam::ComputeOffenceRawScore( Candidates &candidates ) {
 	for( auto &botAndScore: candidates ) {
 		float score = DamageToKill( botAndScore.bot, g_armor_protection->value, g_armor_degradation->value );
 		if( HasShell( botAndScore.bot ) ) {
@@ -418,7 +418,7 @@ void AiObjectiveBasedTeamBrain::ComputeOffenceRawScore( Candidates &candidates )
 	}
 }
 
-void AiObjectiveBasedTeamBrain::ComputeOffenceScore( Candidates &candidates, int spotNum ) {
+void AiObjectiveBasedTeam::ComputeOffenceScore( Candidates &candidates, int spotNum ) {
 	const float *origin = offenseSpots[spotNum].entity->s.origin;
 	for( auto &botAndScore: candidates ) {
 		float squareDistance = DistanceSquared( botAndScore.bot->s.origin, origin );
@@ -427,7 +427,7 @@ void AiObjectiveBasedTeamBrain::ComputeOffenceScore( Candidates &candidates, int
 	}
 }
 
-void AiObjectiveBasedTeamBrain::UpdateDefendersStatus( unsigned defenceSpotNum ) {
+void AiObjectiveBasedTeam::UpdateDefendersStatus( unsigned defenceSpotNum ) {
 	const DefenceSpot &spot = defenceSpots[defenceSpotNum];
 	const float *spotOrigin = defenceSpots[defenceSpotNum].entity->s.origin;
 	const auto &spotDefenders = defenders[defenceSpotNum];
@@ -554,7 +554,7 @@ void AiObjectiveBasedTeamBrain::UpdateDefendersStatus( unsigned defenceSpotNum )
 	}
 }
 
-void AiObjectiveBasedTeamBrain::UpdateAttackersStatus( unsigned offenceSpotNum ) {
+void AiObjectiveBasedTeam::UpdateAttackersStatus( unsigned offenceSpotNum ) {
 	const auto &spot = offenseSpots[offenceSpotNum];
 	const auto &spotAttackers = attackers[offenceSpotNum];
 	for( const edict_t *botEnt: spotAttackers ) {

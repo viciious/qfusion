@@ -241,7 +241,7 @@ public:
 class Ai : public EdictRef, public AiFrameAwareUpdatable
 {
 	friend class AiManager;
-	friend class AiBaseTeamBrain;
+	friend class AiBaseTeam;
 	friend class AiBaseBrain;
 	friend class AiBaseAction;
 	friend class AiBaseActionRecord;

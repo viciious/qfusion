@@ -2,7 +2,7 @@
 #include "ai_shutdown_hooks_holder.h"
 #include "ai_manager.h"
 #include "ai_nav_mesh_manager.h"
-#include "ai_objective_based_team_brain.h"
+#include "ai_objective_based_team.h"
 #include "tactical_spots_registry.h"
 
 ai_weapon_aim_type BuiltinWeaponAimType( int builtinWeapon, int fireMode ) {
@@ -179,7 +179,7 @@ void AI_InitLevel( void ) {
 	AiNavMeshManager::Init( level.mapname );
 	TacticalSpotsRegistry::Init( level.mapname );
 
-	AiBaseTeamBrain::OnGametypeChanged( g_gametype->string );
+	AiBaseTeam::OnGametypeChanged( g_gametype->string );
 	AiManager::Init( g_gametype->string, level.mapname );
 
 	NavEntitiesRegistry::Instance()->Init();
