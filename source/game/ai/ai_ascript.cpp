@@ -1436,51 +1436,34 @@ static inline AiObjectiveBasedTeam *GetObjectiveBasedTeam(const char *caller, in
     if (team != TEAM_ALPHA && team != TEAM_BETA)
         API_ERRORV("%s: illegal team %d\n", caller, team);
 
-    AiBaseTeam *baseTeam = AiBaseTeam::GetTeamForNum(team);
-    if (auto *objectiveBasedTeam = dynamic_cast<AiObjectiveBasedTeam*>(baseTeam))
-        return objectiveBasedTeam;
-
-    API_ERRORV("%s: can't be used in not objective based gametype\n", caller);
+    // We are not allowed to fail anymore, force switching to objective-based AI team if needed
+    AiBaseTeam *baseTeam = AiBaseTeam::GetTeamForNum(team, typeid(AiObjectiveBasedTeam));
+    return dynamic_cast<AiObjectiveBasedTeam*>(baseTeam);
 }
 
 void asFunc_AddDefenceSpot( int team, const AiDefenceSpot *spot )
 {
-    if (auto *objectiveBasedTeam = GetObjectiveBasedTeam(__FUNCTION__, team))
-        objectiveBasedTeam->AddDefenceSpot(*spot);
-    else
-        API_ERROR("Defence/offense spots are not supported for this gametype\n");
+    GetObjectiveBasedTeam(__FUNCTION__, team)->AddDefenceSpot(*spot);
 }
 
 void asFunc_RemoveDefenceSpot( int team, int id )
 {
-    if (auto *objectiveBasedTeam = GetObjectiveBasedTeam(__FUNCTION__, team))
-        objectiveBasedTeam->RemoveDefenceSpot(id);
-    else
-        API_ERROR("Defence/offense spots are not supported for this gametype\n");
+    GetObjectiveBasedTeam(__FUNCTION__, team)->RemoveDefenceSpot(id);
 }
 
 void asFunc_DefenceSpotAlert( int team, int id, float alertLevel, unsigned timeoutPeriod )
 {
-    if (auto *objectiveBasedTeam = GetObjectiveBasedTeam(__FUNCTION__, team))
-        objectiveBasedTeam->SetDefenceSpotAlert(id, alertLevel, timeoutPeriod);
-    else
-        API_ERROR("Defence/offense spots are not supported for this gametype\n");
+    GetObjectiveBasedTeam(__FUNCTION__, team)->SetDefenceSpotAlert(id, alertLevel, timeoutPeriod);
 }
 
 void asFunc_AddOffenseSpot( int team, const AiOffenseSpot *spot )
 {
-    if (auto *objectiveBasedTeam = GetObjectiveBasedTeam(__FUNCTION__, team))
-        objectiveBasedTeam->AddOffenseSpot(*spot);
-    else
-        API_ERROR("Defence/offense spots are not supported for this gametype\n");
+    GetObjectiveBasedTeam(__FUNCTION__, team)->AddOffenseSpot(*spot);
 }
 
 void asFunc_RemoveOffenseSpot( int team, int id )
 {
-    if (auto *objectiveBasedTeam = GetObjectiveBasedTeam(__FUNCTION__, team))
-        objectiveBasedTeam->RemoveOffenseSpot(id);
-    else
-        API_ERROR("Defence/offense spots are not supported for this gametype\n");
+    GetObjectiveBasedTeam(__FUNCTION__, team)->RemoveOffenseSpot(id);
 }
 
 static int SuggestDefencePlantingSpots(const edict_t *defendedEntity, float searchRadius, vec3_t *spots, int maxSpots)

@@ -17,6 +17,8 @@ void AiManager::Init( const char *gametype, const char *mapname ) {
 		AI_FailWith( "AiManager::Init()", "An instance is already present\n" );
 	}
 
+	AiBaseTeam::Init();
+
 	new( instanceHolder.unsafe_grow_back() )AiManager( gametype, mapname );
 	instance = &instanceHolder.front();
 
@@ -25,6 +27,8 @@ void AiManager::Init( const char *gametype, const char *mapname ) {
 
 void AiManager::Shutdown() {
 	BotEvolutionManager::Shutdown();
+
+	AiBaseTeam::Shutdown();
 
 	if( instance ) {
 		instance = nullptr;

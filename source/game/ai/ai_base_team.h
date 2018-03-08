@@ -3,6 +3,8 @@
 
 #include "ai_frame_aware_updatable.h"
 
+#include <typeinfo>
+
 class AiBaseTeam : public AiFrameAwareUpdatable
 {
 	friend class Bot;  // Bots should be able to notify its team in destructor when they get dropped immediately
@@ -29,13 +31,14 @@ class AiBaseTeam : public AiFrameAwareUpdatable
 
 	void InitTeamAffinity() const;  // Callers are const ones, and only mutable vars are modified
 
-	static void RegisterTeam( int teamNum, AiBaseTeam *team );
-	static void UnregisterTeam( int teamNum );
+	static void CreateTeam( int teamNum );
+	static void ReleaseTeam( int teamNum );
 
 	// A factory method for team creation.
 	// Instantiates appropriate kind of team for a current gametype.
-	static AiBaseTeam *InstantiateTeam( int teamNum, const char *gametype );
+	static AiBaseTeam *InstantiateTeam( int teamNum );
 
+	static AiBaseTeam *teamsForNums[GS_MAX_TEAMS - 1];
 protected:
 	AiBaseTeam( int teamNum_ );
 	virtual ~AiBaseTeam() override {}
@@ -46,6 +49,10 @@ protected:
 	void RemoveBot( class Bot *bot );
 	virtual void OnBotAdded( class Bot *bot ) {};
 	virtual void OnBotRemoved( class Bot *bot ) {};
+
+	// Transfers a state from an existing team to this instance.
+	// Moving and not copying semantics is implied.
+	virtual void TransferStateFrom( AiBaseTeam *that ) {}
 
 	void AcquireBotFrameAffinity( int entNum );
 	void ReleaseBotFrameAffinity( int entNum );
@@ -65,9 +72,15 @@ protected:
 
 	static void CheckTeamNum( int teamNum );
 	static AiBaseTeam **TeamRefForNum( int teamNum );
+	static void Init();
+	static void Shutdown();
 public:
-	static void OnGametypeChanged( const char *gametype );
 	static AiBaseTeam *GetTeamForNum( int teamNum );
+	// Allows to specify the expected team type (that defines the team feature set)
+	// and thus switch an AI team dynamically if advanced AI features are requested.
+	// The aim of this method is to simplify gametype scripting.
+	// (if some script syscalls that assume a feature-reach AI team are executed).
+	static AiBaseTeam *GetTeamForNum( int teamNum, const std::type_info &desiredType );
 };
 
 #endif

@@ -1381,13 +1381,21 @@ unsigned AiSquadBasedTeam::GetFreeSquadSlot() {
 	return squads.size() - 1;
 }
 
-AiSquadBasedTeam *AiSquadBasedTeam::InstantiateTeam( int team, const char *gametype ) {
-	// HACK!
-	// TODO: Add better way to detect objective-based gametypes
-	if( strstr( g_gametype->string, "bomb" ) || strstr( g_gametype->string, "ctf" ) ) {
-		void *mem = G_Malloc( sizeof( AiObjectiveBasedTeam ) );
-		return new(mem) AiObjectiveBasedTeam( team );
-	}
+AiSquadBasedTeam *AiSquadBasedTeam::InstantiateTeam( int teamNum ) {
 	void *mem = G_Malloc( sizeof( AiSquadBasedTeam ) );
-	return new(mem) AiSquadBasedTeam( team );
+	return new( mem )AiSquadBasedTeam( teamNum );
+}
+
+AiSquadBasedTeam *AiSquadBasedTeam::InstantiateTeam( int teamNum, const std::type_info &desiredType ) {
+	if( !typeid( AiBaseTeam ).before( desiredType ) ) {
+		AI_FailWith( "AiSquadBasedTeam",
+					 "InstantiateTeam(): Desired type %s is not a descendant of AiBaseTeam", desiredType.name() );
+	}
+
+	if( typeid( AiSquadBasedTeam ) == desiredType ) {
+		return InstantiateTeam( teamNum );
+	}
+
+	void *mem = G_Malloc( sizeof( AiObjectiveBasedTeam ) );
+	return new( mem )AiObjectiveBasedTeam( teamNum );
 }

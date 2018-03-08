@@ -198,8 +198,8 @@ protected:
 	virtual void SetupSquads();
 	unsigned GetFreeSquadSlot();
 
-	static AiSquadBasedTeam *InstantiateTeam( int team, const char *gametype );
-
+	static AiSquadBasedTeam *InstantiateTeam( int team );
+	static AiSquadBasedTeam *InstantiateTeam( int teamNum, const std::type_info &desiredType );
 public:
 	AiSquadBasedTeam( int team_ ) : AiBaseTeam( team_ ) {}
 	virtual ~AiSquadBasedTeam() override {};

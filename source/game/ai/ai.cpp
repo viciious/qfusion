@@ -179,7 +179,6 @@ void AI_InitLevel( void ) {
 	AiNavMeshManager::Init( level.mapname );
 	TacticalSpotsRegistry::Init( level.mapname );
 
-	AiBaseTeam::OnGametypeChanged( g_gametype->string );
 	AiManager::Init( g_gametype->string, level.mapname );
 
 	NavEntitiesRegistry::Instance()->Init();

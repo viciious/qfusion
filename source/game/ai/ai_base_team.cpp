@@ -3,8 +3,7 @@
 #include "ai_shutdown_hooks_holder.h"
 #include "bot.h"
 
-// May be instantiated dynamically in future by subclasses
-static AiBaseTeam *teamsForNums[GS_MAX_TEAMS - 1];
+AiBaseTeam *AiBaseTeam::teamsForNums[GS_MAX_TEAMS - 1];
 
 AiBaseTeam::AiBaseTeam( int teamNum_ )
 	: teamNum( teamNum_ ) {
@@ -46,6 +45,40 @@ AiBaseTeam *AiBaseTeam::GetTeamForNum( int teamNum ) {
 	if( !*teamRef ) {
 		AI_FailWith( "AiBaseTeam", "GetTeamForNum(): A team for num %d is not instantiated atm\n", teamNum );
 	}
+	return *teamRef;
+}
+
+AiBaseTeam *AiBaseTeam::GetTeamForNum( int teamNum, const std::type_info &desiredType ) {
+	CheckTeamNum( teamNum );
+	AiBaseTeam **teamRef = TeamRefForNum( teamNum );
+	if( !*teamRef ) {
+		AI_FailWith( "AiBaseTeam::GetTeamForNum(,)", "A team for num %d has not been instantiated yet\n", teamNum );
+	}
+
+	// Check whether the desired type is related to AiBaseTeam at all.
+	// If types A and B are involved in (transitive) inheritance relation, this statement holds: A <: B or B <: A
+	if( typeid( AiBaseTeam ) != desiredType ) {
+		if( !typeid( AiBaseTeam ).before( desiredType ) && !desiredType.before( typeid( AiBaseTeam ) ) ) {
+			AI_FailWith( "AiBaseTeam::GetTeamForNum(,)", "Desired type %s is unrelated to AiBaseTeam\n", desiredType.name() );
+		}
+	}
+
+	// If the existing type is not an ancestor (a parent) of the desired type
+	// (matches it exactly or is a descendant of it)
+	if( !typeid( **teamRef ).before( desiredType ) ) {
+		return *teamRef;
+	}
+
+	// Destroy the existing AI team for the team slot
+	AiBaseTeam *oldTeam = *teamRef;
+	// Delegate further ops to the descendant factory
+	*teamRef = AiSquadBasedTeam::InstantiateTeam( teamNum, desiredType );
+	// Move an additional state (if any) from the old team
+	( *teamRef )->TransferStateFrom( oldTeam );
+	// Destroy the old team
+	oldTeam->~AiBaseTeam();
+	G_Free( oldTeam );
+
 	return *teamRef;
 }
 
@@ -160,38 +193,46 @@ void AiBaseTeam::SetBotFrameAffinity( int entNum, unsigned modulo, unsigned offs
 	game.edicts[entNum].ai->botRef->SetFrameAffinity( modulo, offset );
 }
 
-void AiBaseTeam::OnGametypeChanged( const char *gametype ) {
-	// First, unregister all current teams (if any)
-	for( int team = TEAM_PLAYERS; team < GS_MAX_TEAMS; ++team )
-		UnregisterTeam( team );
+void AiBaseTeam::Init() {
+#ifndef PUBLIC_BUILD
+	for( int team = TEAM_PLAYERS; team < GS_MAX_TEAMS; ++team ) {
+		// This address of the team cell is always valid, but not the value at this address
+		AiBaseTeam **teamRef = TeamRefForNum( team );
+		// If there is a non-null value at this address
+		if( *teamRef ) {
+			AI_FailWith( "AiBaseTeam::Init()", "A team for num %d is already present / was not released", team );
+		}
+	}
+#endif
 
 	if( GS_TeamBasedGametype() ) {
 		for( int team = TEAM_ALPHA; team < GS_MAX_TEAMS; ++team ) {
-			RegisterTeam( team, InstantiateTeam( team, gametype ) );
+			CreateTeam( team );
 		}
 	} else {
-		RegisterTeam( TEAM_PLAYERS, InstantiateTeam( TEAM_PLAYERS, gametype ) );
+		CreateTeam( TEAM_PLAYERS );
 	}
 }
 
-void AiBaseTeam::RegisterTeam( int teamNum, AiBaseTeam *team ) {
+void AiBaseTeam::Shutdown() {
+	// Destroy all current teams (if any)
+	for( int team = TEAM_PLAYERS; team < GS_MAX_TEAMS; ++team ) {
+		ReleaseTeam( team );
+	}
+}
+
+void AiBaseTeam::CreateTeam( int teamNum ) {
 	AiBaseTeam **teamRef = TeamRefForNum( teamNum );
+	// If there was an existing
 	if( *teamRef ) {
-		UnregisterTeam( teamNum );
+		ReleaseTeam( teamNum );
 	}
 	// Set team pointer
-	*teamRef = team;
-	// Use address of a static array cell for the team pointer as a tag
-	uint64_t tag = (uint64_t)( *teamRef );
-	// Capture team pointer (a stack variable) by value!
-	AiShutdownHooksHolder::Instance()->RegisterHook( tag, [ = ]
-	{
-		team->~AiBaseTeam();
-		G_Free( team );
-	} );
+	*teamRef = InstantiateTeam( teamNum );
+	// TODO: Should we nofify bots? They should not use a cached team reference and always use GetTeamForNum()
 }
 
-void AiBaseTeam::UnregisterTeam( int teamNum ) {
+void AiBaseTeam::ReleaseTeam( int teamNum ) {
 	// Get the static cell that maybe holds the address of the team
 	AiBaseTeam **teamToRef = TeamRefForNum( teamNum );
 	// If there is no team address in this memory cell
@@ -203,17 +244,14 @@ void AiBaseTeam::UnregisterTeam( int teamNum ) {
 	( *teamToRef )->~AiBaseTeam();
 	// Free team memory
 	G_Free( *teamToRef );
-	// Use address of the static array cell for the team pointer as a tag
-	uint64_t tag = (uint64_t)( *teamToRef );
-	AiShutdownHooksHolder::Instance()->UnregisterHook( tag );
 	// Nullify the static memory cell holding no longer valid address
 	*teamToRef = nullptr;
 }
 
-AiBaseTeam *AiBaseTeam::InstantiateTeam( int teamNum, const char *gametype ) {
+AiBaseTeam *AiBaseTeam::InstantiateTeam( int teamNum ) {
 	// Delegate construction to AiSquadBasedTeam
 	if( GS_TeamBasedGametype() && !GS_InvidualGameType() ) {
-		return AiSquadBasedTeam::InstantiateTeam( teamNum, gametype );
+		return AiSquadBasedTeam::InstantiateTeam( teamNum );
 	}
 
 	void *mem = G_Malloc( sizeof( AiBaseTeam ) );
