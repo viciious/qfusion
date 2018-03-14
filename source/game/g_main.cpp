@@ -219,7 +219,7 @@ void G_Init( unsigned int seed, unsigned int framemsec, int protocol, const char
 
 	G_InitGameShared();
 
-	SV_ReadIPList();
+	SV_InitIPList();
 
 	game.snapFrameTime = framemsec;
 	game.frametime = game.snapFrameTime;
@@ -382,7 +382,7 @@ void G_Shutdown( void ) {
 
 	AI_AfterLevelScriptShutdown();
 
-	SV_WriteIPList();
+	SV_ShutdownIPList();
 
 	trap_Cvar_ForceSet( "nextmap", va( "map \"%s\"", G_SelectNextMapName() ) );
 

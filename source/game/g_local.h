@@ -714,6 +714,9 @@ void G_RegisterGametypeScriptCallvote( const char *name, const char *usage, cons
 http_response_code_t G_CallVotes_WebRequest( http_query_method_t method, const char *resource,
 											 const char *query_string, char **content, size_t *content_length );
 
+// Warning: not reentrant
+const char *G_GetClientHostForFilter( const edict_t *ent );
+
 //
 // g_trigger.c
 //
@@ -900,15 +903,15 @@ void SP_target_delay( edict_t *ent );
 void SP_target_teleporter( edict_t *self );
 void SP_target_kill( edict_t *self );
 
+
 //
 // g_svcmds.c
 //
-void SV_ResetPacketFiltersTimeouts( void );
-bool SV_FilterPacket( char *from );
+bool SV_FilterPacket( const char *from );
 void G_AddServerCommands( void );
 void G_RemoveCommands( void );
-void SV_ReadIPList( void );
-void SV_WriteIPList( void );
+void SV_InitIPList( void );
+void SV_ShutdownIPList( void );
 
 //
 // p_view.c

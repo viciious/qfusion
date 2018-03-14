@@ -983,6 +983,32 @@ static bool G_VoteKickValidate( callvotedata_t *vote, bool first ) {
 	}
 }
 
+const char *G_GetClientHostForFilter( const edict_t *ent ) {
+	if( ent->r.svflags & SVF_FAKECLIENT ) {
+		return nullptr;
+	}
+
+	if( !Q_stricmp( ent->r.client->ip, "loopback" ) ) {
+		return nullptr;
+	}
+
+	// We have to strip port from the address since only host part is expected by a caller.
+	// We are sure the port is present if we have already cut off special cases above.
+	static char hostBuffer[MAX_INFO_VALUE];
+	Q_strncpyz( hostBuffer, ent->r.client->ip, sizeof( hostBuffer ) );
+
+	// If it is IPv6 host and port
+	if( *hostBuffer == '[' ) {
+		// Chop the buffer string at the index of the right bracket
+		*( strchr( hostBuffer + 1, ']' ) ) = '\0';
+		return hostBuffer + 1;
+	}
+
+	// Chop the buffer string at the index of the port separator
+	*strchr( hostBuffer, ':' ) = '\0';
+	return hostBuffer;
+}
+
 static void G_VoteKickPassed( callvotedata_t *vote ) {
 	int who;
 	edict_t *ent;
@@ -991,6 +1017,12 @@ static void G_VoteKickPassed( callvotedata_t *vote ) {
 	ent = &game.edicts[who + 1];
 	if( !ent->r.inuse || !ent->r.client ) { // may have disconnected along the callvote time
 		return;
+	}
+
+	// If the address can be supplied for the filter
+	if( const char *host = G_GetClientHostForFilter( ent ) ) {
+		// Ban the player for 1 minute to prevent an instant reconnect
+		trap_Cmd_ExecuteText( EXEC_APPEND, va( "addip %s 1", host ) );
 	}
 
 	trap_DropClient( ent, DROP_TYPE_NORECONNECT, "Kicked" );
@@ -1081,7 +1113,11 @@ static void G_VoteKickBanPassed( callvotedata_t *vote ) {
 		return;
 	}
 
-	trap_Cmd_ExecuteText( EXEC_APPEND, va( "addip %s %i\n", ent->r.client->ip, 15 ) );
+	// If the address can be supplied for the filter
+	if( const char *host = G_GetClientHostForFilter( ent ) ) {
+		trap_Cmd_ExecuteText( EXEC_APPEND, va( "addip %s 15\n", host ) );
+	}
+
 	trap_DropClient( ent, DROP_TYPE_NORECONNECT, "Kicked" );
 }
 
