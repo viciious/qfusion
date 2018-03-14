@@ -19,9 +19,12 @@ Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
 */
 // common.c -- misc functions used in client and server
 #include "qcommon.h"
-#if defined( __GNUC__ ) && defined( i386 )
-#include <cpuid.h>
+
+#if ( defined( _M_IX86 ) && defined( _MSC_VER ) )
+// For __cpuid() intrinsic
+#include <intrin.h>
 #endif
+
 #include <setjmp.h>
 #include "wswcurl.h"
 #include "steam.h"
@@ -56,7 +59,6 @@ static cvar_t *logconsole = NULL;
 static cvar_t *logconsole_append;
 static cvar_t *logconsole_flush;
 static cvar_t *logconsole_timestamp;
-static cvar_t *com_showtrace;
 static cvar_t *com_introPlayed3;
 
 static qmutex_t *com_print_mutex;
@@ -585,114 +587,60 @@ void Com_FreePureList( purelist_t **purelist ) {
 
 //============================================================================
 
-static unsigned int com_CPUFeatures = 0xFFFFFFFF;
-
-static inline int CPU_haveCPUID() {
-	int has_CPUID = 0;
-#if defined( __GNUC__ ) && defined( i386 )
-	has_CPUID = __get_cpuid_max( 0, NULL ) ? 1 : 0;
-#elif defined( _MSC_VER ) && defined( _M_IX86 )
-	__asm {
-		pushfd                  ; Get original EFLAGS
-		pop eax
-		mov ecx, eax
-		xor eax, 200000h        ; Flip ID bit in EFLAGS
-		push eax                ; Save new EFLAGS value on stack
-		popfd                   ; Replace current EFLAGS value
-		pushfd                  ; Get new EFLAGS
-		pop eax                 ; Store new EFLAGS in EAX
-		xor eax, ecx            ; Can not toggle ID bit,
-		jz done                 ; Processor = 80486
-		mov has_CPUID,1         ; We have CPUID support
-done:
-	}
-#endif
-	return has_CPUID;
-}
-
-static inline unsigned CPU_getCPUIDFeatures() {
-	unsigned features = 0;
-#if defined( __GNUC__ ) && defined( i386 )
-	if( __get_cpuid_max( 0, NULL ) >= 1 ) {
-		unsigned temp, temp2, temp3;
-		__get_cpuid( 1, &temp, &temp2, &temp3, &features );
-	}
-#elif defined( _MSC_VER ) && defined( _M_IX86 )
-	__asm {
-		xor eax, eax            ; Set up for CPUID instruction
-		cpuid                   ; Get and save vendor ID
-		cmp eax, 1              ; Make sure 1 is valid input for CPUID
-		jl done                 ; We dont have the CPUID instruction
-		xor eax, eax
-		inc eax
-		cpuid                   ; Get family / model / stepping / features
-		mov features, edx
-done:
-	}
-#endif
-	return features;
-}
-
-static inline unsigned CPU_getCPUIDFeaturesExt() {
-	unsigned features = 0;
-#if defined( __GNUC__ ) && defined( i386 )
-	if( __get_cpuid_max( 0x80000000, NULL ) >= 0x80000001 ) {
-		unsigned temp, temp2, temp3;
-		__get_cpuid( 0x80000001, &temp, &temp2, &temp3, &features );
-	}
-#elif defined( _MSC_VER ) && defined( _M_IX86 )
-	__asm {
-		mov eax,80000000h       ; Query for extended functions
-		cpuid                   ; Get extended function limit
-		cmp eax,80000001h
-		jl done                 ; Nope, we dont have function 800000001h
-		mov eax,80000001h       ; Setup extended function 800000001h
-		cpuid                   ; and get the information
-		mov features,edx
-done:
-	}
-#endif
-	return features;
-}
-
-/*
-* COM_CPUFeatures
-*
-* CPU features detection code, taken from SDL
-*/
 unsigned int COM_CPUFeatures( void ) {
-	if( com_CPUFeatures == 0xFFFFFFFF ) {
-		com_CPUFeatures = 0;
+	static unsigned features = 0xFFFFFFFF;
 
-		if( CPU_haveCPUID() ) {
-			int CPUIDFeatures = CPU_getCPUIDFeatures();
-			int CPUIDFeaturesExt = CPU_getCPUIDFeaturesExt();
-
-			if( CPUIDFeatures & 0x00000010 ) {
-				com_CPUFeatures |= QCPU_HAS_RDTSC;
-			}
-			if( CPUIDFeatures & 0x00800000 ) {
-				com_CPUFeatures |= QCPU_HAS_MMX;
-			}
-			if( CPUIDFeaturesExt & 0x00400000 ) {
-				com_CPUFeatures |= QCPU_HAS_MMXEXT;
-			}
-			if( CPUIDFeaturesExt & 0x80000000 ) {
-				com_CPUFeatures |= QCPU_HAS_3DNOW;
-			}
-			if( CPUIDFeaturesExt & 0x40000000 ) {
-				com_CPUFeatures |= QCPU_HAS_3DNOWEXT;
-			}
-			if( CPUIDFeatures & 0x02000000 ) {
-				com_CPUFeatures |= QCPU_HAS_SSE;
-			}
-			if( CPUIDFeatures & 0x04000000 ) {
-				com_CPUFeatures |= QCPU_HAS_SSE2;
-			}
-		}
+	if( features != 0xFFFFFFFF ) {
+		return features;
 	}
 
-	return com_CPUFeatures;
+	features = 0;
+
+#if ( defined ( __i386__ ) || defined ( __x86_64__ ) || defined( _M_IX86 ) || defined( _M_AMD64 ) || defined( _M_X64 ) )
+#ifdef _MSC_VER
+	int cpuInfo[4];
+	__cpuid( cpuInfo, 0 );
+	// Check whether CPUID is supported at all (is it relevant nowadays?)
+	if( cpuInfo[0] == 0 ) {
+		return 0;
+	}
+	// Get standard feature bits (look for description here https://en.wikipedia.org/wiki/CPUID)
+	__cpuid( cpuInfo, 1 );
+	const int ECX = cpuInfo[2];
+	const int EDX = cpuInfo[3];
+	if( ECX & ( 1 << 28 ) ) {
+		features |= QF_CPU_FEATURE_AVX;
+	} else if( ECX & ( 1 << 20 ) ) {
+		features |= QF_CPU_FEATURE_SSE42;
+	} else if( ECX & ( 1 << 19 ) ) {
+		features |= QF_CPU_FEATURE_SSE41;
+	} else if( EDX & ( 1 << 26 ) ) {
+		features |= QF_CPU_FEATURE_SSE2;
+	}
+#else // not MSVC
+#ifndef __clang__
+	// Clang does not even have this intrinsic, executables work fine without it.
+	__builtin_cpu_init();
+#endif // clang-specific code
+	if( __builtin_cpu_supports( "avx" ) ) {
+		features |= QF_CPU_FEATURE_AVX;
+	} else if( __builtin_cpu_supports( "sse4.2" ) ) {
+		features |= QF_CPU_FEATURE_SSE42;
+	} else if( __builtin_cpu_supports( "sse4.1" ) ) {
+		features |= QF_CPU_FEATURE_SSE41;
+	} else if( __builtin_cpu_supports( "sse2" ) ) {
+		features |= QF_CPU_FEATURE_SSE2;
+	}
+#endif // gcc/clang - specific code
+#endif // x86-specific code
+
+	// We have only set the most significant feature bit for clarity.
+	// Since this bit implies all least-significant bits presence, set these bits
+	if( features ) {
+		features |= ( features - 1 );
+	}
+
+	return features;
 }
 
 //========================================================
@@ -909,7 +857,6 @@ void Qcommon_Init( int argc, char **argv ) {
 	logconsole_flush =  Cvar_Get( "logconsole_flush", "0", CVAR_ARCHIVE );
 	logconsole_timestamp =  Cvar_Get( "logconsole_timestamp", "0", CVAR_ARCHIVE );
 
-	com_showtrace =     Cvar_Get( "com_showtrace", "0", 0 );
 	com_introPlayed3 =   Cvar_Get( "com_introPlayed3", "0", CVAR_ARCHIVE );
 
 	Cvar_Get( "gamename", APPLICATION, CVAR_READONLY );
@@ -999,14 +946,6 @@ void Qcommon_Frame( unsigned int realMsec ) {
 		extratime = ( extratime + (float)realMsec * timescale->value ) - (float)gameMsec;
 	} else {
 		gameMsec = realMsec;
-	}
-
-	if( com_showtrace->integer ) {
-		Com_Printf( "%4i traces %4i brush traces %4i points\n",
-					c_traces, c_brush_traces, c_pointcontents );
-		c_traces = 0;
-		c_brush_traces = 0;
-		c_pointcontents = 0;
 	}
 
 	wswcurl_perform();

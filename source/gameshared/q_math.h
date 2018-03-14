@@ -233,7 +233,7 @@ inline bool BoundsIntersect( const vec3_t mins1, const vec3_t maxs1, const vec3_
 #ifdef QF_SSE4_1
 	return (bool)_mm_testz_ps( orCmp, orCmp );
 #else
-	return _mm_movemask_epi8( _mm_cmpeq_epi32( (__m128i)orCmp, _mm_setzero_si128() ) ) == 0xFFFF;
+	return _mm_movemask_epi8( _mm_cmpeq_epi32( _mm_castps_si128( orCmp ), _mm_setzero_si128() ) ) == 0xFFFF;
 #endif
 
 #endif
