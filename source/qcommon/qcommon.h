@@ -56,7 +56,7 @@ struct fatvis_s;
 
 //============================================================================
 
-typedef struct {
+typedef struct msg_s {
 	uint8_t *data;
 	size_t maxsize;
 	size_t cursize;

@@ -12,7 +12,7 @@ file(GLOB GAME_HEADERS
 	"../qalgo/md5.h"
 	"../../third-party/recastnavigation/Recast/Include/*.h"
 	"../../third-party/recastnavigation/Detour/Include/*.h"
-	"../qcommon/qcommon.h" # constants and types for address parsing
+	"../qcommon/net.h" # constants and types for address parsing
 )
 
 file(GLOB GAME_SOURCES
