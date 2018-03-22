@@ -13,6 +13,7 @@ file(GLOB GAME_HEADERS
 	"../../third-party/recastnavigation/Recast/Include/*.h"
 	"../../third-party/recastnavigation/Detour/Include/*.h"
 	"../qcommon/net.h" # constants and types for address parsing
+	"../qcommon/snap.h" # constants for the antihack system
 )
 
 file(GLOB GAME_SOURCES

@@ -1006,10 +1006,10 @@ void SV_Init( void ) {
 
 	svc.autoUpdateMinute = rand() % 60;
 
-	sv_snap_aggressive_sound_culling = Cvar_Get( "sv_snap_aggressive_sound_culling" , "0", CVAR_SERVERINFO | CVAR_ARCHIVE );
-	sv_snap_raycast_players_culling = Cvar_Get( "sv_snap_raycast_players_culling", "1", CVAR_SERVERINFO | CVAR_ARCHIVE );
-	sv_snap_aggressive_fov_culling = Cvar_Get( "sv_snap_aggressive_fov_culling", "0", CVAR_SERVERINFO | CVAR_ARCHIVE );
-	sv_snap_shadow_events_data = Cvar_Get( "sv_snap_shadow_events_data", "1", CVAR_SERVERINFO | CVAR_ARCHIVE );
+	sv_snap_aggressive_sound_culling = Cvar_Get( SNAP_VAR_CULL_SOUND_WITH_PVS , "0", CVAR_SERVERINFO | CVAR_ARCHIVE );
+	sv_snap_raycast_players_culling = Cvar_Get( SNAP_VAR_USE_RAYCAST_CULLING, "1", CVAR_SERVERINFO | CVAR_ARCHIVE );
+	sv_snap_aggressive_fov_culling = Cvar_Get( SNAP_VAR_USE_VIEWDIR_CULLING, "0", CVAR_SERVERINFO | CVAR_ARCHIVE );
+	sv_snap_shadow_events_data = Cvar_Get( SNAP_VAR_SHADOW_EVENTS_DATA, "1", CVAR_SERVERINFO | CVAR_ARCHIVE );
 
 	Com_Printf( "Game running at %i fps. Server transmit at %i pps\n", sv_fps->integer, sv_pps->integer );
 
