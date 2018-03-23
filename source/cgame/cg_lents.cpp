@@ -924,6 +924,19 @@ void CG_WaveCoronaAndTrail( centity_t *cent, const vec3_t org ) {
 }
 
 /*
+* CG_BlasterTrail
+*/
+void CG_BlasterTrail( centity_t *ent, const vec3_t org ) {
+	if( ent->localEffects[LOCALEFFECT_BLASTER_SPARK_LAST_DROP] + 8 < cg.time ) {
+		ent->localEffects[LOCALEFFECT_BLASTER_SPARK_LAST_DROP] = cg.time;
+		CG_ParticleEffect( org, vec3_origin, 0.9f, 0.6f, 0.0f, 2, 350 );
+	}
+	if( random() > 0.9f ) {
+		CG_ParticleEffect( org, vec3_origin, 0.9f, 0.6f, 0.0f, 1, 750 );
+	}
+}
+
+/*
 * CG_NewBloodTrail
 */
 void CG_NewBloodTrail( centity_t *cent ) {

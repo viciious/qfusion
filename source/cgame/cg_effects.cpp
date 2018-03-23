@@ -698,48 +698,8 @@ void CG_ParticleExplosionEffect( const vec3_t org, const vec3_t dir, float r, fl
 		}
 
 		//p->accel[0] = p->accel[1] = 0;
-		p->accel[2] = -PARTICLE_GRAVITY;
+		p->accel[2] = gravity;
 		p->alphavel = -1.0 / ( 0.7 + random() * 0.25 );
-	}
-}
-
-
-/*
-* CG_BlasterTrail
-*/
-void CG_BlasterTrail( const vec3_t start, const vec3_t end ) {
-	int j, count;
-	vec3_t move, vec;
-	float len;
-
-	//const float	dec = 5.0f;
-	const float dec = 3.0f;
-	cparticle_t *p;
-
-	if( !cg_particles->integer ) {
-		return;
-	}
-
-	VectorCopy( start, move );
-	VectorSubtract( end, start, vec );
-	len = VectorNormalize( vec );
-	VectorScale( vec, dec, vec );
-
-	count = (int)( len / dec ) + 1;
-	if( cg_numparticles + count > MAX_PARTICLES ) {
-		count = MAX_PARTICLES - cg_numparticles;
-	}
-	for( p = &particles[cg_numparticles], cg_numparticles += count; count > 0; count--, p++ ) {
-		CG_InitParticle( p, 2.5f, 0.25f, 1.0f, 0.85f, 0, NULL );
-
-		p->alphavel = -1.0 / ( 0.1 + random() * 0.2 );
-		for( j = 0; j < 3; j++ ) {
-			p->org[j] = move[j] + crandom();
-			p->vel[j] = crandom() * 5;
-		}
-
-		VectorClear( p->accel );
-		VectorAdd( move, vec, move );
 	}
 }
 

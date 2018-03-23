@@ -1859,8 +1859,10 @@ void CG_AddEntities( void ) {
 				break;
 			case ET_BLASTER:
 				CG_AddGenericEnt( cent );
-				CG_BlasterTrail( cent->trailOrigin, cent->ent.origin );
+				CG_BlasterTrail( cent, cent->ent.origin );
 				CG_EntityLoopSound( state, ATTN_STATIC );
+				// We use relatively large light radius because this projectile moves very fast, so make it noticeable
+				CG_AddLightToScene( cent->ent.origin, 200, 0.9f, 0.7f, 0.0f );
 				break;
 
 			case ET_ELECTRO_WEAK:
@@ -1870,19 +1872,19 @@ void CG_AddEntities( void ) {
 				CG_AddGenericEnt( cent );
 				CG_EntityLoopSound( state, ATTN_STATIC );
 				CG_ElectroWeakTrail( cent->trailOrigin, cent->ent.origin, NULL );
-				CG_AddLightToScene( cent->ent.origin, 100, 0.9f, 0.9f, 1.0f );
+				CG_AddLightToScene( cent->ent.origin, 200, 0.9f, 0.9f, 1.0f );
 				break;
 			case ET_ROCKET:
 				CG_AddGenericEnt( cent );
 				CG_ProjectileTrail( cent );
 				CG_EntityLoopSound( state, ATTN_NORM );
-				CG_AddLightToScene( cent->ent.origin, 300, 0.8f, 0.6f, 0 );
+				CG_AddLightToScene( cent->ent.origin, 400, 0.8f, 0.6f, 0 );
 				break;
 			case ET_GRENADE:
 				CG_AddGenericEnt( cent );
 				CG_EntityLoopSound( state, ATTN_STATIC );
 				CG_ProjectileTrail( cent );
-				canLight = true;
+				CG_AddLightToScene( cent->ent.origin, 300, 0.0f, 0.3f, 1.0f );
 				break;
 			case ET_PLASMA:
 				CG_AddGenericEnt( cent );
@@ -1893,13 +1895,13 @@ void CG_AddEntities( void ) {
 				CG_EntityLoopSound( state, ATTN_STATIC );
 				CG_WaveCoronaAndTrail( cent, cent->ent.origin );
 				// Add the core light
-				CG_AddLightToScene( cent->ent.origin, 150, 0.0f, 0.3f, 1.0f );
+				CG_AddLightToScene( cent->ent.origin, 200, 0.0f, 0.3f, 1.0f );
 				// Add the corona light
 				// We have initially thought to activate corona light only when corona damage is enabled,
 				// but it is not a good idea since it requires synchronization/prediction
 				// and the projectile gets activated rather fast anyway.
 				// Otherwise high ping players would only see an activated wave.
-				CG_AddLightToScene( cent->ent.origin, 450, 1.0f, 1.0f, 1.0f );
+				CG_AddLightToScene( cent->ent.origin, 550, 1.0f, 1.0f, 1.0f );
 				break;
 
 			case ET_SPRITE:

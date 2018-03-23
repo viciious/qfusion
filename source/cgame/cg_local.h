@@ -58,6 +58,7 @@ enum {
 	, LOCALEFFECT_WAVECORONA_LAST_DROP
 	, LOCALEFFECT_WAVESPARK_LAST_DROP
 	, LOCALEFFECT_WAVETRAIL_LAST_DROP
+	, LOCALEFFECT_BLASTER_SPARK_LAST_DROP
 	, LOCALEFFECT_BLOODTRAIL_LAST_DROP
 	, LOCALEFFECT_FLAGTRAIL_LAST_DROP
 	, LOCALEFFECT_LASERBEAM
@@ -1140,7 +1141,7 @@ void CG_AddParticles( void );
 void CG_ParticleEffect( const vec3_t org, const vec3_t dir, float r, float g, float b, int count, float gravity = NAN );
 void CG_ParticleEffect2( const vec3_t org, const vec3_t dir, float r, float g, float b, int count, float gravity = NAN );
 void CG_ParticleExplosionEffect( const vec3_t org, const vec3_t dir, float r, float g, float b, int count, float gravity = NAN );
-void CG_BlasterTrail( const vec3_t start, const vec3_t end );
+void CG_BlasterTrail( centity_t *ent, const vec3_t org );
 void CG_FlyEffect( centity_t *ent, const vec3_t origin );
 void CG_ElectroIonsTrail( const vec3_t start, const vec3_t end, const vec4_t color );
 void CG_ElectroIonsTrail2( const vec3_t start, const vec3_t end, const vec4_t color );
