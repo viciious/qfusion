@@ -508,7 +508,10 @@ void CG_PlasmaExplosion( const vec3_t pos, const vec3_t dir, int fire_mode, floa
 */
 void CG_BoltExplosionMode( const vec3_t pos, const vec3_t dir, int fire_mode, int surfFlags ) {
 	lentity_t *le;
+	vec3_t origin;
 	vec3_t angles;
+
+	VectorMA( pos, 2.0f, dir, origin );
 
 	if( !CG_SpawnDecal( pos, dir, random() * 360, 12,
 						1, 1, 1, 1, 10, 1, true, CG_MediaShader( cgs.media.shaderElectroboltMark ) ) ) {
@@ -519,7 +522,7 @@ void CG_BoltExplosionMode( const vec3_t pos, const vec3_t dir, int fire_mode, in
 
 	VecToAngles( dir, angles );
 
-	le = CG_AllocModel( LE_INVERSESCALE_ALPHA_FADE, pos, angles, 6, // 6 is time
+	le = CG_AllocModel( LE_INVERSESCALE_ALPHA_FADE, origin, angles, 6, // 6 is time
 						1, 1, 1, 1, //full white no inducted alpha
 						250, 0.75, 0.75, 0.75, //white dlight
 						CG_MediaModel( cgs.media.modElectroBoltWallHit ), NULL );
@@ -541,7 +544,10 @@ void CG_InstaExplosionMode( const vec3_t pos, const vec3_t dir, int fire_mode, i
 	int team = -1;
 	vec4_t tcolor = { 0.65f, 0.0f, 0.26f, 1.0f };
 	lentity_t *le;
+	vec3_t origin;
 	vec3_t angles;
+
+	VectorMA( pos, 2.0f, dir, origin );
 
 	if( cg_teamColoredInstaBeams->integer && owner && ( owner < gs.maxclients + 1 ) ) {
 		team = cg_entities[owner].current.team;
@@ -563,7 +569,7 @@ void CG_InstaExplosionMode( const vec3_t pos, const vec3_t dir, int fire_mode, i
 
 	VecToAngles( dir, angles );
 
-	le = CG_AllocModel( LE_ALPHA_FADE, pos, angles, 6, // 6 is time
+	le = CG_AllocModel( LE_ALPHA_FADE, origin, angles, 6, // 6 is time
 						tcolor[0], tcolor[1], tcolor[2], 1,
 						250, 0.65, 0.65, 0.65, //white dlight
 						CG_MediaModel( cgs.media.modInstagunWallHit ), NULL );
@@ -769,9 +775,11 @@ void CG_GunBladeBlastImpact( const vec3_t pos, const vec3_t dir, float radius ) 
 	lentity_t *le;
 	lentity_t *le_explo;
 	vec3_t angles;
+	vec3_t origin;
 	float model_radius = GUNBLADEBLAST_EXPLOSION_MODEL_RADIUS;
 
 	VecToAngles( dir, angles );
+	VectorAdd( pos, dir, origin );
 
 	le = CG_AllocModel( LE_ALPHA_FADE, pos, angles, 2, //3 frames
 						1, 1, 1, 1, //full white no inducted alpha
@@ -784,9 +792,9 @@ void CG_GunBladeBlastImpact( const vec3_t pos, const vec3_t dir, float radius ) 
 	le->ent.scale = 1.0f; // this is the small bullet impact
 
 
-	le_explo = CG_AllocModel( LE_ALPHA_FADE, pos, angles, 2 + ( radius / 16.1f ),
+	le_explo = CG_AllocModel( LE_ALPHA_FADE, origin, angles, 2 + ( radius / 16.1f ),
 							  1, 1, 1, 1, //full white no inducted alpha
-							  0, 0, 0, 0, //dlight
+							  0.9, 0.7, 0, 0, //dlight
 							  CG_MediaModel( cgs.media.modBladeWallExplo ),
 							  NULL );
 	le_explo->ent.rotation = rand() % 360;

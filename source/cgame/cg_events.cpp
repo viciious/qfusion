@@ -113,19 +113,20 @@ static void _LaserImpact( trace_t *trace, vec3_t dir ) {
 #undef TRAILTIME
 	}
 
+	vec3_t lightOrigin;
+	// Offset the light origin from the impact surface
+	VectorMA( trace->endpos, 2.0f, trace->plane.normal, lightOrigin );
+
 	// it's a brush model
 	if( trace->ent == 0 || !( cg_entities[trace->ent].current.effects & EF_TAKEDAMAGE ) ) {
 		vec4_t color;
-
 		CG_LaserGunImpact( trace->endpos, trace->plane.normal, 15.0f, dir, _LaserColor( color ) );
-
-		CG_AddLightToScene( trace->endpos, 100, 0.75f, 0.75f, 0.375f );
-		return;
+	} else {
+		// it's a player
+		// TODO: add player-impact model
 	}
 
-	// it's a player
-
-	// TODO: add player-impact model
+	CG_AddLightToScene( trace->endpos, 150, 0.75f, 0.75f, 0.375f );
 }
 
 void CG_LaserBeamEffect( centity_t *cent ) {
@@ -1117,7 +1118,6 @@ void CG_Event_Jump( entity_state_t *state, int parm ) {
 * CG_EntityEvent
 */
 void CG_EntityEvent( entity_state_t *ent, int ev, int parm, bool predicted ) {
-	//static orientation_t projection;
 	vec3_t dir;
 	bool viewer = ISVIEWERENTITY( ent->number );
 	vec4_t color;
