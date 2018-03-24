@@ -38,6 +38,7 @@ cvar_t *s_environment_effects;
 cvar_t *s_environment_sampling_quality;
 cvar_t *s_environment_effects_scale;
 cvar_t *s_hrtf;
+cvar_t *s_attenuate_on_obstruction;
 cvar_t *s_stereo2mono;
 cvar_t *s_globalfocus;
 
@@ -139,6 +140,7 @@ bool SF_Init( void *hwnd, int maxEntities, bool verbose ) {
 		trap_Cvar_ForceSet( s_environment_effects_scale->name, "0.5" );
 	}
 	s_hrtf = trap_Cvar_Get( "s_hrtf", "1", CVAR_ARCHIVE | CVAR_LATCH_SOUND );
+	s_attenuate_on_obstruction = trap_Cvar_Get( "s_attenuate_on_obstruction", "1", CVAR_ARCHIVE );
 
 	ENV_Init();
 

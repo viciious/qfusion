@@ -138,6 +138,8 @@ void S_UpdateEFX( src_t *src ) {
 			qalAuxiliaryEffectSloti( src->effectSlot, AL_EFFECTSLOT_EFFECT, AL_EFFECT_NULL );
 			// Detach the direct filter
 			qalSourcei( src->source, AL_DIRECT_FILTER, AL_FILTER_NULL );
+			// Restore the original source gain
+			qalSourcef( src->source, AL_GAIN, src->fvol * s_volume->value );
 		}
 		return;
 	}
@@ -161,6 +163,18 @@ void S_UpdateEFX( src_t *src ) {
 			// This is the only place where the flanger gets tweaked
 			qalEffectf( src->effect, AL_FLANGER_DEPTH, 0.5f );
 			qalEffectf( src->effect, AL_FLANGER_FEEDBACK, -0.4f );
+			float gain = src->fvol * s_volume->value;
+			if( s_attenuate_on_obstruction->integer ) {
+				// Modify the gain by the direct obstruction factor
+				// Lowering the gain by 1/3 on full obstruction is fairly sufficient (its not linearly perceived)
+				float obstructionFactor = 0.33f * envProps->directObstruction;
+				// Modulate by the environment effects scale
+				float attenuationFactor = 1.0f - obstructionFactor * s_environment_effects_scale->value;
+				gain *= attenuationFactor;
+			}
+			assert( gain >= 0.0f && gain <= 1.0f );
+			// Set gain in any case (useful if the "attenuate on obstruction" flag has been turned off).
+			qalSourcef( src->source, AL_GAIN, gain );
 		} else {
 			qalEffecti( src->effect, AL_EFFECT_TYPE, AL_EFFECT_REVERB );
 		}
@@ -180,6 +194,21 @@ void S_UpdateEFX( src_t *src ) {
 			qalEffectf( src->effect, reverbParamsDefs[i].param, value );
 		}
 	}
+
+	float gain = src->fvol * s_volume->value;
+	if( s_attenuate_on_obstruction->integer ) {
+		// Direct obstruction = 1 means the direct path to the listener is fully obstructed.
+		// GainHf close to 0 means the secondary reflections path is almost fully obstructed too.
+		// Thus, obstruction factor is within [0, 0.3..) range.
+		// Lowering the gain by 1/3 on full obstruction is fairly sufficient (its not linearly perceived)
+		float obstructionFactor = 0.33f * ( envProps->directObstruction + ( 1.0f - envProps->reverbProps.gainHf ) );
+		// Modulate by the environment effects scale
+		float attenuationFactor = 1.0f - obstructionFactor * s_environment_effects_scale->value;
+		gain *= attenuationFactor;
+	}
+	assert( gain >= 0.0f && gain <= 1.0f );
+	// Set gain in any case (useful if the "attenuate on obstruction" flag has been turned off).
+	qalSourcef( src->source, AL_GAIN, gain );
 
 	// TODO: Check whether it is valid... looks like we have to reattach everything to make updates get applied
 
