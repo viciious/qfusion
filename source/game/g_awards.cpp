@@ -441,8 +441,21 @@ void G_AwardPlayerKilled( edict_t *self, edict_t *inflictor, edict_t *attacker, 
 		lfrag = ( loggedFrag_t * )LA_Alloc( stats->fragAllocator );
 		lfrag->attacker = attacker->r.client->mm_session;
 		lfrag->victim = self->r.client->mm_session;
-		lfrag->weapon = G_ModToAmmo( mod ) - AMMO_GUNBLADE;
-		lfrag->time = ( game.serverTime - GS_MatchStartTime() ) / 1000;
+		// Currently frags made using weak and strong kinds of ammo
+		// share the same weapon index (thats what the stats server expect).
+		// Thus, for MOD's of weak ammo, write the corresponding strong ammo value.
+		static_assert( AMMO_GUNBLADE < AMMO_WEAK_GUNBLADE, "" );
+		int weaponIndex = G_ModToAmmo( mod );
+		if( weaponIndex >= AMMO_WEAK_GUNBLADE ) {
+			// Eliminate weak ammo values shift
+			weaponIndex -= AMMO_WEAK_GUNBLADE - AMMO_GUNBLADE;
+		}
+		// Shift weapon index so the first valid index correspond to Gunblade
+		// (no-weapon kills will have a negative weapon index, and the stats server is aware of it).
+		weaponIndex -= AMMO_GUNBLADE;
+		lfrag->weapon = weaponIndex;
+		// Changed to millis for the new stats server
+		lfrag->time = game.serverTime - GS_MatchStartTime();
 	}
 }
 

@@ -649,8 +649,8 @@ static void g_mm_writeHeader( stat_query_t *query, int teamGame ) {
 static stat_query_t *G_Match_GenerateReport( void ) {
 	stat_query_t *query;
 	stat_query_section_t *playersarray;
+	stat_query_section_t *weaponindices;
 
-	//stat_query_section_t *weapindexarray;
 	gclient_quit_t *cl;
 	int i, teamGame, duelGame;
 	static const char *weapnames[WEAP_TOTAL] = { NULL };
@@ -695,9 +695,13 @@ static stat_query_t *G_Match_GenerateReport( void ) {
 		}
 	}
 
-
-	// TODO: write the weapon indexes
-	// weapindexarray = sq_api->CreateSection( query, 0, "weapindices" );
+	// Provide the weapon indices for the stats server
+	// Note that redundant weapons (that were not used) are allowed to be present here
+	weaponindices = sq_api->CreateSection( query, 0, "weapon_indices" );
+	for( int j = 0; j < WEAP_TOTAL; ++j ) {
+		weapnames[j] = GS_FindItemByTag( WEAP_GUNBLADE + j )->shortname;
+		sq_api->SetNumber( weaponindices, weapnames[j], j );
+	}
 
 	// Write player properties
 	playersarray = sq_api->CreateArray( query, 0, "players" );
@@ -775,13 +779,6 @@ static stat_query_t *G_Match_GenerateReport( void ) {
 				weak = j + ( AMMO_WEAK_GUNBLADE - WEAP_TOTAL );
 				if( stats->accuracy_shots[j] == 0 && stats->accuracy_shots[weak] == 0 ) {
 					continue;
-				}
-
-				if( !weapnames[j] ) {
-					gsitem_t *it = GS_FindItemByTag( WEAP_GUNBLADE + j );
-					if( it ) {
-						weapnames[j] = it->shortname;
-					}
 				}
 
 				weapsection = sq_api->CreateSection( query, accsection, NULL );
