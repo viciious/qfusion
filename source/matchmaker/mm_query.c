@@ -224,10 +224,10 @@ static double StatQuery_JsonToNumber( cJSON *obj ) {
 		default:
 			Com_Printf( "StatQuery: Couldnt cast JSON type %s to number (object name %s)\n",
 						StatQuery_JsonTypeToString( obj->type ), obj->string != 0 ? obj->string : "" );
-			return 0.0;
+			return NAN;
 	}
 
-	return 0.0;
+	return NAN;
 }
 
 static const char *StatQuery_JsonToString( cJSON *obj ) {
@@ -252,10 +252,10 @@ static const char *StatQuery_JsonToString( cJSON *obj ) {
 		default:
 			Com_Printf( "StatQuery: Couldnt cast JSON type %s to string (object name %s)\n",
 						StatQuery_JsonTypeToString( obj->type ), obj->string != 0 ? obj->string : "" );
-			buffer[0] = '\0';
+			return NULL;
 	}
 
-	return buffer;
+	return NULL;
 }
 
 //===============================================
@@ -497,8 +497,20 @@ static void StatQuery_AddArrayNumber( stat_query_section_t *array, double prop_v
 	cJSON_AddItemToArray( (cJSON *)array, object );
 }
 
+static bool StatQuery_IsArray( const stat_query_section_t *section ) {
+	return section && ( (cJSON *)section )->type == cJSON_Array;
+}
+
+static bool StatQuery_IsObject( const stat_query_section_t *section ) {
+	return section && ( (cJSON *)section )->type == cJSON_Object;
+}
+
 static stat_query_section_t *StatQuery_GetRoot( stat_query_t *query ) {
 	return (stat_query_section_t *)query->json_in;
+}
+
+static stat_query_section_t *StatQuery_GetOutRoot( stat_query_t *query ) {
+	return (stat_query_section_t *)query->json_out;
 }
 
 static stat_query_section_t *StatQuery_GetSection( stat_query_section_t *parent, const char *name ) {
@@ -513,6 +525,10 @@ static double StatQuery_GetNumber( stat_query_section_t *parent, const char *nam
 static const char *StatQuery_GetString( stat_query_section_t *parent, const char *name ) {
 	cJSON *object = cJSON_GetObjectItem( (cJSON *)parent, name );
 	return StatQuery_JsonToString( object );
+}
+
+static int StatQuery_GetArraySize( stat_query_section_t *section ) {
+	return cJSON_GetArraySize( (cJSON *)section );
 }
 
 static stat_query_section_t *StatQuery_GetArraySection( stat_query_section_t *parent, int idx ) {
@@ -587,9 +603,11 @@ void StatQuery_Init( void ) {
 	sq_export.Send = StatQuery_Send;
 	sq_export.SetField = StatQuery_SetField;
 	sq_export.GetRoot = StatQuery_GetRoot;
+	sq_export.GetOutRoot = StatQuery_GetOutRoot;
 	sq_export.GetSection = StatQuery_GetSection;
 	sq_export.GetNumber = StatQuery_GetNumber;
 	sq_export.GetString = StatQuery_GetString;
+	sq_export.GetArraySize = StatQuery_GetArraySize;
 	sq_export.GetArraySection = StatQuery_GetArraySection;
 	sq_export.GetArrayNumber = StatQuery_GetArrayNumber;
 	sq_export.GetArrayString = StatQuery_GetArrayString;
@@ -601,6 +619,8 @@ void StatQuery_Init( void ) {
 	sq_export.SetArrayNumber = StatQuery_SetArrayNumber;
 	sq_export.AddArrayString = StatQuery_AddArrayString;
 	sq_export.AddArrayNumber = StatQuery_AddArrayNumber;
+	sq_export.IsArray = StatQuery_IsArray;
+	sq_export.IsObject = StatQuery_IsObject;
 	sq_export.GetRawResponse = StatQuery_GetRawResponse;
 	sq_export.GetTokenizedResponse = StatQuery_GetTokenizedResponse;
 	sq_export.Poll = StatQuery_Poll;

@@ -40,11 +40,13 @@ typedef struct stat_query_api_s {
 
 	// Get data properties
 	stat_query_section_t *( *GetRoot )( stat_query_t * query );
+	stat_query_section_t *( *GetOutRoot )( stat_query_t *query );
 	// named sections/arrays and properties
 	stat_query_section_t *( *GetSection )( stat_query_section_t * parent, const char *name );
 	double ( *GetNumber )( stat_query_section_t *parent, const char *name );
 	const char *( *GetString )( stat_query_section_t * parent, const char *name );
 	// indexed sections and properties from array
+	int ( *GetArraySize )( stat_query_section_t *array );
 	stat_query_section_t *( *GetArraySection )( stat_query_section_t * parent, int idx );
 	double ( *GetArrayNumber )( stat_query_section_t *array, int idx );
 	const char *( *GetArrayString )( stat_query_section_t * array, int idx );
@@ -63,6 +65,9 @@ typedef struct stat_query_api_s {
 	// add unnamed properties to arrays
 	void ( *AddArrayString )( stat_query_section_t *array, const char *prop_value );
 	void ( *AddArrayNumber )( stat_query_section_t *array, double prop_value );
+
+	bool ( *IsArray )( const stat_query_section_t *section );
+	bool ( *IsObject )( const stat_query_section_t *section );
 
 	const char *( *GetRawResponse )( stat_query_t * query );
 	// char *const *( *GetTokenizedResponse )( stat_query_t *query, int *argc );

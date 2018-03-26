@@ -20,6 +20,293 @@ Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
 #include "g_local.h"
 #include "../matchmaker/mm_query.h"
 
+#include <new>
+
+// A common supertype for query readers/writers
+class alignas( 8 )QueryIOHelper {
+protected:
+	virtual bool CheckTopOfStack( const char *tag, int topOfStack_ ) = 0;
+
+	struct StackedIOHelper {
+		virtual ~StackedIOHelper() {}
+	};
+
+	static constexpr int STACK_SIZE = 32;
+
+	template<typename Parent, typename ObjectIOHelper, typename ArrayIOHelper>
+	class alignas( 8 )StackedHelpersAllocator {
+	protected:
+		static_assert( sizeof( ObjectIOHelper ) >= sizeof( ArrayIOHelper ), "Redefine LargestEntry" );
+		typedef ObjectIOHelper LargestEntry;
+
+		static constexpr auto ENTRY_SIZE =
+			sizeof( LargestEntry ) % 8 ? sizeof( LargestEntry ) + 8 - sizeof( LargestEntry ) % 8 : sizeof( LargestEntry );
+
+		alignas( 8 ) uint8_t storage[STACK_SIZE * ENTRY_SIZE];
+
+		QueryIOHelper *parent;
+		int topOfStack;
+
+		void *AllocEntry( const char *tag ) {
+			if( parent->CheckTopOfStack( tag, topOfStack ) ) {
+				return storage + ( topOfStack++ ) * ENTRY_SIZE;
+			}
+			return nullptr;
+		}
+	public:
+		explicit StackedHelpersAllocator( QueryIOHelper *parent_ ): parent( parent_ ), topOfStack( 0 ) {
+			if( ( (uintptr_t)this ) % 8 ) {
+				G_Error( "StackedHelpersAllocator(): the object is misaligned!\n" );
+			}
+		}
+
+		ArrayIOHelper *NewArrayIOHelper( stat_query_api_t *api, stat_query_section_t *section ) {
+			return new( AllocEntry( "array" ) )ArrayIOHelper( (Parent *)parent, api, section );
+		}
+
+		ObjectIOHelper *NewObjectIOHelper( stat_query_api_t *api, stat_query_section_t *section ) {
+			return new( AllocEntry( "object" ) )ObjectIOHelper( (Parent *)parent, api, section );
+		}
+
+		void DeleteHelper( StackedIOHelper *helper ) {
+			helper->~StackedIOHelper();
+			if( (uint8_t *)helper != storage + ( topOfStack - 1 ) * ENTRY_SIZE ) {
+				G_Error( "WritersAllocator::DeleteWriter(): Attempt to delete an entry that is not on top of stack\n" );
+			}
+			topOfStack--;
+		}
+	};
+};
+
+class alignas( 8 )QueryWriter final: public QueryIOHelper {
+	friend class CompoundWriter;
+	friend class ObjectWriter;
+	friend class ArrayWriter;
+	friend struct WritersAllocator;
+
+	stat_query_api_t *api;
+	stat_query_t *query;
+
+	static constexpr int STACK_SIZE = 32;
+
+	bool CheckTopOfStack( const char *tag, int topOfStack_ ) override {
+		if( topOfStack_ < 0 || topOfStack_ >= STACK_SIZE ) {
+			const char *kind = topOfStack_ < 0 ? "underflow" : "overflow";
+			G_Error( "%s: Objects stack %s, top of stack index is %d\n", tag, kind, topOfStack_ );
+		}
+		return true;
+	}
+
+	void NotifyOfNewArray( const char *name ) {
+		auto *section = api->CreateArray( query, TopOfStack().section, name );
+		topOfStackIndex++;
+		stack[topOfStackIndex] = writersAllocator.NewArrayIOHelper( api, section );
+	}
+
+	void NotifyOfNewObject( const char *name ) {
+		auto *section = api->CreateSection( query, TopOfStack().section, name );
+		topOfStackIndex++;
+		stack[topOfStackIndex] = writersAllocator.NewObjectIOHelper( api, section );
+	}
+
+	void NotifyOfArrayEnd() {
+		writersAllocator.DeleteHelper( &TopOfStack() );
+		topOfStackIndex--;
+	}
+
+	void NotifyOfObjectEnd() {
+		writersAllocator.DeleteHelper( &TopOfStack() );
+		topOfStackIndex--;
+	}
+
+	class CompoundWriter: public StackedIOHelper {
+		friend class QueryWriter;
+	protected:
+		QueryWriter *const parent;
+		stat_query_api_t *const api;
+		stat_query_section_t *const section;
+	public:
+		CompoundWriter( QueryWriter *parent_, stat_query_api_t *api_, stat_query_section_t *section_ )
+			: parent( parent_ ), api( api_ ), section( section_ ) {}
+
+		virtual void operator<<( const char *nameOrValue ) = 0;
+		virtual void operator<<( int value ) = 0;
+		virtual void operator<<( int64_t value ) = 0;
+		virtual void operator<<( double value ) = 0;
+		virtual void operator<<( const mm_uuid_t &value ) = 0;
+		virtual void operator<<( char ch ) = 0;
+	};
+
+	class ObjectWriter: public CompoundWriter {
+		const char *fieldName;
+
+		const char *CheckFieldName( const char *tag ) {
+			if( !fieldName ) {
+				G_Error( "QueryWriter::ObjectWriter::operator<<(%s): "
+						 "A field name has not been set before supplying a value", tag );
+			}
+			return fieldName;
+		}
+	public:
+		ObjectWriter( QueryWriter *parent_, stat_query_api_t *api_, stat_query_section_t *section_ )
+			: CompoundWriter( parent_, api_, section_ ), fieldName( nullptr ) {}
+
+		void operator<<( const char *nameOrValue ) override {
+			if( !fieldName ) {
+				// TODO: Check whether it is a valid identifier?
+				fieldName = nameOrValue;
+			} else {
+				api->SetString( section, fieldName, nameOrValue );
+				fieldName = nullptr;
+			}
+		}
+
+		void operator<<( int value ) override {
+			api->SetNumber( section, CheckFieldName( "int" ), value );
+			fieldName = nullptr;
+		}
+
+		void operator<<( int64_t value ) override {
+			if( (int64_t)( (double)value ) != value ) {
+				G_Error( "ObjectWriter::operator<<(int64_t): The value %"
+							 PRIi64 " will be lost in conversion to double", value );
+			}
+			api->SetNumber( section, CheckFieldName( "int64_t" ), value );
+			fieldName = nullptr;
+		}
+
+		void operator<<( double value ) override {
+			api->SetNumber( section, CheckFieldName( "double" ), value );
+			fieldName = nullptr;
+		}
+
+		void operator<<( const mm_uuid_t &value ) override {
+			char buffer[UUID_BUFFER_SIZE];
+			api->SetString( section, CheckFieldName( "const mm_uuid_t &" ), value.ToString( buffer ) );
+			fieldName = nullptr;
+		}
+
+		void operator<<( char ch ) override {
+			if( ch == '{' ) {
+				parent->NotifyOfNewObject( CheckFieldName( "{..." ) );
+				fieldName = nullptr;
+			} else if( ch == '[' ) {
+				parent->NotifyOfNewArray( CheckFieldName( "[..." ) );
+				fieldName = nullptr;
+			} else if( ch == '}' ) {
+				parent->NotifyOfObjectEnd();
+			} else if( ch == ']' ) {
+				G_Error( "ArrayWriter::operator<<('...]'): Unexpected token (an array end token)" );
+			} else {
+				G_Error( "ArrayWriter::operator<<(char): Illegal character (%d as an integer)", (int)ch );
+			}
+		}
+	};
+
+	class ArrayWriter: public CompoundWriter {
+	public:
+		ArrayWriter( QueryWriter *parent_, stat_query_api_t *api_, stat_query_section_t *section_ )
+			: CompoundWriter( parent_, api_, section_ ) {}
+
+		void operator<<( const char *nameOrValue ) override {
+			api->AddArrayString( section, nameOrValue );
+		}
+
+		void operator<<( int value ) override {
+			api->AddArrayNumber( section, value );
+		}
+
+		void operator<<( int64_t value ) override {
+			api->AddArrayNumber( section, value );
+		}
+
+		void operator<<( double value ) override {
+			api->AddArrayNumber( section, value );
+		}
+
+		void operator<<( const mm_uuid_t &value ) override {
+			char buffer[UUID_BUFFER_SIZE];
+			api->AddArrayString( section, value.ToString( buffer ) );
+		}
+
+		void operator<<( char ch ) override {
+			if( ch == '[' ) {
+				parent->NotifyOfNewArray( nullptr );
+			} else if( ch == '{' ) {
+				parent->NotifyOfNewObject( nullptr );
+			} else if( ch == ']' ) {
+				parent->NotifyOfArrayEnd();
+			} else if( ch == '}' ) {
+				G_Error( "ArrayWriter::operator<<('...}'): Unexpected token (an object end token)");
+			} else {
+				G_Error( "ArrayWriter::operator<<(char): Illegal character (%d as an integer)", (int)ch );
+			}
+		}
+	};
+
+	struct WritersAllocator: public StackedHelpersAllocator<QueryWriter, ObjectWriter, ArrayWriter> {
+		explicit WritersAllocator( QueryWriter *parent_ ): StackedHelpersAllocator( parent_ ) {}
+	};
+
+	WritersAllocator writersAllocator;
+
+	// Put the root object onto the top of stack
+	// Do not require closing it explicitly
+	CompoundWriter *stack[32 + 1];
+	int topOfStackIndex;
+
+	CompoundWriter &TopOfStack() {
+		CheckTopOfStack( "QueryWriter::TopOfStack()", topOfStackIndex );
+		return *stack[topOfStackIndex];
+	}
+public:
+	QueryWriter( stat_query_api_t *api_, const char *url )
+		: api( api_ ), writersAllocator( this ) {
+		query = api->CreateQuery( nullptr, url, false );
+		topOfStackIndex = 0;
+		stack[topOfStackIndex] = writersAllocator.NewObjectIOHelper( api, api->GetOutRoot( query ) );
+	}
+
+	QueryWriter &operator<<( const char *nameOrValue ) {
+		TopOfStack() << nameOrValue;
+		return *this;
+	}
+
+	QueryWriter &operator<<( int value ) {
+		TopOfStack() << value;
+		return *this;
+	}
+
+	QueryWriter &operator<<( int64_t value ) {
+		TopOfStack() << value;
+		return *this;
+	}
+
+	QueryWriter &operator<<( double value ) {
+		TopOfStack() << value;
+		return *this;
+	}
+
+	QueryWriter &operator<<( const mm_uuid_t &value ) {
+		TopOfStack() << value;
+		return *this;
+	}
+
+	QueryWriter &operator<<( char ch ) {
+		TopOfStack() << ch;
+		return *this;
+	}
+
+	void Send() {
+		if( topOfStackIndex != 0 ) {
+			G_Error( "QueryWriter::Send(): Root object building is incomplete, remaining stack depth is %d\n", topOfStackIndex );
+		}
+
+		// Note: Do not call api->Send() directly, let the server code perform an augmentation of the request!
+		trap_MM_SendQuery( query );
+	}
+};
+
 // number of raceruns to send in one batch
 #define RACERUN_BATCH_SIZE  256
 
