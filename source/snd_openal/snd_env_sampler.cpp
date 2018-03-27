@@ -16,7 +16,7 @@ static int listenerLeafNum = -1;
 static bool wasListenerInLiquid;
 
 #define MAX_DIRECT_OBSTRUCTION_SAMPLES ( 8 )
-#define MAX_REVERB_PRIMARY_RAY_SAMPLES ( 48 )
+#define MAX_REVERB_PRIMARY_RAY_SAMPLES ( 32 )
 
 static vec3_t randomDirectObstructionOffsets[(1 << 8)];
 static vec3_t randomReverbPrimaryRayDirs[(1 << 16)];
@@ -123,7 +123,7 @@ static SourcesUpdatePriorityQueue sourcesUpdatePriorityQueue;
 
 static void ENV_ProcessUpdatesPriorityQueue();
 
-static void ENV_UpdateSourceEnvironment( src_t *src, int64_t millisNow );
+static void ENV_UpdateSourceEnvironment( src_t *src, int64_t millisNow, const src_t *tryReusePropsSrc );
 static void ENV_ComputeDirectObstruction( src_t *src );
 static void ENV_ComputeReverberation( src_t *src );
 
@@ -197,7 +197,11 @@ static void ENV_CollectRegularEnvironmentUpdates() {
 		if( updateState->entNum >= 0 ) {
 			// If the sound origin has been significantly modified
 			if( DistanceSquared( src->origin, updateState->lastUpdateOrigin ) > 128 * 128 ) {
-				priorityQueue.AddSource( src, 1.5f );
+				// Hack! Prevent fast-moving entities (that are very likely PG projectiles)
+				// to consume the entire updates throughput
+				if( VectorLengthSquared( src->velocity ) < 700 * 700 ) {
+					priorityQueue.AddSource( src, 1.5f );
+				}
 				continue;
 			}
 
@@ -246,7 +250,6 @@ src_t *SourcesUpdatePriorityQueue::PopSource() {
 static void ENV_ProcessUpdatesPriorityQueue() {
 	int64_t millis = trap_Milliseconds();
 	src_t *src;
-	unsigned numUpdates = 0;
 
 	// Reset the listener leaf num for the new update session.
 	// This prevents reusing outdated leaf nums,
@@ -256,6 +259,8 @@ static void ENV_ProcessUpdatesPriorityQueue() {
 	// The leaf will be computed on demand if its necessary.
 	listenerLeafNum = -1;
 
+	const sfx_t *lastProcessedSfx = nullptr;
+	const src_t *lastProcessedSrc = nullptr;
 	float lastProcessedPriority = std::numeric_limits<float>::max();
 	// Always do at least a single update
 	for( ;; ) {
@@ -263,13 +268,21 @@ static void ENV_ProcessUpdatesPriorityQueue() {
 			break;
 		}
 
+		const src_t *tryReusePropsSrc = nullptr;
+		if( src->sfx == lastProcessedSfx ) {
+			tryReusePropsSrc = lastProcessedSrc;
+		}
+
 		assert( lastProcessedPriority >= src->envUpdateState.priorityInQueue );
 		lastProcessedPriority = src->envUpdateState.priorityInQueue;
+		lastProcessedSfx = src->sfx;
+		lastProcessedSrc = src;
 
-		ENV_UpdateSourceEnvironment( src, millis );
-		numUpdates++;
-		// Stop doing updates if there were enough updates this frame and left sources have low priority
-		if( numUpdates >= 3 && lastProcessedPriority < 1.0f ) {
+		ENV_UpdateSourceEnvironment( src, millis, tryReusePropsSrc );
+		// Stop updates if the time quota has been exceeded immediately.
+		// Do not block the commands queue processing.
+		// The priority queue will be rebuilt next ENV_UpdateListenerCall().
+		if( trap_Milliseconds() - millis > 2 ) {
 			break;
 		}
 	}
@@ -391,7 +404,52 @@ static void ENV_InterpolateEnvironmentProps( src_t *src, int64_t millisNow ) {
 	src->envUpdateState.lastEnvUpdateAt = millisNow;
 }
 
-static void ENV_UpdateSourceEnvironment( src_t *src, int64_t millisNow ) {
+static bool ENV_TryReuseSourceReverbProps( src_t *src, const src_t *tryReusePropsSrc ) {
+	if( !tryReusePropsSrc ) {
+		return false;
+	}
+
+	const auto *reuseProps = &tryReusePropsSrc->envUpdateState.envProps;
+	// Make sure props have a valid effect kind
+	if( !reuseProps->useEfx || reuseProps->useFlanger ) {
+		return false;
+	}
+
+	// We are already sure that both sources are in the same contents kind (non-liquid).
+	// Check distance between sources.
+	const float squareDistance = DistanceSquared( tryReusePropsSrc->origin, src->origin );
+	// If they are way too far for reusing
+	if( squareDistance > 96 * 96 ) {
+		return false;
+	}
+
+	// If they are very close, feel free to just copy props
+	if( squareDistance < 4.0f * 4.0f ) {
+		src->envUpdateState.envProps.reverbProps = reuseProps->reverbProps;
+		return true;
+	}
+
+	// Do a coarse raycast test between these two sources
+	vec3_t start, end, dir;
+	VectorSubtract( tryReusePropsSrc->origin, src->origin, dir );
+	const float invDistance = 1.0f / sqrtf( squareDistance );
+	VectorScale( dir, invDistance, dir );
+	// Offset start and end by a dir unit.
+	// Ensure start and end are in "air" and not on a brush plane
+	VectorAdd( src->origin, dir, start );
+	VectorSubtract( tryReusePropsSrc->origin, dir, end );
+
+	trace_t trace;
+	trap_Trace( &trace, start, end, vec3_origin, vec3_origin, MASK_SOLID );
+	if( trace.fraction != 1.0f ) {
+		return false;
+	}
+
+	src->envUpdateState.envProps.reverbProps = reuseProps->reverbProps;
+	return true;
+}
+
+static void ENV_UpdateSourceEnvironment( src_t *src, int64_t millisNow, const src_t *tryReusePropsSrc ) {
 	envUpdateState_t *updateState = &src->envUpdateState;
 	envProps_t *envProps = &src->envUpdateState.envProps;
 
@@ -414,6 +472,7 @@ static void ENV_UpdateSourceEnvironment( src_t *src, int64_t millisNow ) {
 	VectorCopy( src->origin, updateState->lastUpdateOrigin );
 	VectorCopy( src->velocity, updateState->lastUpdateVelocity );
 
+	bool needsInterpolation = true;
 	if( updateState->wasInLiquid || wasListenerInLiquid ) {
 		envProps->useFlanger = true;
 
@@ -426,10 +485,20 @@ static void ENV_UpdateSourceEnvironment( src_t *src, int64_t millisNow ) {
 	} else {
 		envProps->useFlanger = false;
 		ENV_ComputeDirectObstruction( src );
-		ENV_ComputeReverberation( src );
+		// We try reuse props only for reverberation effects
+		// since reverberation effects sampling is extremely expensive.
+		// Moreover, direct obstruction reuse is just not valid,
+		// since even a small origin difference completely changes it.
+		if( ENV_TryReuseSourceReverbProps( src, tryReusePropsSrc ) ) {
+			needsInterpolation = false;
+		} else {
+			ENV_ComputeReverberation( src );
+		}
 	}
 
-	ENV_InterpolateEnvironmentProps( src, millisNow );
+	if( needsInterpolation ) {
+		ENV_InterpolateEnvironmentProps( src, millisNow );
+	}
 
 	S_UpdateEFX( src );
 }
@@ -548,7 +617,7 @@ static void ENV_ComputeReverberation( src_t *src ) {
 
 	envUpdateState_t *const updateState = &src->envUpdateState;
 	reverbProps_t *const reverbProps = &updateState->envProps.reverbProps;
-	ENV_SetupSamplingProps( &updateState->reverbPrimaryRaysSamplingProps, 16, MAX_REVERB_PRIMARY_RAY_SAMPLES );
+	ENV_SetupSamplingProps( &updateState->reverbPrimaryRaysSamplingProps, 12, MAX_REVERB_PRIMARY_RAY_SAMPLES );
 
 	float averageDistance = 0.0f;
 	unsigned numRaysHitSky = 0;
