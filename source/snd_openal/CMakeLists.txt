@@ -10,6 +10,7 @@ file(GLOB SND_OPENAL_HEADERS
 
 file(GLOB SND_OPENAL_SOURCES
     "*.c"
+    "*.cpp"
     "../snd_common/*.c"
     "../gameshared/q_*.c"
 )

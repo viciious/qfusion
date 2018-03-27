@@ -19,6 +19,10 @@ Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
 */
 // snd_local.h -- private OpenAL sound functions
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 //#define VORBISLIB_RUNTIME // enable this define for dynamic linked vorbis libraries
 
 // it's in qcommon.h too, but we don't include it for modules
@@ -378,3 +382,7 @@ void SF_RawSamples( unsigned int samples, unsigned int rate, unsigned short widt
 void SF_PositionedRawSamples( int entnum, float fvol, float attenuation,
 							  unsigned int samples, unsigned int rate,
 							  unsigned short width, unsigned short channels, const uint8_t *data );
+
+#ifdef __cplusplus
+}
+#endif

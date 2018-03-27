@@ -1,6 +1,15 @@
 #include "snd_env_sampler.h"
 #include "snd_local.h"
 
+#ifdef min
+#undef min
+#endif
+#ifdef max
+#undef max
+#endif
+
+#include <algorithm>
+
 static vec3_t oldListenerOrigin;
 static vec3_t oldListenerVelocity;
 static int listenerLeafNum = -1;
@@ -47,7 +56,7 @@ static void ENV_InitRandomTables() {
 	}
 }
 
-void ENV_Init() {
+extern "C" void ENV_Init() {
 	if( !s_environment_effects->integer ) {
 		return;
 	}
@@ -61,11 +70,11 @@ void ENV_Init() {
 	listenerLeafNum = -1;
 }
 
-void ENV_Shutdown() {
+extern "C" void ENV_Shutdown() {
 	listenerLeafNum = -1;
 }
 
-void ENV_RegisterSource( src_t *src ) {
+extern "C" void ENV_RegisterSource( src_t *src ) {
 	if( src->priority != SRCPRI_LOCAL && s_environment_effects->integer != 0 ) {
 		src->envUpdateState.envProps.useEfx = true;
 	} else {
@@ -81,19 +90,38 @@ void ENV_RegisterSource( src_t *src ) {
 	src->envUpdateState.reverbPrimaryRaysSamplingProps.quality = -1.0f;
 }
 
-void ENV_UnregisterSource( src_t *src ) {
+extern "C" void ENV_UnregisterSource( src_t *src ) {
 	src->envUpdateState.envProps.useEfx = false;
 }
 
-static src_t *sourceUpdatesHeap[MAX_SRC];
-static unsigned sourceUpdatesHeapSize;
+class SourcesUpdatePriorityQueue {
+	struct ComparableSource {
+		src_t *src;
+		ComparableSource(): src( nullptr ) {}
+		ComparableSource( src_t *src_ ): src( src_ ) {}
 
-static inline void ENV_PrepareUpdatesPriorityQueue() {
-	sourceUpdatesHeapSize = 0;
-}
+		bool operator<( const ComparableSource &that ) const {
+			// We use a max-heap, so the natural comparison order for priorities is the right one
+			return src->envUpdateState.priorityInQueue < that.src->envUpdateState.priorityInQueue;
+		}
+	};
+
+	ComparableSource heap[MAX_SRC];
+	int numSourcesInHeap;
+public:
+	SourcesUpdatePriorityQueue() {
+		Clear();
+	}
+
+	void Clear() { numSourcesInHeap = 0; }
+
+	void AddSource( src_t *src, float urgencyScale );
+	src_t *PopSource();
+};
+
+static SourcesUpdatePriorityQueue sourcesUpdatePriorityQueue;
 
 static void ENV_ProcessUpdatesPriorityQueue();
-static void ENV_AddSourceToUpdatesPriorityQueue( src_t *src, float urgencyScale );
 
 static void ENV_UpdateSourceEnvironment( src_t *src, int64_t millisNow );
 static void ENV_ComputeDirectObstruction( src_t *src );
@@ -102,18 +130,20 @@ static void ENV_ComputeReverberation( src_t *src );
 static inline void ENV_CollectForcedEnvironmentUpdates() {
 	src_t *src, *end;
 
+	auto &priorityQueue = ::sourcesUpdatePriorityQueue;
+
 	for( src = srclist, end = srclist + src_count; src != end; ++src ) {
 		if( !src->isActive ) {
 			continue;
 		}
 
 		if( src->priority != SRCPRI_LOCAL ) {
-			ENV_AddSourceToUpdatesPriorityQueue( src, 1.0f );
+			priorityQueue.AddSource( src, 1.0f );
 			continue;
 		}
 
 		if( !src->envUpdateState.nextEnvUpdateAt ) {
-			ENV_AddSourceToUpdatesPriorityQueue( src, 1.0f );
+			priorityQueue.AddSource( src, 1.0f );
 			continue;
 		}
 	}
@@ -128,6 +158,8 @@ static void ENV_CollectRegularEnvironmentUpdates() {
 
 	millisNow = trap_Milliseconds();
 
+	auto &priorityQueue = ::sourcesUpdatePriorityQueue;
+
 	for( src = srclist, end = srclist + src_count; src != end; ++src ) {
 		if( !src->isActive ) {
 			continue;
@@ -137,7 +169,7 @@ static void ENV_CollectRegularEnvironmentUpdates() {
 		if( src->priority == SRCPRI_LOCAL ) {
 			// If this source has never been updated, add it to the queue, otherwise skip further updates.
 			if( !updateState->nextEnvUpdateAt ) {
-				ENV_AddSourceToUpdatesPriorityQueue( src, 5.0f );
+				priorityQueue.AddSource( src, 5.0f );
 			}
 			continue;
 		}
@@ -147,16 +179,16 @@ static void ENV_CollectRegularEnvironmentUpdates() {
 		wasInLiquid = updateState->wasInLiquid;
 		updateState->wasInLiquid = isInLiquid;
 		if( isInLiquid ^ wasInLiquid ) {
-			ENV_AddSourceToUpdatesPriorityQueue( src, 2.0f );
+			priorityQueue.AddSource( src, 2.0f );
 			continue;
 		}
 
 		if( updateState->nextEnvUpdateAt <= millisNow ) {
 			// If the playback has been just added
 			if( !updateState->nextEnvUpdateAt ) {
-				ENV_AddSourceToUpdatesPriorityQueue( src, 5.0f );
+				priorityQueue.AddSource( src, 5.0f );
 			} else {
-				ENV_AddSourceToUpdatesPriorityQueue( src, 1.0f );
+				priorityQueue.AddSource( src, 1.0f );
 			}
 			continue;
 		}
@@ -165,83 +197,20 @@ static void ENV_CollectRegularEnvironmentUpdates() {
 		if( updateState->entNum >= 0 ) {
 			// If the sound origin has been significantly modified
 			if( DistanceSquared( src->origin, updateState->lastUpdateOrigin ) > 128 * 128 ) {
-				ENV_AddSourceToUpdatesPriorityQueue( src, 1.5f );
+				priorityQueue.AddSource( src, 1.5f );
 				continue;
 			}
 
 			// If the entity velocity has been significantly modified
 			if( DistanceSquared( src->velocity, updateState->lastUpdateVelocity ) > 200 * 200 ) {
-				ENV_AddSourceToUpdatesPriorityQueue( src, 1.5f );
+				priorityQueue.AddSource( src, 1.5f );
 				continue;
 			}
 		}
 	}
 }
 
-static void PushUpdatesHeap( src_t *src ) {
-	src_t **heap = sourceUpdatesHeap;
-	unsigned childIndex = sourceUpdatesHeapSize;
-
-	sourceUpdatesHeap[sourceUpdatesHeapSize++] = src;
-
-	while( childIndex > 0 ) {
-		unsigned parentIndex = ( childIndex - 1 ) / 2;
-		envUpdateState_t *childState = &heap[childIndex]->envUpdateState;
-		envUpdateState_t *parentState = &heap[childIndex]->envUpdateState;
-		if( childState->priorityInQueue > parentState->priorityInQueue ) {
-			src_t *tmp = heap[childIndex];
-			heap[childIndex] = heap[parentIndex];
-			heap[parentIndex] = tmp;
-		} else {
-			break;
-		}
-		childIndex = parentIndex;
-	}
-}
-
-static src_t *PopUpdatesHeap() {
-	src_t *result;
-	src_t **heap;
-	unsigned holeIndex;
-
-	heap = sourceUpdatesHeap;
-	assert( sourceUpdatesHeapSize );
-	result = heap[0];
-	sourceUpdatesHeapSize--;
-	heap[0] = heap[sourceUpdatesHeapSize];
-
-	holeIndex = 0;
-	// While a left child exists
-	while( 2 * holeIndex + 1 < sourceUpdatesHeapSize ) {
-		// Select the left child by default
-		unsigned childIndex = 2 * holeIndex + 1;
-		envUpdateState_t *holeState = &heap[holeIndex]->envUpdateState;
-		envUpdateState_t *childState = &heap[childIndex]->envUpdateState;
-		// If a right child exists
-		if( childIndex < sourceUpdatesHeapSize - 1 ) {
-			envUpdateState_t *rightChildState = &heap[childIndex + 1]->envUpdateState;
-			// If right child is greater than left one
-			if( rightChildState->priorityInQueue > childState->priorityInQueue ) {
-				childIndex = childIndex + 1;
-				childState = rightChildState;
-			}
-		}
-
-		// Bubble down lesser hole value
-		if( holeState->priorityInQueue < childState->priorityInQueue ) {
-			src_t *tmp = heap[childIndex];
-			heap[childIndex] = heap[holeIndex];
-			heap[holeIndex] = tmp;
-			holeIndex = childIndex;
-		} else {
-			break;
-		}
-	}
-
-	return result;
-}
-
-static void ENV_AddSourceToUpdatesPriorityQueue( src_t *src, float urgencyScale ) {
+void SourcesUpdatePriorityQueue::AddSource( src_t *src, float urgencyScale ) {
 	float attenuationScale;
 
 	assert( urgencyScale >= 0.0f );
@@ -254,7 +223,24 @@ static void ENV_AddSourceToUpdatesPriorityQueue( src_t *src, float urgencyScale 
 	src->envUpdateState.priorityInQueue = urgencyScale;
 	src->envUpdateState.priorityInQueue *= 1.0f - 0.7f * attenuationScale;
 
-	PushUpdatesHeap( src );
+	// Construct a ComparableSource at the end of the heap array
+	void *mem = heap + numSourcesInHeap++;
+	new( mem )ComparableSource( src );
+	// Update the heap
+	std::push_heap( heap, heap + numSourcesInHeap );
+}
+
+src_t *SourcesUpdatePriorityQueue::PopSource() {
+	if( !numSourcesInHeap ) {
+		return nullptr;
+	}
+
+	// Pop the max element from the heap
+	std::pop_heap( heap, heap + numSourcesInHeap );
+	// Chop last heap array element (it does not belong to the heap anymore)
+	numSourcesInHeap--;
+	// Return the just truncated element
+	return heap[numSourcesInHeap].src;
 }
 
 static void ENV_ProcessUpdatesPriorityQueue() {
@@ -270,17 +256,20 @@ static void ENV_ProcessUpdatesPriorityQueue() {
 	// The leaf will be computed on demand if its necessary.
 	listenerLeafNum = -1;
 
+	float lastProcessedPriority = std::numeric_limits<float>::max();
 	// Always do at least a single update
 	for( ;; ) {
-		if( !sourceUpdatesHeapSize ) {
+		if( !( src = sourcesUpdatePriorityQueue.PopSource() ) ) {
 			break;
 		}
 
-		src = PopUpdatesHeap();
+		assert( lastProcessedPriority >= src->envUpdateState.priorityInQueue );
+		lastProcessedPriority = src->envUpdateState.priorityInQueue;
+
 		ENV_UpdateSourceEnvironment( src, millis );
 		numUpdates++;
 		// Stop doing updates if there were enough updates this frame and left sources have low priority
-		if( numUpdates >= 3 && src->envUpdateState.priorityInQueue < 1.0f ) {
+		if( numUpdates >= 3 && lastProcessedPriority < 1.0f ) {
 			break;
 		}
 	}
@@ -301,7 +290,7 @@ void ENV_UpdateRelativeSoundsSpatialization( const vec3_t origin, const vec3_t v
 	}
 }
 
-void ENV_UpdateListener( const vec3_t origin, const vec3_t velocity ) {
+extern "C" void ENV_UpdateListener( const vec3_t origin, const vec3_t velocity ) {
 	vec3_t testedOrigin;
 	bool needsForcedUpdate = false;
 	bool isListenerInLiquid;
@@ -343,7 +332,7 @@ void ENV_UpdateListener( const vec3_t origin, const vec3_t velocity ) {
 		trap_Cvar_ForceSet( s_environment_effects_scale->name, "0.5" );
 	}
 
-	ENV_PrepareUpdatesPriorityQueue();
+	sourcesUpdatePriorityQueue.Clear();
 
 	if( needsForcedUpdate ) {
 		ENV_CollectForcedEnvironmentUpdates();

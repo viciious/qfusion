@@ -21,6 +21,10 @@ Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
 #ifndef SND_CMDQUEUE_H
 #define SND_CMDQUEUE_H
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 #define SND_COMMANDS_BUFSIZE    0x100000
 
 #define SND_SPATIALIZE_ENTS_MAX 8
@@ -271,5 +275,9 @@ void S_IssuePositionedRawSamplesCmd( sndCmdPipe_t *queue, int entnum,
 void S_IssueStuffCmd( sndCmdPipe_t *queue, const char *text );
 void S_IssueSetMulEntitySpatializationCmd( sndCmdPipe_t *queue, unsigned numEnts,
 										   const smdCmdSpatialization_t *spat );
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif // SND_CMDQUEUE_H
