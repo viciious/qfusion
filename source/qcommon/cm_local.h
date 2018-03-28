@@ -77,7 +77,6 @@ typedef struct cbrush_s {
 	float radius;
 
 	int contents;
-	int checkcount;             // to avoid repeated testings
 	int numsides;
 } cbrush_t;
 
@@ -88,7 +87,6 @@ typedef struct cface_s {
 	float radius;
 
 	int contents;
-	int checkcount;             // to avoid repeated testings
 	int numfacets;
 } cface_t;
 
@@ -125,9 +123,7 @@ typedef struct {
 } carea_t;
 
 struct cmodel_state_s {
-	int checkcount;
 	int instance_refcount;      // how much users does this cmodel_state_t instance have
-	int *shared_data_refcount;  // how much users does the data shared between instances of cmodel_state_t have
 	struct mempool_s *mempool;
 
 	const bspFormatDesc_t *cmap_bspFormat;
@@ -172,14 +168,6 @@ struct cmodel_state_s {
 
 	vec3_t *map_verts;              // this will be freed
 	int numvertexes;
-
-	// ==== Q1 specific stuff ===
-	int numclipnodes;
-	cnode_t *map_clipnodes;
-
-	int nummaphulls;
-	struct chull_s *map_hulls;      // nummaphulls * numcmodels
-	// ==== Q1 specific stuff ===
 
 	// each area has a list of portals that lead into other areas
 	// when portals are closed, other areas may not be visible or

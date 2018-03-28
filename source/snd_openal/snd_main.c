@@ -505,10 +505,6 @@ int S_API( void ) {
 	return SOUND_API_VERSION;
 }
 
-bool S_ExpectsThreadSafeCMImports( void ) {
-	return s_environment_effects->integer != 0;
-}
-
 /*
 * S_Error
 */

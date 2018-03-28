@@ -111,7 +111,6 @@ extern ALCcontext *alContext;
 * Exported functions
 */
 int S_API( void );
-bool S_ExpectsThreadSafeCMImports( void );
 void S_Error( const char *format, ... );
 
 void S_FreeSounds( void );

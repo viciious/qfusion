@@ -38,6 +38,12 @@ static CMTraceComputer *selectedTraceComputer = nullptr;
 struct CMTraceComputer *CM_GetTraceComputer( cmodel_state_t *cms ) {
 	// This is mostly to avoid annoying console spam on every map loading
 	if( selectedTraceComputer ) {
+		// Just set the appropriate cms pointer
+		// (the selected computer once it's selected remains the same during the entire executable lifetime).
+		// Warning: If different cms instances (e.g. cloned ones)
+		// are used simultaneously, this is plain wrong in environment of that kind.
+		// Instantiate separate trace computer instances in such cases.
+		selectedTraceComputer->cms = cms;
 		return selectedTraceComputer;
 	}
 
@@ -488,10 +494,6 @@ void CMTraceComputer::CollideBox( CMTraceContext *tlc, void ( CMTraceComputer::*
 	// trace line against all brushes
 	for( i = 0; i < nummarkbrushes; i++ ) {
 		b = markbrushes[i];
-		if( b->checkcount == cms->checkcount ) {
-			continue; // already checked this brush
-		}
-		b->checkcount = cms->checkcount;
 		if( !( b->contents & tlc->contents ) ) {
 			continue;
 		}
@@ -507,10 +509,6 @@ void CMTraceComputer::CollideBox( CMTraceContext *tlc, void ( CMTraceComputer::*
 	// trace line against all patches
 	for( i = 0; i < nummarkfaces; i++ ) {
 		patch = markfaces[i];
-		if( patch->checkcount == cms->checkcount ) {
-			continue; // already checked this patch
-		}
-		patch->checkcount = cms->checkcount;
 		if( !( patch->contents & tlc->contents ) ) {
 			continue;
 		}
@@ -568,10 +566,6 @@ void CMTraceComputer::ClipBoxToLeaf( CMTraceContext *tlc, cbrush_t **markbrushes
 	// trace line against all brushes
 	for( i = 0; i < nummarkbrushes; i++ ) {
 		b = markbrushes[i];
-		if( b->checkcount == cms->checkcount ) {
-			continue; // already checked this brush
-		}
-		b->checkcount = cms->checkcount;
 		if( !( b->contents & tlc->contents ) ) {
 			continue;
 		}
@@ -587,10 +581,6 @@ void CMTraceComputer::ClipBoxToLeaf( CMTraceContext *tlc, cbrush_t **markbrushes
 	// trace line against all patches
 	for( i = 0; i < nummarkfaces; i++ ) {
 		patch = markfaces[i];
-		if( patch->checkcount == cms->checkcount ) {
-			continue; // already checked this patch
-		}
-		patch->checkcount = cms->checkcount;
 		if( !( patch->contents & tlc->contents ) ) {
 			continue;
 		}
@@ -733,8 +723,6 @@ void CMTraceComputer::SetupCollideContext( CMTraceContext *tlc, trace_t *tr, con
 void CMTraceComputer::Trace( trace_t *tr, const vec3_t start, const vec3_t end,
 							 const vec3_t mins, const vec3_t maxs, cmodel_t *cmodel, int brushmask ) {
 	ATTRIBUTE_ALIGNED( 16 ) CMTraceContext tlc;
-
-	cms->checkcount++;  // for multi-check avoidance
 
 	// fill in a default trace
 	memset( tr, 0, sizeof( *tr ) );

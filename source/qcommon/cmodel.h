@@ -82,12 +82,6 @@ cmodel_state_t *CM_New( void *mempool );
 void CM_AddReference( cmodel_state_t *cms );
 void CM_ReleaseReference( cmodel_state_t *cms );
 
-// Creates a new instance that is safe to use in any thread
-// while a parent is being used in the same or any other thread.
-// Calls CM_AddReference() on the produced instance.
-// The instance should be destroyed by CM_ReleaseReference() when it is no longer needed.
-cmodel_state_t *CM_Clone( cmodel_state_t *cms );
-
 //
 void CM_Init( void );
 void CM_Shutdown( void );

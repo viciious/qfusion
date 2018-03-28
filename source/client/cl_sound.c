@@ -388,13 +388,8 @@ void CL_SoundModule_EndRegistration( void ) {
 
 		// CM setup has to be done here due to initialization order issues after restarts
 		assert( !cl.sound_cms );
-		if( cl.cms ) {
-			if( se->ExpectsThreadSafeCMImports() ) {
-				cl.sound_cms = CM_Clone( cl.cms );
-			} else {
-				cl.sound_cms = cl.cms;
-			}
-		}
+		// Just share the client CM state as it is now fully reentrant and thread-safe
+		cl.sound_cms = cl.cms;
 	}
 }
 

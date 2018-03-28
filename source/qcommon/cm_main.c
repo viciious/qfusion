@@ -25,15 +25,11 @@ Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
 
 static bool cm_initialized = false;
 
-static qmutex_t *cm_lock;
-
 static mempool_t *cmap_mempool;
 
 static cvar_t *cm_noAreas;
 
 void CM_LoadQ3BrushModel( cmodel_state_t *cms, void *parent, void *buffer, bspFormatDesc_t *format );
-void CM_LoadQ2BrushModel( cmodel_state_t *cms, void *parent, void *buf, bspFormatDesc_t *format );
-void CM_LoadQ1BrushModel( cmodel_state_t *cms, void *parent, void *buffer, bspFormatDesc_t *format );
 
 static const modelFormatDescr_t cm_supportedformats[] =
 {
@@ -101,73 +97,60 @@ static void CM_Clear( cmodel_state_t *cms ) {
 		cms->numleafs = 0;
 	}
 
-	// Try to release the shared data first
-	if( cms->shared_data_refcount != NULL ) {
-		( *cms->shared_data_refcount )--;
-		assert( *cms->shared_data_refcount >= 0 );
-		if( *cms->shared_data_refcount == 0 ) {
-			Mem_Free( ( void * )cms->shared_data_refcount );
-			cms->shared_data_refcount = NULL;
-
-			if( cms->map_face_brushdata ) {
-				for( i = 0; i < numfaces; ++i ) {
-					if( cms->map_face_brushdata[i] ) {
-						Mem_Free( cms->map_face_brushdata[i] );
-					}
-				}
-				Mem_Free( cms->map_face_brushdata );
-				cms->map_face_brushdata = NULL;
-			}
-
-			if( cms->map_nodes ) {
-				Mem_Free( cms->map_nodes );
-				cms->map_nodes = NULL;
-				cms->numnodes = 0;
-			}
-
-			if( cms->map_shaderrefs ) {
-				Mem_Free( cms->map_shaderrefs[0].name );
-				Mem_Free( cms->map_shaderrefs );
-				cms->map_shaderrefs = NULL;
-				cms->numshaderrefs = 0;
-			}
-
-			if( cms->map_areas != &cms->map_area_empty ) {
-				Mem_Free( cms->map_areas );
-				cms->map_areas = &cms->map_area_empty;
-				cms->numareas = 0;
-			}
-
-			if( cms->map_areaportals ) {
-				Mem_Free( cms->map_areaportals );
-				cms->map_areaportals = NULL;
-			}
-
-			if( cms->map_planes ) {
-				Mem_Free( cms->map_planes );
-				cms->map_planes = NULL;
-				cms->numplanes = 0;
-			}
-
-			if( cms->map_brushsides ) {
-				Mem_Free( cms->map_brushsides );
-				cms->map_brushsides = NULL;
-				cms->numbrushsides = 0;
-			}
-
-			if( cms->map_pvs ) {
-				Mem_Free( cms->map_pvs );
-				cms->map_pvs = NULL;
-			}
-
-			if( cms->map_entitystring != &cms->map_entitystring_empty ) {
-				Mem_Free( cms->map_entitystring );
-				cms->map_entitystring = &cms->map_entitystring_empty;
+	if( cms->map_face_brushdata ) {
+		for( i = 0; i < numfaces; ++i ) {
+			if( cms->map_face_brushdata[i] ) {
+				Mem_Free( cms->map_face_brushdata[i] );
 			}
 		}
-	} else {
-		assert( cms->map_areas == &cms->map_area_empty );
-		assert( cms->map_entitystring = &cms->map_entitystring_empty );
+		Mem_Free( cms->map_face_brushdata );
+		cms->map_face_brushdata = NULL;
+	}
+
+	if( cms->map_nodes ) {
+		Mem_Free( cms->map_nodes );
+		cms->map_nodes = NULL;
+		cms->numnodes = 0;
+	}
+
+	if( cms->map_shaderrefs ) {
+		Mem_Free( cms->map_shaderrefs[0].name );
+		Mem_Free( cms->map_shaderrefs );
+		cms->map_shaderrefs = NULL;
+		cms->numshaderrefs = 0;
+	}
+
+	if( cms->map_areas != &cms->map_area_empty ) {
+		Mem_Free( cms->map_areas );
+		cms->map_areas = &cms->map_area_empty;
+		cms->numareas = 0;
+	}
+
+	if( cms->map_areaportals ) {
+		Mem_Free( cms->map_areaportals );
+		cms->map_areaportals = NULL;
+	}
+
+	if( cms->map_planes ) {
+		Mem_Free( cms->map_planes );
+		cms->map_planes = NULL;
+		cms->numplanes = 0;
+	}
+
+	if( cms->map_brushsides ) {
+		Mem_Free( cms->map_brushsides );
+		cms->map_brushsides = NULL;
+		cms->numbrushsides = 0;
+	}
+
+	if( cms->map_pvs ) {
+		Mem_Free( cms->map_pvs );
+		cms->map_pvs = NULL;
+	}
+
+	if( cms->map_entitystring != &cms->map_entitystring_empty ) {
+		Mem_Free( cms->map_entitystring );
+		cms->map_entitystring = &cms->map_entitystring_empty;
 	}
 
 	cms->map_name[0] = 0;
@@ -241,10 +224,6 @@ cmodel_t *CM_LoadMap( cmodel_state_t *cms, const char *name, bool clientload, un
 	if( !bspFormat ) {
 		Com_Error( ERR_DROP, "CM_LoadMap: %s: unknown bsp format", name );
 	}
-
-	assert( cms->shared_data_refcount == NULL );
-	cms->shared_data_refcount = Mem_Alloc( cms->mempool, sizeof( int ) );
-	*cms->shared_data_refcount = 1;
 
 	// copy header into temp variable to be saveed in a cvar
 	header = Mem_TempMalloc( descr->headerLen + 1 );
@@ -889,7 +868,6 @@ cmodel_state_t *CM_New( void *mempool ) {
 	cms_mempool = ( mempool ? (mempool_t *)mempool : cmap_mempool );
 	cms = Mem_Alloc( cms_mempool, sizeof( cmodel_state_t ) );
 
-	cms->shared_data_refcount = NULL;
 	cms->mempool = cms_mempool;
 	cms->map_cmodels = &cms->map_cmodel_empty;
 	cms->map_leafs = &cms->map_leaf_empty;
@@ -914,142 +892,21 @@ static void CM_Free( cmodel_state_t *cms ) {
 * CM_AddReference
 */
 void CM_AddReference( cmodel_state_t *cms ) {
-	QMutex_Lock( cm_lock );
-
 	if( cms ) {
 		cms->instance_refcount++;
-		if( cms->shared_data_refcount != NULL ) {
-			( *cms->shared_data_refcount )++;
-		}
 	}
-
-	QMutex_Unlock( cm_lock );
 }
 
 /*
 * CM_ReleaseReference
 */
 void CM_ReleaseReference( cmodel_state_t *cms ) {
-	QMutex_Lock( cm_lock );
-
 	if( cms ) {
 		cms->instance_refcount--;
 		if( !cms->instance_refcount ) {
 			CM_Free( cms );
 		}
 	}
-
-	QMutex_Unlock( cm_lock );
-}
-
-
-/*
-* CM_Clone
-*/
-cmodel_state_t *CM_Clone( cmodel_state_t *cms ) {
-	cmodel_state_t *clone;
-
-	QMutex_Lock( cm_lock );
-
-	clone = CM_New( cms->mempool );
-	memcpy( clone, cms, sizeof( cmodel_state_t ) );
-
-	// If there was a real collision data loaded
-	if( clone->shared_data_refcount != NULL ) {
-		size_t memsize;
-		int i, j;
-
-		( *clone->shared_data_refcount )++;
-
-		// Replace the parent data by the instance-local data
-
-		// Make a copy of map_brushes (the checkcount field of cbrush_t gets modified by trace calls)
-		memsize = clone->numbrushes * sizeof( *clone->map_brushes );
-		clone->map_brushes = Mem_Alloc( clone->mempool, memsize );
-		memcpy( clone->map_brushes, cms->map_brushes, memsize );
-
-		// Make a copy of map_faces (the checkount field of cface_t gets modified by trace calls)
-		// Note: we do not make copies of face brush data,
-		// it is shared between instances since it does not get modified by trace calls.
-		memsize = clone->numfaces * sizeof( *clone->map_faces );
-		clone->map_faces = Mem_Alloc( clone->mempool, memsize );
-		memcpy( clone->map_faces, cms->map_faces, memsize );
-
-		// Make a local instance of map_markbrushes (since actual brush addresses of this instance differ)
-		memsize = clone->nummarkbrushes * sizeof( *clone->map_markbrushes );
-		clone->map_markbrushes = Mem_Alloc( clone->mempool, memsize );
-
-		// Make a local instance of map_markfaces (since actual brush addresses of this instance differ)
-		memsize = clone->nummarkfaces * sizeof( *clone->map_markfaces );
-		clone->map_markfaces = Mem_Alloc( clone->mempool, memsize );
-
-		// Make a copy of map_leafs (since actual brush/face addresses of this instance differ)
-		memsize = clone->numleafs * sizeof( *clone->map_leafs );
-		clone->map_leafs = Mem_Alloc( clone->mempool, memsize );
-		memcpy( clone->map_leafs, cms->map_leafs, memsize );
-
-		// Make a copy of map_cmodels (since actual brush/face addresses of this instance differ)
-		memsize = clone->numcmodels * sizeof( *clone->map_cmodels );
-		clone->map_cmodels = Mem_Alloc( clone->mempool, memsize );
-		memcpy( clone->map_cmodels, cms->map_cmodels, memsize );
-		for( i = 0; i < clone->numcmodels; i++ ) {
-			cmodel_t *model = &clone->map_cmodels[i];
-
-			memsize = model->nummarkbrushes * sizeof( *model->markbrushes );
-			model->markbrushes = Mem_Alloc( clone->mempool, memsize );
-			memcpy( clone->map_markbrushes, cms->map_markbrushes, memsize );
-
-			memsize = model->nummarkfaces * sizeof( *model->markfaces );
-			model->markfaces = Mem_Alloc( clone->mempool, memsize );
-			memcpy( clone->map_markfaces, cms->map_markfaces, memsize );
-		}
-
-		// Patch pointers. We have copied data using memcpy(),
-		// so absolute addresses differ, but address offsets match
-
-		for( i = 0; i < clone->nummarkbrushes; i++ ) {
-			clone->map_markbrushes[i] = clone->map_brushes + ( cms->map_markbrushes[i] - cms->map_brushes );
-		}
-
-		for( i = 0; i < clone->nummarkfaces; i++ ) {
-			clone->map_markfaces[i] = clone->map_faces + ( cms->map_markfaces[i] - cms->map_faces );
-		}
-
-		for( i = 0; i < clone->numleafs; i++ ) {
-			cleaf_t *leaf = &clone->map_leafs[i];
-			leaf->markbrushes = clone->map_markbrushes + ( leaf->markbrushes - cms->map_markbrushes );
-			leaf->markfaces = clone->map_markfaces + ( leaf->markfaces - cms->map_markfaces );
-		}
-
-		for( i = 0; i < clone->numcmodels; i++ ) {
-			cmodel_t *model = &clone->map_cmodels[i];
-			cmodel_t *parent_model = &cms->map_cmodels[i];
-			for( j = 0; j < model->nummarkbrushes; j++ ) {
-				model->markbrushes[j] = clone->map_brushes + ( parent_model->markbrushes[j] - cms->map_brushes );
-			}
-			for( j = 0; j < model->nummarkfaces; j++ ) {
-				model->markfaces[j] = clone->map_faces + ( parent_model->markfaces[j] - cms->map_faces );
-			}
-		}
-
-		// Reset counters
-
-		for( i = 0; i < clone->numbrushes; i++ ) {
-			clone->map_brushes[i].checkcount = 0;
-		}
-		for( i = 0; i < clone->nummarkfaces; i++ ) {
-			clone->map_markfaces[i]->checkcount = 0;
-		}
-
-		clone->box_brush->checkcount = 0;
-		clone->oct_brush->checkcount = 0;
-	}
-
-	clone->instance_refcount = 1;
-
-	QMutex_Unlock( cm_lock );
-
-	return clone;
 }
 
 /*
@@ -1057,8 +914,6 @@ cmodel_state_t *CM_Clone( cmodel_state_t *cms ) {
 */
 void CM_Init( void ) {
 	assert( !cm_initialized );
-
-	cm_lock = QMutex_Create();
 
 	cmap_mempool = Mem_AllocPool( NULL, "Collision Map" );
 
@@ -1076,8 +931,6 @@ void CM_Shutdown( void ) {
 	}
 
 	Mem_FreePool( &cmap_mempool );
-
-	QMutex_Destroy( &cm_lock );
 
 	cm_initialized = false;
 }

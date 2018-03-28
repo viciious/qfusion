@@ -152,7 +152,6 @@ typedef struct {
 } entity_spatialization_t;
 
 int S_API( void );
-bool S_ExpectsThreadSafeCMImports( void );
 void S_Error( const char *format, ... );
 void S_Activate( bool active );
 

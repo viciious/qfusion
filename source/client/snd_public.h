@@ -20,7 +20,7 @@ Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
 
 // snd_public.h -- sound dll information visible to engine
 
-#define SOUND_API_VERSION   41
+#define SOUND_API_VERSION   42
 
 #define ATTN_NONE 0
 
@@ -123,11 +123,6 @@ typedef struct {
 typedef struct {
 	// if API is different, the dll cannot be used
 	int ( *API )( void );
-	// The API expects thread safety from the imported calls
-	// (if they are used not in the main client thread).
-	// This call helps to avoid creation of separate CM state instance
-	// for the sound module if it is not really needed.
-	bool ( *ExpectsThreadSafeCMImports )( void );
 
 	// the init function will be called at each restart
 	bool ( *Init )( void *hwnd, int maxEntities, bool verbose );

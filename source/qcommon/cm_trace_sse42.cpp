@@ -58,10 +58,6 @@ void CMSse42TraceComputer::ClipBoxToLeaf( CMTraceContext *tlc, cbrush_t **markbr
 	// trace line against all brushes
 	for( i = 0; i < nummarkbrushes; i++ ) {
 		b = markbrushes[i];
-		if( b->checkcount == cms->checkcount ) {
-			continue; // already checked this brush
-		}
-		b->checkcount = cms->checkcount;
 		if( !( b->contents & tlc->contents ) ) {
 			continue;
 		}
@@ -78,10 +74,6 @@ void CMSse42TraceComputer::ClipBoxToLeaf( CMTraceContext *tlc, cbrush_t **markbr
 	// trace line against all patches
 	for( i = 0; i < nummarkfaces; i++ ) {
 		patch = markfaces[i];
-		if( patch->checkcount == cms->checkcount ) {
-			continue; // already checked this patch
-		}
-		patch->checkcount = cms->checkcount;
 		if( !( patch->contents & tlc->contents ) ) {
 			continue;
 		}
