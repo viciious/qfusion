@@ -12,6 +12,7 @@ file(GLOB SND_OPENAL_SOURCES
     "*.c"
     "*.cpp"
     "../snd_common/*.c"
+    "../snd_common/*.cpp"
     "../gameshared/q_*.c"
 )
 

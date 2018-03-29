@@ -9,6 +9,7 @@
 #endif
 
 #include <algorithm>
+#include <limits.h>       // For Android builds
 
 static vec3_t oldListenerOrigin;
 static vec3_t oldListenerVelocity;
@@ -56,7 +57,7 @@ static void ENV_InitRandomTables() {
 	}
 }
 
-extern "C" void ENV_Init() {
+void ENV_Init() {
 	if( !s_environment_effects->integer ) {
 		return;
 	}
@@ -70,11 +71,11 @@ extern "C" void ENV_Init() {
 	listenerLeafNum = -1;
 }
 
-extern "C" void ENV_Shutdown() {
+void ENV_Shutdown() {
 	listenerLeafNum = -1;
 }
 
-extern "C" void ENV_RegisterSource( src_t *src ) {
+void ENV_RegisterSource( src_t *src ) {
 	if( src->priority != SRCPRI_LOCAL && s_environment_effects->integer != 0 ) {
 		src->envUpdateState.envProps.useEfx = true;
 	} else {
@@ -90,7 +91,7 @@ extern "C" void ENV_RegisterSource( src_t *src ) {
 	src->envUpdateState.reverbPrimaryRaysSamplingProps.quality = -1.0f;
 }
 
-extern "C" void ENV_UnregisterSource( src_t *src ) {
+void ENV_UnregisterSource( src_t *src ) {
 	src->envUpdateState.envProps.useEfx = false;
 }
 
@@ -303,7 +304,7 @@ void ENV_UpdateRelativeSoundsSpatialization( const vec3_t origin, const vec3_t v
 	}
 }
 
-extern "C" void ENV_UpdateListener( const vec3_t origin, const vec3_t velocity ) {
+void ENV_UpdateListener( const vec3_t origin, const vec3_t velocity ) {
 	vec3_t testedOrigin;
 	bool needsForcedUpdate = false;
 	bool isListenerInLiquid;

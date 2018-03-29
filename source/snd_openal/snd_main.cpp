@@ -22,6 +22,10 @@ Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
 #include "snd_cmdque.h"
 #include "snd_env_sampler.h"
 
+#ifndef __cplusplus
+extern C {
+#endif
+
 static sndCmdPipe_t *s_cmdPipe;
 
 static struct qthread_s *s_backThread;
@@ -474,7 +478,7 @@ void SF_Update( const vec3_t origin, const vec3_t velocity, const mat3_t axis, b
 void SF_RawSamples( unsigned int samples, unsigned int rate, unsigned short width,
 					unsigned short channels, const uint8_t *data, bool music ) {
 	size_t data_size = samples * width * channels;
-	uint8_t *data_copy = S_Malloc( data_size );
+	uint8_t *data_copy = (uint8_t *)S_Malloc( data_size );
 
 	memcpy( data_copy, data, data_size );
 
@@ -488,7 +492,7 @@ void SF_PositionedRawSamples( int entnum, float fvol, float attenuation,
 							  unsigned int samples, unsigned int rate,
 							  unsigned short width, unsigned short channels, const uint8_t *data ) {
 	size_t data_size = samples * width * channels;
-	uint8_t *data_copy = S_Malloc( data_size );
+	uint8_t *data_copy = (uint8_t *)S_Malloc( data_size );
 
 	memcpy( data_copy, data, data_size );
 
@@ -548,6 +552,10 @@ void Com_Printf( const char *format, ... ) {
 int WINAPI DLLMain( void *hinstDll, unsigned long dwReason, void *reserved ) {
 	return 1;
 }
+#endif
+
+#ifndef __cplusplus
+extern C {
 #endif
 
 #endif

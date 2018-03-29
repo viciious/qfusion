@@ -778,7 +778,7 @@ static int S_EnqueuedCmdsWaiter( sndCmdPipe_t *queue, pipeCmdHandler_t *cmdHandl
 * S_BackgroundUpdateProc
 */
 void *S_BackgroundUpdateProc( void *param ) {
-	sndCmdPipe_t *s_cmdQueue = param;
+	sndCmdPipe_t *s_cmdQueue = (sndCmdPipe_t *)param;
 
 	S_WaitEnqueuedCmds( s_cmdQueue, S_EnqueuedCmdsWaiter, sndCmdHandlers, UPDATE_MSEC );
 

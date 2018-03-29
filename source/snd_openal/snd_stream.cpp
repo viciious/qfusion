@@ -51,7 +51,7 @@ static const uint8_t *split_stereo( unsigned samples, int width, const uint8_t *
 		if( splitmixbuf ) {
 			S_Free( splitmixbuf );
 		}
-		splitmixbuf = S_Malloc( buf_size );
+		splitmixbuf = (uint8_t *)S_Malloc( buf_size );
 		splitmixbuf_size = buf_size;
 	}
 
@@ -290,7 +290,7 @@ void S_PositionedRawSamples( int entnum, float fvol, float attenuation,
 /*
 * S_GetRawSamplesLength
 */
-unsigned int S_GetRawSamplesLength( void ) {
+extern "C" unsigned S_GetRawSamplesLength( void ) {
 	rawsrc_t *rs;
 
 	rs = find_rawsound( RAW_SOUND_ENTNUM );
@@ -303,7 +303,7 @@ unsigned int S_GetRawSamplesLength( void ) {
 /*
 * S_GetPositionedRawSamplesLength
 */
-unsigned int S_GetPositionedRawSamplesLength( int entnum ) {
+extern "C" unsigned S_GetPositionedRawSamplesLength( int entnum ) {
 	rawsrc_t *rs;
 
 	if( entnum < 0 ) {

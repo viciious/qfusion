@@ -18,6 +18,10 @@ Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
 
 */
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 #ifdef SOUND_HARD_LINKED
 #define SOUND_IMPORT sndi_imp_local
 #endif
@@ -80,15 +84,15 @@ static inline char *trap_Cmd_Args( void ) {
 	return SOUND_IMPORT.Cmd_Args();
 }
 
-static inline void trap_Cmd_AddCommand( char *name, void ( *cmd )( void ) ) {
+static inline void trap_Cmd_AddCommand( const char *name, void ( *cmd )( void ) ) {
 	SOUND_IMPORT.Cmd_AddCommand( name, cmd );
 }
 
-static inline void trap_Cmd_RemoveCommand( char *cmd_name ) {
+static inline void trap_Cmd_RemoveCommand( const char *cmd_name ) {
 	SOUND_IMPORT.Cmd_RemoveCommand( cmd_name );
 }
 
-static inline void trap_Cmd_ExecuteText( int exec_when, char *text ) {
+static inline void trap_Cmd_ExecuteText( int exec_when, const char *text ) {
 	SOUND_IMPORT.Cmd_ExecuteText( exec_when, text );
 }
 
@@ -173,7 +177,7 @@ static inline void trap_MemEmptyPool( struct mempool_s *pool, const char *filena
 	SOUND_IMPORT.Mem_EmptyPool( pool, filename, fileline );
 }
 
-static inline void *trap_LoadLibrary( char *name, dllfunc_t *funcs ) {
+static inline void *trap_LoadLibrary( const char *name, dllfunc_t *funcs ) {
 	return SOUND_IMPORT.Sys_LoadLibrary( name, funcs );
 }
 
@@ -254,3 +258,7 @@ static inline void trap_BufPipe_Wait( qbufPipe_t *queue, int ( *read )( qbufPipe
 									  unsigned( **cmdHandlers )( const void * ), unsigned timeout_msec ) {
 	SOUND_IMPORT.BufPipe_Wait( queue, read, cmdHandlers, timeout_msec );
 }
+
+#ifdef __cplusplus
+}
+#endif

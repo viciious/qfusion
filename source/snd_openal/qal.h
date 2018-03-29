@@ -40,6 +40,10 @@ Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
 #include <alc.h>
 #endif
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 #ifdef OPENAL_RUNTIME
 extern LPALENABLE qalEnable;
 extern LPALDISABLE qalDisable;
@@ -414,5 +418,9 @@ void QAL_Shutdown( void );
 bool QAL_Is_EFX_ExtensionSupported();
 
 bool QAL_Is_HRTF_ExtensionSupported();
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif  // __QAL_H__

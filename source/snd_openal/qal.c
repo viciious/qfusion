@@ -23,7 +23,10 @@ Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
 
 // Dynamically loads OpenAL
 
-#include "snd_local.h"
+#include "../gameshared/q_arch.h"
+#include "../gameshared/q_shared.h"
+
+#include "qal.h"
 
 static bool alinit_fail = false;
 static bool efx_init_fail = false;

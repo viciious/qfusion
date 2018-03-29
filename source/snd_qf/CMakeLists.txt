@@ -15,6 +15,7 @@ file(GLOB SND_QF_HEADERS
 file(GLOB SND_QF_SOURCES
     "*.c"
     "../snd_common/*.c"
+    "../snd_common/*.cpp"
     "../gameshared/q_*.c"
 )
 

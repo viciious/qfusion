@@ -48,7 +48,7 @@ static struct qthread_s *s_bgOpenThread;
 static bgTrack_t *S_AllocTrack( const char *filename ) {
 	bgTrack_t *track;
 
-	track = S_Malloc( sizeof( *track ) + strlen( filename ) + 1 );
+	track = (bgTrack_t *)S_Malloc( sizeof( *track ) + strlen( filename ) + 1 );
 	track->stream = NULL;
 	track->ignore = false;
 	track->filename = (char *)( (uint8_t *)track + sizeof( *track ) );
@@ -161,7 +161,7 @@ static bgTrack_t *S_NextMusicTrack( bgTrack_t *track ) {
 * S_OpenBackgroundTrackProc
 */
 static void *S_OpenBackgroundTrackProc( void *ptrack ) {
-	bgTrack_t *track = ptrack;
+	bgTrack_t *track = (bgTrack_t *)ptrack;
 	unsigned start;
 	bool buffering;
 
@@ -253,7 +253,7 @@ static bgTrack_t *S_ReadPlaylistFile( const char *filename, bool shuffle, bool l
 	}
 
 	// load the playlist into memory
-	data = S_Malloc( length + 1 );
+	data = (char *)S_Malloc( length + 1 );
 	trap_FS_Read( data, length, filenum );
 	trap_FS_FCloseFile( filenum );
 
@@ -290,7 +290,7 @@ static bgTrack_t *S_ReadPlaylistFile( const char *filename, bool shuffle, bool l
 					S_Free( tmpname );
 				}
 				tmpname_size = s;
-				tmpname = S_Malloc( tmpname_size );
+				tmpname = (char *)S_Malloc( tmpname_size );
 			}
 
 			Q_strncpyz( tmpname, filename, tmpname_size );

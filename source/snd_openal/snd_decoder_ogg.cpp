@@ -237,7 +237,7 @@ void *decoder_ogg_load( const char *filename, snd_info_t *info ) {
 		return NULL;
 	}
 
-	buffer = S_Malloc( info->size );
+	buffer = (char *)S_Malloc( info->size );
 
 	bytes_read_total = 0;
 	do {
@@ -306,7 +306,7 @@ bool decoder_ogg_cont_open( snd_stream_t *stream ) {
 	ov_callbacks callbacks = { ovcb_read, ovcb_seek, ovcb_close, ovcb_tell };
 
 	ogg_stream = (snd_ogg_stream_t *)stream->ptr;
-	ogg_stream->vorbisfile = S_Malloc( sizeof( *ogg_stream->vorbisfile ) );
+	ogg_stream->vorbisfile = (OggVorbis_File *)S_Malloc( sizeof( *ogg_stream->vorbisfile ) );
 
 	if( stream->isUrl ) {
 		callbacks.seek_func = NULL;

@@ -19,14 +19,12 @@ Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
 */
 // snd_local.h -- private OpenAL sound functions
 
-#ifdef __cplusplus
-extern "C" {
-#endif
+
 
 //#define VORBISLIB_RUNTIME // enable this define for dynamic linked vorbis libraries
 
 // it's in qcommon.h too, but we don't include it for modules
-typedef struct { char *name; void **funcPointer; } dllfunc_t;
+typedef struct { const char *name; void **funcPointer; } dllfunc_t;
 
 #include "../gameshared/q_arch.h"
 #include "../gameshared/q_math.h"
@@ -140,8 +138,6 @@ void S_RawSamples2( unsigned int samples, unsigned int rate,
 void S_PositionedRawSamples( int entnum, float fvol, float attenuation,
 							 unsigned int samples, unsigned int rate,
 							 unsigned short width, unsigned short channels, const uint8_t *data );
-unsigned int S_GetRawSamplesLength( void );
-unsigned int S_GetPositionedRawSamplesLength( int entnum );
 
 // music
 void S_StartBackgroundTrack( const char *intro, const char *loop, int mode );
@@ -346,6 +342,13 @@ void S_BeginAviDemo( void );
 void S_StopAviDemo( void );
 
 //====================================================================
+
+#ifdef __cplusplus
+extern "C" {
+#endif
+
+unsigned S_GetRawSamplesLength( void );
+unsigned S_GetPositionedRawSamplesLength( int entnum );
 
 /*
 * Exported functions

@@ -45,7 +45,7 @@ typedef int ( *DECODER_SEEK )( snd_stream_t *stream, int offset, int whence );
 
 // Codec data structure
 struct snd_decoder_s {
-	char *ext;
+	const char *ext;
 	DECODER_LOAD load;
 	DECODER_OPEN open;
 	DECODER_CONT_OPEN cont_open;

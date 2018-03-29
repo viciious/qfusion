@@ -294,7 +294,7 @@ int decoder_wav_read( snd_stream_t *stream, int bytes, void *buffer ) {
 	samples = ( bytes_read / stream->info.width ) / stream->info.channels;
 
 	trap_FS_Read( buffer, bytes_read, wav_stream->filenum );
-	byteSwapRawSamples( samples, stream->info.width, stream->info.channels, buffer );
+	byteSwapRawSamples( samples, stream->info.width, stream->info.channels, (const uint8_t *)buffer );
 
 	return bytes_read;
 }

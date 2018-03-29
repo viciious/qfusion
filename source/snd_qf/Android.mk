@@ -13,6 +13,7 @@ LOCAL_SRC_FILES := \
   ../gameshared/q_math.c \
   ../gameshared/q_shared.c \
   $(addprefix ../snd_common/,$(notdir $(wildcard $(LOCAL_PATH)/../snd_common/*.c))) \
+  $(addprefix ../snd_common/,$(notdir $(wildcard $(LOCAL_PATH)/../snd_common/*.cpp))) \
   $(notdir $(wildcard $(LOCAL_PATH)/*.c))
 
 include $(BUILD_SHARED_LIBRARY)
