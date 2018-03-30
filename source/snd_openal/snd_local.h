@@ -171,7 +171,64 @@ sfx_t *S_GetBufferById( int id );
 bool S_LoadBuffer( sfx_t *sfx );
 bool S_UnloadBuffer( sfx_t *sfx );
 
-typedef struct {
+struct src_s;
+
+class Effect {
+public:
+	virtual void BindOrUpdate( src_s *src ) = 0;
+	virtual void InterpolateProps( const Effect *oldOne, int timeDelta ) = 0;
+	virtual ~Effect() {}
+
+	template <typename T> static const T Cast( const Effect *effect ) {
+		// We might think of optimizing it in future, that's why the method is favourable over the direct cast
+		return dynamic_cast<T>( const_cast<Effect *>( effect ) );
+	}
+protected:
+	ALint type;
+	Effect( ALint type_ ): type( type_ ) {}
+
+	class Interpolator {
+		float newWeight, oldWeight;
+	public:
+		explicit Interpolator( int timeDelta ) {
+			assert( timeDelta >= 0 );
+			float frac = timeDelta / 175.0f;
+			if( frac <= 1.0f ) {
+				newWeight = 0.5f + 0.3f * frac;
+				oldWeight = 0.5f - 0.3f * frac;
+			} else {
+				newWeight = 1.0f;
+				oldWeight = 0.0f;
+			}
+		}
+
+		float operator()( float rawNewValue, float oldValue, float mins, float maxs ) const {
+			float result = newWeight * ( rawNewValue ) + oldWeight * ( oldValue );
+			clamp( result, mins, maxs );
+			return result;
+		}
+	};
+
+	void CheckCurrentlyBoundEffect( src_s *src );
+	virtual void IntiallySetupEffect( src_s *src );
+	virtual float GetMasterGain( src_s *src ) = 0;
+	void AttachEffect( src_s *src );
+};
+
+class UnderwaterFlangerEffect final: public Effect {
+	void IntiallySetupEffect( src_s *src ) override;
+	float GetMasterGain( src_s *src ) override;
+public:
+	float directObstruction;
+	UnderwaterFlangerEffect(): Effect( AL_EFFECT_FLANGER ) {}
+	void BindOrUpdate( src_s *src ) override;
+	void InterpolateProps( const Effect *oldOne, int timeDelta ) override;
+};
+
+class ReverbEffect final: public Effect {
+	float GetMasterGain( struct src_s *src ) override;
+public:
+	float directObstruction;
 	float density;              // [0.0 ... 1.0]    default 1.0
 	float diffusion;            // [0.0 ... 1.0]    default 1.0
 	float gain;                 // [0.0 ... 1.0]    default 0.32
@@ -181,14 +238,24 @@ typedef struct {
 	float reflectionsDelay;     // [0.0 ... 0.3]    default 0.007
 	float lateReverbGain;       // [0.0 ... 10.0]   default 1.26
 	float lateReverbDelay;      // [0.0 ... 0.1]    default 0.011
-} reverbProps_t;
 
-typedef struct envProps_s {
-	float directObstruction;
-	reverbProps_t reverbProps;
-	bool useEfx;
-	bool useFlanger;
-} envProps_t;
+	ReverbEffect(): Effect( AL_EFFECT_REVERB ) {}
+	void BindOrUpdate( struct src_s *src ) override;
+	void InterpolateProps( const Effect *oldOne, int timeDelta ) override;
+
+	void CopyReverbProps( const ReverbEffect *that ) {
+		// Avoid memcpy... This is not a POD type
+		density = that->density;
+		diffusion = that->diffusion;
+		gain = that->gain;
+		gainHf = that->gainHf;
+		decayTime = that->decayTime;
+		reflectionsGain = that->reflectionsGain;
+		reflectionsDelay = that->reflectionsDelay;
+		lateReverbGain = that->lateReverbGain;
+		lateReverbDelay = that->lateReverbDelay;
+	}
+};
 
 typedef struct {
 	float quality;
@@ -202,8 +269,8 @@ typedef struct envUpdateState_s {
 	int64_t nextEnvUpdateAt;
 	int64_t lastEnvUpdateAt;
 
-	envProps_t oldEnvProps;
-	envProps_t envProps;
+	Effect *oldEffect;
+	Effect *effect;
 
 	samplingProps_t directObstructionSamplingProps;
 	samplingProps_t reverbPrimaryRaysSamplingProps;
@@ -252,19 +319,6 @@ typedef struct src_s {
 	vec3_t origin, velocity; // for local culling
 } src_t;
 
-typedef struct reverbParamDef_s {
-	const char *name;
-	ALenum param;
-	unsigned propsMemberOffset;
-	float minValue;
-	float maxValue;
-	float defaultValue;
-} reverbParamDef_t;
-
-#define NUM_REVERB_PARAMS ( 9 )
-
-extern const reverbParamDef_t reverbParamsDefs[NUM_REVERB_PARAMS];
-
 #define QF_METERS_PER_UNIT ( 0.038f )
 
 extern src_t srclist[MAX_SRC];
@@ -281,7 +335,6 @@ void S_StopAllSources( void );
 ALuint S_GetALSource( const src_t *src );
 src_t *S_AllocRawSource( int entNum, float fvol, float attenuation, cvar_t *volumeVar );
 void S_SetEntitySpatialization( int entnum, const vec3_t origin, const vec3_t velocity );
-void S_UpdateEFX( src_t *src );
 
 /*
 * Music

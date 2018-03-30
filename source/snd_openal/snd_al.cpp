@@ -126,21 +126,6 @@ const char *S_ErrorMessage( ALenum error ) {
 	}
 }
 
-#define DECLARE_REVERB_PARAM( param, member, minValue, maxValue, defaultValue ) \
-	{ #param, param, offsetof( reverbProps_t, member ), minValue, maxValue, defaultValue }
-
-const reverbParamDef_t reverbParamsDefs[NUM_REVERB_PARAMS] = {
-	DECLARE_REVERB_PARAM( AL_REVERB_DENSITY, density, 0.0f, 1.0f, 1.0f ),
-	DECLARE_REVERB_PARAM( AL_REVERB_DIFFUSION, diffusion, 0.0f, 1.0f, 1.0f ),
-	DECLARE_REVERB_PARAM( AL_REVERB_GAIN, gain, 0.0f, 1.0f, 0.32f ),
-	DECLARE_REVERB_PARAM( AL_REVERB_GAINHF, gainHf, 0.0f, 1.0f, 0.89f ),
-	DECLARE_REVERB_PARAM( AL_REVERB_DECAY_TIME, decayTime, 0.1f, 20.0f, 1.49f ),
-	DECLARE_REVERB_PARAM( AL_REVERB_REFLECTIONS_GAIN, reflectionsGain, 0.0f, 3.16f, 0.05f ),
-	DECLARE_REVERB_PARAM( AL_REVERB_REFLECTIONS_DELAY, reflectionsDelay, 0.0f, 0.3f, 0.007f ),
-	DECLARE_REVERB_PARAM( AL_REVERB_LATE_REVERB_GAIN, lateReverbGain, 0.0f, 10.0f, 1.26f ),
-	DECLARE_REVERB_PARAM( AL_REVERB_LATE_REVERB_DELAY, lateReverbDelay, 0.0f, 0.1f, 0.011f )
-};
-
 /*
 * S_Init
 */

@@ -125,97 +125,110 @@ static void source_kill( src_t *src ) {
 	ENV_UnregisterSource( src );
 }
 
-void S_UpdateEFX( src_t *src ) {
-	const envProps_t *envProps;
+void Effect::CheckCurrentlyBoundEffect( src_t *src ) {
 	ALint effectType;
 
-	envProps = &src->envUpdateState.envProps;
-	if( !envProps->useEfx ) {
-		if ( s_environment_effects->integer ) {
-			// Detach the slot from the source
-			qalSource3i(src->source, AL_AUXILIARY_SEND_FILTER, AL_EFFECTSLOT_NULL, 0, AL_FILTER_NULL);
-			// Detach the effect from the slot
-			qalAuxiliaryEffectSloti( src->effectSlot, AL_EFFECTSLOT_EFFECT, AL_EFFECT_NULL );
-			// Detach the direct filter
-			qalSourcei( src->source, AL_DIRECT_FILTER, AL_FILTER_NULL );
-			// Restore the original source gain
-			qalSourcef( src->source, AL_GAIN, src->fvol * s_volume->value );
-		}
-		return;
-	}
-
-	// We limit each source to have only a single effect.
+	// We limit every source to have only a single effect.
 	// This is required to comply with the runtime effects count restriction.
 	// If the effect type has been changed, we have to delete an existing effect.
 	qalGetEffecti( src->effect, AL_EFFECT_TYPE, &effectType );
-	if( ( effectType == AL_EFFECT_FLANGER ) ^ envProps->useFlanger ) {
-		// Detach the slot from the source
-		qalSource3i( src->source, AL_AUXILIARY_SEND_FILTER, AL_EFFECTSLOT_NULL, 0, AL_FILTER_NULL );
-		// Detach the effect from the slot
-		qalAuxiliaryEffectSloti( src->effectSlot, AL_EFFECTSLOT_EFFECT, AL_EFFECT_NULL );
-
-		// TODO: Can we reuse the effect?
-		qalDeleteEffects( 1, &src->effect );
-		qalGenEffects( 1, &src->effect );
-
-		if( envProps->useFlanger ) {
-			qalEffecti( src->effect, AL_EFFECT_TYPE, AL_EFFECT_FLANGER );
-			// This is the only place where the flanger gets tweaked
-			qalEffectf( src->effect, AL_FLANGER_DEPTH, 0.5f );
-			qalEffectf( src->effect, AL_FLANGER_FEEDBACK, -0.4f );
-			float gain = src->fvol * s_volume->value;
-			if( s_attenuate_on_obstruction->integer ) {
-				// Modify the gain by the direct obstruction factor
-				// Lowering the gain by 1/3 on full obstruction is fairly sufficient (its not linearly perceived)
-				float obstructionFactor = 0.33f * envProps->directObstruction;
-				// Modulate by the environment effects scale
-				float attenuationFactor = 1.0f - obstructionFactor * s_environment_effects_scale->value;
-				gain *= attenuationFactor;
-			}
-			assert( gain >= 0.0f && gain <= 1.0f );
-			// Set gain in any case (useful if the "attenuate on obstruction" flag has been turned off).
-			qalSourcef( src->source, AL_GAIN, gain );
-		} else {
-			qalEffecti( src->effect, AL_EFFECT_TYPE, AL_EFFECT_REVERB );
-		}
+	if( this->type == effectType ) {
+		return;
 	}
 
-	assert( envProps->directObstruction >= 0.0f && envProps->directObstruction <= 1.0f );
-	qalFilterf( src->directFilter, AL_LOWPASS_GAINHF, 1.0f - envProps->directObstruction );
+	// Detach the slot from the source
+	qalSource3i( src->source, AL_AUXILIARY_SEND_FILTER, AL_EFFECTSLOT_NULL, 0, AL_FILTER_NULL );
+	// Detach the effect from the slot
+	qalAuxiliaryEffectSloti( src->effectSlot, AL_EFFECTSLOT_EFFECT, AL_EFFECT_NULL );
 
-	if( !envProps->useFlanger ) {
-		const uint8_t *basePtr = ( const uint8_t * )&envProps->reverbProps;
-		for ( int i = 0; i < NUM_REVERB_PARAMS; ++i ) {
-			float value;
-			// Make sure we have set the proper params defs array size, check the member for being a zero
-			assert( reverbParamsDefs[i].name );
-			value = *( float * )( basePtr + reverbParamsDefs[i].propsMemberOffset );
-			//assert( reverbParamsDefs[i].minValue <= value && reverbParamsDefs[i].maxValue >= value );
-			qalEffectf( src->effect, reverbParamsDefs[i].param, value );
-		}
-	}
+	// TODO: Can we reuse the effect?
+	qalDeleteEffects( 1, &src->effect );
 
-	float gain = src->fvol * s_volume->value;
-	if( s_attenuate_on_obstruction->integer ) {
-		// Direct obstruction = 1 means the direct path to the listener is fully obstructed.
-		// GainHf close to 0 means the secondary reflections path is almost fully obstructed too.
-		// Thus, obstruction factor is within [0, 0.3..) range.
-		// Lowering the gain by 1/3 on full obstruction is fairly sufficient (its not linearly perceived)
-		float obstructionFactor = 0.33f * ( envProps->directObstruction + ( 1.0f - envProps->reverbProps.gainHf ) );
-		// Modulate by the environment effects scale
-		float attenuationFactor = 1.0f - obstructionFactor * s_environment_effects_scale->value;
-		gain *= attenuationFactor;
-	}
-	assert( gain >= 0.0f && gain <= 1.0f );
+	IntiallySetupEffect( src );
+}
+
+void Effect::IntiallySetupEffect( src_t *src ) {
+	qalGenEffects( 1, &src->effect );
+	qalEffecti( src->effect, AL_EFFECT_TYPE, this->type );
+}
+
+void Effect::AttachEffect( src_t *src ) {
 	// Set gain in any case (useful if the "attenuate on obstruction" flag has been turned off).
-	qalSourcef( src->source, AL_GAIN, gain );
-
-	// TODO: Check whether it is valid... looks like we have to reattach everything to make updates get applied
+	qalSourcef( src->source, AL_GAIN, GetMasterGain( src ) );
 
 	// Attach the effect to the slot
 	qalAuxiliaryEffectSloti( src->effectSlot, AL_EFFECTSLOT_EFFECT, src->effect );
 	// Feed the slot from the source
 	qalSource3i( src->source, AL_AUXILIARY_SEND_FILTER, src->effectSlot, 0, AL_FILTER_NULL );
+}
+
+void UnderwaterFlangerEffect::IntiallySetupEffect( src_t *src ) {
+	Effect::IntiallySetupEffect( src );
+	// This is the only place where the flanger gets tweaked
+	qalEffectf( src->effect, AL_FLANGER_DEPTH, 0.5f );
+	qalEffectf( src->effect, AL_FLANGER_FEEDBACK, -0.4f );
+}
+
+float UnderwaterFlangerEffect::GetMasterGain( src_t *src ) {
+	float gain = src->fvol * s_volume->value;
+	if( !s_attenuate_on_obstruction->integer ) {
+		return gain;
+	}
+
+	// Modify the gain by the direct obstruction factor
+	// Lowering the gain by 1/3 on full obstruction is fairly sufficient (its not linearly perceived)
+	float obstructionFactor = 0.33f * directObstruction;
+	// Modulate by the environment effects scale
+	float attenuationFactor = 1.0f - obstructionFactor * s_environment_effects_scale->value;
+	gain *= attenuationFactor;
+
+	assert( gain >= 0.0f && gain <= 1.0f );
+	return gain;
+}
+
+void UnderwaterFlangerEffect::BindOrUpdate( src_t *src ) {
+	CheckCurrentlyBoundEffect( src );
+
+	qalFilterf( src->directFilter, AL_LOWPASS_GAINHF, 1.0f - directObstruction );
+
+	AttachEffect( src );
+}
+
+float ReverbEffect::GetMasterGain( src_t *src ) {
+	float gain = src->fvol * s_volume->value;
+	if( !s_attenuate_on_obstruction->integer ) {
+		return false;
+	}
+
+	// Direct obstruction = 1 means the direct path to the listener is fully obstructed.
+	// GainHf close to 0 means the secondary reflections path is almost fully obstructed too.
+	// Thus, obstruction factor is within [0, 0.3..) range.
+	// Lowering the gain by 1/3 on full obstruction is fairly sufficient (its not linearly perceived)
+	float obstructionFactor = 0.33f * ( this->directObstruction + ( 1.0f - this->gainHf ) );
+	// Modulate by the environment effects scale
+	float attenuationFactor = 1.0f - obstructionFactor * s_environment_effects_scale->value;
+	gain *= attenuationFactor;
+
+	assert( gain >= 0.0f && gain <= 1.0f );
+	return gain;
+}
+
+void ReverbEffect::BindOrUpdate( src_t *src ) {
+	CheckCurrentlyBoundEffect( src );
+
+	qalEffectf( src->effect, AL_REVERB_DENSITY, this->density );
+	qalEffectf( src->effect, AL_REVERB_DIFFUSION, this->diffusion );
+	qalEffectf( src->effect, AL_REVERB_GAIN, this->gain );
+	qalEffectf( src->effect, AL_REVERB_GAINHF, this->gainHf );
+	qalEffectf( src->effect, AL_REVERB_DECAY_TIME, this->decayTime );
+	qalEffectf( src->effect, AL_REVERB_REFLECTIONS_GAIN, this->reflectionsGain );
+	qalEffectf( src->effect, AL_REVERB_REFLECTIONS_DELAY, this->reflectionsDelay );
+	qalEffectf( src->effect, AL_REVERB_LATE_REVERB_GAIN, this->lateReverbGain );
+	qalEffectf( src->effect, AL_REVERB_LATE_REVERB_DELAY, this->lateReverbDelay );
+
+	qalFilterf( src->directFilter, AL_LOWPASS_GAINHF, 1.0f - directObstruction );
+
+	AttachEffect( src );
 }
 
 /*

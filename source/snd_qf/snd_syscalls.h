@@ -18,6 +18,10 @@ Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
 
 */
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 #ifdef SOUND_HARD_LINKED
 #define SOUND_IMPORT sndi_imp_local
 #endif
@@ -232,3 +236,7 @@ static inline void trap_BufPipe_Wait( qbufPipe_t *queue, int ( *read )( qbufPipe
 									  unsigned( **cmdHandlers )( const void * ), unsigned timeout_msec ) {
 	SOUND_IMPORT.BufPipe_Wait( queue, read, cmdHandlers, timeout_msec );
 }
+
+#ifdef __cplusplus
+}
+#endif

@@ -9,12 +9,109 @@
 #endif
 
 #include <algorithm>
-#include <limits.h>       // For Android builds
+#include <limits>
 
 static vec3_t oldListenerOrigin;
 static vec3_t oldListenerVelocity;
 static int listenerLeafNum = -1;
 static bool wasListenerInLiquid;
+
+class alignas( 8 )EffectsAllocator {
+	static_assert( sizeof( ReverbEffect ) > sizeof( UnderwaterFlangerEffect ), "" );
+
+	static constexpr auto ENTRY_SIZE =
+		sizeof( ReverbEffect ) % 8 ? sizeof( ReverbEffect ) + ( 8 - ( sizeof( ReverbEffect ) % 8 ) ) : sizeof( ReverbEffect );
+
+	// For every source two effect storage cells are reserved (for current and old effect).
+	alignas( 8 ) uint8_t storage[2 * ENTRY_SIZE * MAX_SRC];
+	// For every source contains an effect type for the corresponding entry, or zero if an entry is unused.
+	ALint effectTypes[MAX_SRC][2];
+
+	inline void *AllocEntry( const src_t *src, ALint effectTypes );
+	inline void FreeEntry( const void *entry );
+
+	// We could return a reference to an effect type array cell,
+	// but knowledge of these 2 indices is useful for debugging
+	inline void GetEntryIndices( const void *entry, int *sourceIndex, int *interleavedSlotIndex );
+public:
+	EffectsAllocator() {
+		memset( storage, 0, sizeof( storage ) );
+		memset( effectTypes, 0, sizeof( effectTypes ) );
+	}
+
+	UnderwaterFlangerEffect *NewFlangerEffect( const src_t *src ) {
+		return new( AllocEntry( src, AL_EFFECT_FLANGER ) )UnderwaterFlangerEffect();
+	}
+
+	ReverbEffect *NewReverbEffect( const src_t *src ) {
+		return new( AllocEntry( src, AL_EFFECT_REVERB ) )ReverbEffect();
+	}
+
+	inline void DeleteEffect( Effect *effect );
+};
+
+static EffectsAllocator effectsAllocator;
+
+inline void *EffectsAllocator::AllocEntry( const src_t *src, ALint forType ) {
+	static_assert( AL_EFFECT_FLANGER * AL_EFFECT_REVERB != 0, "0 effect type should mark an unused effect slot" );
+	int sourceIndex = (int)( src - srclist );
+	for( int i = 0; i < 2; ++i ) {
+		// If the slot is free
+		if( !effectTypes[sourceIndex][i] ) {
+			// Mark is as used for the effect type
+			effectTypes[sourceIndex][i] = forType;
+			// There are 2 slots per a source, that's why entry index is 2 * source index + slot index
+			// The entry offset is in entries and not bytes,
+			// so multiply it by ENTRY_SIZE when getting an offset in a byte array.
+			return &storage[(sourceIndex * 2 + i) * ENTRY_SIZE];
+		}
+	}
+
+	trap_Error( "EffectsAllocator::AllocEntry(): There are no free slots for an effect\n" );
+}
+
+inline void EffectsAllocator::DeleteEffect( Effect *effect ) {
+	if( effect ) {
+		FreeEntry( effect );
+		effect->~Effect();
+	}
+}
+
+inline void EffectsAllocator::GetEntryIndices( const void *entry, int *sourceIndex, int *interleavedSlotIndex ) {
+	assert( entry );
+
+#ifndef PUBLIC_BUILD
+	if( (uint8_t *)entry < storage || (uint8_t *)entry >= storage + sizeof( storage ) ) {
+		const char *format = "EffectsAllocator::FreeEntry(): An entry %p is out of storage bounds [%p, %p)\n";
+		trap_Error( va( format, entry, storage, storage + sizeof( storage ) ) );
+	}
+#endif
+
+	// An index of the entry cell in the entire storage
+	int entryIndex = (int)( ( (uint8_t *)entry - storage ) / ENTRY_SIZE );
+	// An index of the corresponding source
+	*sourceIndex = entryIndex / 2;
+	// An index of the effect, 0 or 1
+	*interleavedSlotIndex = entryIndex - ( *sourceIndex * 2 );
+}
+
+inline void EffectsAllocator::FreeEntry( const void *entry ) {
+	int sourceIndex, interleavedSlotIndex;
+	GetEntryIndices( entry, &sourceIndex, &interleavedSlotIndex );
+
+	// Get a reference to the types array cell for the entry
+	ALint *const effectTypeRef = &effectTypes[sourceIndex][interleavedSlotIndex];
+
+#ifndef PUBLIC_BUILD
+	if( *effectTypeRef != AL_EFFECT_REVERB && *effectTypeRef != AL_EFFECT_FLANGER ) {
+		const char *format = "EffectsAllocator::FreeEntry(): An effect for source #%d and slot %d is not in use\n";
+		trap_Error( va( format, sourceIndex, interleavedSlotIndex ) );
+	}
+#endif
+
+	// Set zero effect type for the entry
+	*effectTypeRef = 0;
+}
 
 #define MAX_DIRECT_OBSTRUCTION_SAMPLES ( 8 )
 #define MAX_REVERB_PRIMARY_RAY_SAMPLES ( 32 )
@@ -76,11 +173,6 @@ void ENV_Shutdown() {
 }
 
 void ENV_RegisterSource( src_t *src ) {
-	if( src->priority != SRCPRI_LOCAL && s_environment_effects->integer != 0 ) {
-		src->envUpdateState.envProps.useEfx = true;
-	} else {
-		src->envUpdateState.envProps.useEfx = false;
-	}
 	// Invalidate last update when reusing the source
 	// (otherwise it might be misused for props interpolation)
 	src->envUpdateState.lastEnvUpdateAt = 0;
@@ -92,7 +184,26 @@ void ENV_RegisterSource( src_t *src ) {
 }
 
 void ENV_UnregisterSource( src_t *src ) {
-	src->envUpdateState.envProps.useEfx = false;
+	if( !s_environment_effects->integer ) {
+		return;
+	}
+
+	// Prevent later occasional updates
+	src->envUpdateState.nextEnvUpdateAt = std::numeric_limits<int64_t>::max();
+
+	effectsAllocator.DeleteEffect( src->envUpdateState.oldEffect );
+	src->envUpdateState.oldEffect = nullptr;
+	effectsAllocator.DeleteEffect( src->envUpdateState.effect );
+	src->envUpdateState.effect = nullptr;
+
+	// Detach the slot from the source
+	qalSource3i( src->source, AL_AUXILIARY_SEND_FILTER, AL_EFFECTSLOT_NULL, 0, AL_FILTER_NULL );
+	// Detach the effect from the slot
+	qalAuxiliaryEffectSloti( src->effectSlot, AL_EFFECTSLOT_EFFECT, AL_EFFECT_NULL );
+	// Detach the direct filter
+	qalSourcei( src->source, AL_DIRECT_FILTER, AL_FILTER_NULL );
+	// Restore the original source gain
+	qalSourcef( src->source, AL_GAIN, src->fvol * s_volume->value );
 }
 
 class SourcesUpdatePriorityQueue {
@@ -125,8 +236,8 @@ static SourcesUpdatePriorityQueue sourcesUpdatePriorityQueue;
 static void ENV_ProcessUpdatesPriorityQueue();
 
 static void ENV_UpdateSourceEnvironment( src_t *src, int64_t millisNow, const src_t *tryReusePropsSrc );
-static void ENV_ComputeDirectObstruction( src_t *src );
-static void ENV_ComputeReverberation( src_t *src );
+static float ENV_ComputeDirectObstruction( src_t *src );
+static void ENV_ComputeReverberation( src_t *src, ReverbEffect *effect );
 
 static inline void ENV_CollectForcedEnvironmentUpdates() {
 	src_t *src, *end;
@@ -357,62 +468,53 @@ void ENV_UpdateListener( const vec3_t origin, const vec3_t velocity ) {
 	ENV_ProcessUpdatesPriorityQueue();
 }
 
-static void ENV_InterpolateEnvironmentProps( src_t *src, int64_t millisNow ) {
-	envProps_t *newProps = &src->envUpdateState.envProps;
-	envProps_t *oldProps = &src->envUpdateState.oldEnvProps;
-
-	// Do not interpolate completely different effects
-	if( ( newProps->useEfx ^ oldProps->useEfx ) || ( newProps->useFlanger ^ oldProps->useFlanger ) ) {
-		// Just save the old props
-		*oldProps = *newProps;
+void UnderwaterFlangerEffect::InterpolateProps( const Effect *oldOne, int timeDelta ) {
+	const auto *that = Cast<UnderwaterFlangerEffect *>( oldOne );
+	if( !that ) {
 		return;
 	}
 
-	if( !newProps->useEfx ) {
-		return;
-	}
-
-	if( src->envUpdateState.lastEnvUpdateAt + 150 >= millisNow ) {
-		float frac = ( millisNow - src->envUpdateState.lastEnvUpdateAt ) / 150.0f;
-		assert( frac >= 0.0f );
-		clamp_high( frac, 1.0f );
-		// Elder the old props are, greater is the weight for the new props
-		float newWeight = 0.5f + 0.3f * frac;
-		float oldWeight = 0.5f - 0.3f * frac;
-		assert( fabsf( newWeight + oldWeight - 1.0f ) < 0.001f );
-
-		newProps->directObstruction = newWeight * newProps->directObstruction + oldWeight * oldProps->directObstruction;
-		oldProps->directObstruction = newProps->directObstruction;
-		// Sanitize result to avoid FP computation errors leading to result being out of range
-		clamp( newProps->directObstruction, 0, 1 );
-
-		if( !newProps->useFlanger ) {
-			const uint8_t *newBasePtr = ( const uint8_t * )&newProps->reverbProps;
-			const uint8_t *oldBasePtr = ( const uint8_t * )&oldProps->reverbProps;
-			int i;
-
-			for( i = 0; i < NUM_REVERB_PARAMS; i++ ) {
-				const reverbParamDef_t *paramDef = &reverbParamsDefs[i];
-				float *newValue = ( float * )( newBasePtr + paramDef->propsMemberOffset );
-				float *oldValue = ( float * )( oldBasePtr + paramDef->propsMemberOffset );
-				*newValue = newWeight * ( *newValue ) + oldWeight * ( *oldValue );
-				*oldValue = *newValue;
-				clamp( *newValue, paramDef->minValue, paramDef->maxValue );
-			}
-		}
-	}
-
-	src->envUpdateState.lastEnvUpdateAt = millisNow;
+	const Interpolator interpolator( timeDelta );
+	directObstruction = interpolator( directObstruction, that->directObstruction, 0.0f, 1.0f );
 }
 
-static bool ENV_TryReuseSourceReverbProps( src_t *src, const src_t *tryReusePropsSrc ) {
+void ReverbEffect::InterpolateProps( const Effect *oldOne, int timeDelta ) {
+	const auto *that = Cast<ReverbEffect *>( oldOne );
+	if( !that ) {
+		return;
+	}
+
+	const Interpolator interpolator( timeDelta );
+	directObstruction = interpolator( directObstruction, that->directObstruction, 0.0f, 1.0f );
+	density = interpolator( density, that->density, 0.0f, 1.0f );
+	diffusion = interpolator( diffusion, that->diffusion, 0.0f, 1.0f );
+	gain = interpolator( gain, that->gain, 0.0f, 1.0f );
+	gainHf = interpolator( gain, that->gainHf, 0.0f, 1.0f );
+	decayTime = interpolator( decayTime, that->decayTime, 0.1f, 20.0f );
+	reflectionsGain = interpolator( reflectionsGain, that->reflectionsGain, 0.0f, 3.16f );
+	reflectionsDelay = interpolator( reflectionsDelay, that->reflectionsDelay, 0.0f, 0.3f );
+	lateReverbGain = interpolator( lateReverbGain, that->lateReverbGain, 0.0f, 10.0f );
+	lateReverbDelay = interpolator( lateReverbDelay, that->lateReverbDelay, 0.0f, 0.1f );
+}
+
+static void ENV_InterpolateEnvironmentProps( src_t *src, int64_t millisNow ) {
+	auto *updateState = &src->envUpdateState;
+	if( !updateState->effect ) {
+		return;
+	}
+
+	int timeDelta = (int)( millisNow - updateState->lastEnvUpdateAt );
+	updateState->effect->InterpolateProps( updateState->oldEffect, timeDelta );
+	updateState->lastEnvUpdateAt = millisNow;
+}
+
+static bool ENV_TryReuseSourceReverbProps( src_t *src, const src_t *tryReusePropsSrc, ReverbEffect *newEffect ) {
 	if( !tryReusePropsSrc ) {
 		return false;
 	}
 
-	const auto *reuseProps = &tryReusePropsSrc->envUpdateState.envProps;
-	// Make sure props have a valid effect kind
-	if( !reuseProps->useEfx || reuseProps->useFlanger ) {
+	const ReverbEffect *reuseEffect = Effect::Cast<const ReverbEffect *>( tryReusePropsSrc->envUpdateState.effect );
+	if( !reuseEffect ) {
 		return false;
 	}
 
@@ -426,7 +528,7 @@ static bool ENV_TryReuseSourceReverbProps( src_t *src, const src_t *tryReuseProp
 
 	// If they are very close, feel free to just copy props
 	if( squareDistance < 4.0f * 4.0f ) {
-		src->envUpdateState.envProps.reverbProps = reuseProps->reverbProps;
+		newEffect->CopyReverbProps( reuseEffect );
 		return true;
 	}
 
@@ -446,22 +548,17 @@ static bool ENV_TryReuseSourceReverbProps( src_t *src, const src_t *tryReuseProp
 		return false;
 	}
 
-	src->envUpdateState.envProps.reverbProps = reuseProps->reverbProps;
+	newEffect->CopyReverbProps( reuseEffect );
 	return true;
 }
 
 static void ENV_UpdateSourceEnvironment( src_t *src, int64_t millisNow, const src_t *tryReusePropsSrc ) {
 	envUpdateState_t *updateState = &src->envUpdateState;
-	envProps_t *envProps = &src->envUpdateState.envProps;
 
 	if( src->priority == SRCPRI_LOCAL ) {
-		src->envUpdateState.envProps.useEfx = false;
 		// Check whether the source has never been updated for this local sound.
-		assert( !src->envUpdateState.nextEnvUpdateAt );
-		// Prevent later updates
-		src->envUpdateState.nextEnvUpdateAt = INT64_MAX;
-		// Apply the update immediately and return
-		S_UpdateEFX( src );
+		assert( !updateState->nextEnvUpdateAt );
+		ENV_UnregisterSource( src );
 		return;
 	}
 
@@ -473,35 +570,40 @@ static void ENV_UpdateSourceEnvironment( src_t *src, int64_t millisNow, const sr
 	VectorCopy( src->origin, updateState->lastUpdateOrigin );
 	VectorCopy( src->velocity, updateState->lastUpdateVelocity );
 
+	updateState->oldEffect = updateState->effect;
 	bool needsInterpolation = true;
 	if( updateState->wasInLiquid || wasListenerInLiquid ) {
-		envProps->useFlanger = true;
-
+		float directObstruction = 0.9f;
 		if( updateState->wasInLiquid && wasListenerInLiquid ) {
-			ENV_ComputeDirectObstruction( src );
-		} else {
-			// Just use a very high obstruction
-			envProps->directObstruction = 0.9f;
+			directObstruction = ENV_ComputeDirectObstruction( src );
 		}
+		auto *newEffect = effectsAllocator.NewFlangerEffect( src );
+		newEffect->directObstruction = directObstruction;
+		updateState->effect = newEffect;
 	} else {
-		envProps->useFlanger = false;
-		ENV_ComputeDirectObstruction( src );
+		auto *newEffect = effectsAllocator.NewReverbEffect( src );
+		newEffect->directObstruction = ENV_ComputeDirectObstruction( src );
 		// We try reuse props only for reverberation effects
 		// since reverberation effects sampling is extremely expensive.
 		// Moreover, direct obstruction reuse is just not valid,
 		// since even a small origin difference completely changes it.
-		if( ENV_TryReuseSourceReverbProps( src, tryReusePropsSrc ) ) {
+		if( ENV_TryReuseSourceReverbProps( src, tryReusePropsSrc, newEffect ) ) {
 			needsInterpolation = false;
 		} else {
-			ENV_ComputeReverberation( src );
+			ENV_ComputeReverberation( src, newEffect );
 		}
+		updateState->effect = newEffect;
 	}
 
 	if( needsInterpolation ) {
 		ENV_InterpolateEnvironmentProps( src, millisNow );
 	}
 
-	S_UpdateEFX( src );
+	// Recycle the old effect
+	effectsAllocator.DeleteEffect( updateState->oldEffect );
+	updateState->oldEffect = nullptr;
+
+	updateState->effect->BindOrUpdate( src );
 }
 
 static void ENV_SetupSamplingProps( samplingProps_t *props, unsigned minSamples, unsigned maxSamples ) {
@@ -521,13 +623,12 @@ static void ENV_SetupSamplingProps( samplingProps_t *props, unsigned minSamples,
 
 	props->quality = quality;
 	props->numSamples = numSamples;
-	props->valueIndex = (uint16_t)( random() * UINT16_MAX );
+	props->valueIndex = (uint16_t)( random() * std::numeric_limits<uint16_t>::max() );
 }
 
-static void ENV_ComputeDirectObstruction( src_t *src ) {
+static float ENV_ComputeDirectObstruction( src_t *src ) {
 	trace_t trace;
 	envUpdateState_t *updateState;
-	envProps_t *envProps;
 	float *originOffset;
 	vec3_t testedListenerOrigin;
 	vec3_t testedSourceOrigin;
@@ -536,7 +637,6 @@ static void ENV_ComputeDirectObstruction( src_t *src ) {
 	unsigned i, valueIndex;
 
 	updateState = &src->envUpdateState;
-	envProps = &src->envUpdateState.envProps;
 
 	VectorCopy( oldListenerOrigin, testedListenerOrigin );
 	// TODO: We assume standard view height
@@ -545,8 +645,7 @@ static void ENV_ComputeDirectObstruction( src_t *src ) {
 	squareDistance = DistanceSquared( testedListenerOrigin, src->origin );
 	// Shortcut for sounds relative to the player
 	if( squareDistance < 32.0f * 32.0f ) {
-		envProps->directObstruction = 0.0f;
-		return;
+		return 0.0f;
 	}
 
 	// Compute the leaf num if needed
@@ -555,15 +654,13 @@ static void ENV_ComputeDirectObstruction( src_t *src ) {
 	}
 
 	if( !trap_LeafsInPVS( listenerLeafNum, trap_PointLeafNum( src->origin ) ) ) {
-		envProps->directObstruction = 1.0f;
-		return;
+		return 1.0f;
 	}
 
 	trap_Trace( &trace, testedListenerOrigin, src->origin, vec3_origin, vec3_origin, MASK_SOLID );
 	if( trace.fraction == 1.0f && !trace.startsolid ) {
 		// Consider zero obstruction in this case
-		envProps->directObstruction = 0.0f;
-		return;
+		return 1.0f;
 	}
 
 	ENV_SetupSamplingProps( &updateState->directObstructionSamplingProps, 3, MAX_DIRECT_OBSTRUCTION_SAMPLES );
@@ -582,7 +679,7 @@ static void ENV_ComputeDirectObstruction( src_t *src ) {
 		}
 	}
 
-	envProps->directObstruction = 1.0f - 0.9f * ( numPassedRays / (float)numTestedRays );
+	return 1.0f - 0.9f * ( numPassedRays / (float)numTestedRays );
 }
 
 #define REVERB_ENV_DISTANCE_THRESHOLD ( 2048.0f + 512.0f )
@@ -602,7 +699,7 @@ static inline float ENV_SamplingEmissionRadius( src_t *src ) {
 	return distance;
 }
 
-static void ENV_ComputeReverberation( src_t *src ) {
+static void ENV_ComputeReverberation( src_t *src, ReverbEffect *effect ) {
 	trace_t trace;
 	float primaryHitDistances[MAX_REVERB_PRIMARY_RAY_SAMPLES];
 	vec3_t reflectionPoints[MAX_REVERB_PRIMARY_RAY_SAMPLES];
@@ -617,7 +714,6 @@ static void ENV_ComputeReverberation( src_t *src ) {
 	const float primaryEmissionRadius = ENV_SamplingEmissionRadius( src );
 
 	envUpdateState_t *const updateState = &src->envUpdateState;
-	reverbProps_t *const reverbProps = &updateState->envProps.reverbProps;
 	ENV_SetupSamplingProps( &updateState->reverbPrimaryRaysSamplingProps, 12, MAX_REVERB_PRIMARY_RAY_SAMPLES );
 
 	float averageDistance = 0.0f;
@@ -684,14 +780,14 @@ static void ENV_ComputeReverberation( src_t *src ) {
 
 	// Obviously gain should be higher for enclosed environments.
 	// Do not lower it way too hard here as it is affected by "room size factor" too
-	reverbProps->gain = 0.30f + 0.10f * averageHitFactor;
+	effect->gain = 0.30f + 0.10f * averageHitFactor;
 	// Can be 1.25x volume non-linear units louder
-	reverbProps->gain *= 0.75f + 0.5f * effectsScale;
+	effect->gain *= 0.75f + 0.5f * effectsScale;
 
 	// Simulate sound absorption by the void by lowering this value compared to its default one
 	float skyFactor = numRaysHitSky / (float)numPrimaryRays;
 	skyFactor = sqrtf( skyFactor );
-	reverbProps->lateReverbGain = 1.26f - 0.08f * skyFactor;
+	effect->lateReverbGain = 1.26f - 0.08f * skyFactor;
 
 	if( numReflectionPoints ) {
 		averageDistance /= (float)numReflectionPoints;
@@ -735,34 +831,37 @@ static void ENV_ComputeReverberation( src_t *src ) {
 		// Set appropriate density based on room size and number of metallic surfaces in the environment
 		float metalFactor = numRaysHitMetal / (float)numPrimaryRays;
 		metalFactor = sqrtf( metalFactor );
-		reverbProps->density = 1.0f - ( 0.6f + 0.4f * effectsScale ) * ( ( 1.0f - roomSizeFactor ) * metalFactor );
+		effect->density = 1.0f - ( 0.6f + 0.4f * effectsScale ) * ( ( 1.0f - roomSizeFactor ) * metalFactor );
 		// Lowering the diffusion adds more "coloration" to the reverb.
-		// Lower the diffusion for larger enclosed environments.
-		reverbProps->diffusion = 1.0f - roomSizeFactor * averageHitFactor;
-		assert( reverbProps->diffusion >= 0.0f && reverbProps->diffusion <= 1.0f );
+		// Lower the diffusion for larger open environments.
+		effect->diffusion = 1.0f - roomSizeFactor - skyFactor;
+		clamp_low( effect->diffusion, 0.0f );
+		assert( effect->diffusion <= 1.0f );
 		// Greater effectsScale lowers diffusion value so there is more "coloration" in the reverb.
-		reverbProps->diffusion = powf( reverbProps->diffusion, 0.25f + 1.5f * effectsScale );
+		effect->diffusion = powf( effect->diffusion, 0.25f + 1.5f * effectsScale );
 		// Modulate late reverb gain by room size (it has been already affected by sky absorption)
 		// Open environments get lesser late reverb gain
-		reverbProps->lateReverbGain *= 1.0f - 0.1f * roomSizeFactor;
-		reverbProps->lateReverbDelay = 0.001f + 0.05f * roomSizeFactor;
-		// Can be 1.5x time units longer
-		reverbProps->decayTime = 0.70f + 1.50f * ( 0.5f + effectsScale ) * roomSizeFactor;
+		effect->lateReverbGain *= 1.0f - 0.1f * roomSizeFactor;
+		effect->lateReverbDelay = 0.001f + 0.05f * roomSizeFactor;
+		// Contains a component that grows linearly with the effects scale,
+		// the other one depends both of effects scale and room size factor
+		effect->decayTime = 0.50f + 1.50f * ( 0.5f + effectsScale ) * roomSizeFactor + 0.5f * effectsScale;
 		// Lower gain for huge environments. Otherwise it sounds way too artificial.
-		reverbProps->gain *= 1.0f - 0.1f * roomSizeFactor;
+		effect->gain *= 1.0f - 0.1f * roomSizeFactor;
 		// Set higher reflections gain for narrow environments
-		reverbProps->reflectionsGain = 0.05f + ( 0.25f + 0.5f * effectsScale ) * ( 1.0f - roomSizeFactor );
+		effect->reflectionsGain = 0.05f + ( 0.25f + 0.5f * effectsScale ) * ( 1.0f - roomSizeFactor );
 		// Obviously the reflections delay should be higher for large rooms.
-		reverbProps->reflectionsDelay = 0.005f + ( 0.2f + 0.05f * effectsScale ) * roomSizeFactor;
+		effect->reflectionsDelay = 0.005f + ( 0.1f + 0.15f * effectsScale ) * roomSizeFactor;
 	} else {
+		// TODO: Extract to ReverbEffect:: method
 		// The gain is very low for zero reflections point so it should not be weird if an environment differs.
-		reverbProps->gain = 0.0f;
-		reverbProps->density = 1.0f;
-		reverbProps->diffusion = 0.0f;
-		reverbProps->reflectionsGain = 0.01f;
-		reverbProps->reflectionsDelay = 0.0f;
-		reverbProps->lateReverbDelay = 0.1f;
-		reverbProps->decayTime = 0.5f;
+		effect->gain = 0.1f;
+		effect->density = 1.0f;
+		effect->diffusion = 0.0f;
+		effect->reflectionsGain = 0.01f;
+		effect->reflectionsDelay = 0.0f;
+		effect->lateReverbDelay = 0.1f;
+		effect->decayTime = 0.5f;
 	}
 
 	// Compute and set reverb obstruction
@@ -785,8 +884,8 @@ static void ENV_ComputeReverberation( src_t *src ) {
 		}
 	}
 
-	reverbProps->gainHf = 0.1f;
+	effect->gainHf = 0.1f;
 	if( numReflectionPoints ) {
-		reverbProps->gainHf += 0.8f * ( numPassedSecondaryRays / (float) numReflectionPoints );
+		effect->gainHf += 0.8f * ( numPassedSecondaryRays / (float) numReflectionPoints );
 	}
 }
