@@ -137,7 +137,7 @@ bool VID_GetDefaultMode( int *width, int *height ) {
  * VID_GetPixelRatio
  */
 float VID_GetPixelRatio( void ) {
-#if 0 && SDL_VERSION_ATLEAST( 2,0,4 )
+#if SDL_VERSION_ATLEAST( 2,0,4 )
 	float vdpi;
 
 	if( SDL_GetDisplayDPI( 0, NULL, NULL, &vdpi ) == 0 ) {
