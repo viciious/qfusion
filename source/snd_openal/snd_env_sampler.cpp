@@ -360,7 +360,8 @@ src_t *SourcesUpdatePriorityQueue::PopSource() {
 }
 
 static void ENV_ProcessUpdatesPriorityQueue() {
-	int64_t millis = trap_Milliseconds();
+	const uint64_t micros = trap_Microseconds();
+	const int64_t millis = (int64_t)( micros / 1000 );
 	src_t *src;
 
 	// Reset the listener leaf num for the new update session.
@@ -394,7 +395,7 @@ static void ENV_ProcessUpdatesPriorityQueue() {
 		// Stop updates if the time quota has been exceeded immediately.
 		// Do not block the commands queue processing.
 		// The priority queue will be rebuilt next ENV_UpdateListenerCall().
-		if( trap_Milliseconds() - millis > 2 ) {
+		if( trap_Microseconds() - micros > 2000 ) {
 			break;
 		}
 	}

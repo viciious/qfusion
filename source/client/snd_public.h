@@ -20,7 +20,7 @@ Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
 
 // snd_public.h -- sound dll information visible to engine
 
-#define SOUND_API_VERSION   42
+#define SOUND_API_VERSION   43
 
 #define ATTN_NONE 0
 
@@ -80,6 +80,7 @@ typedef struct {
 	bool ( *FS_IsUrl )( const char *url );
 
 	int64_t ( *Sys_Milliseconds )( void );
+	uint64_t ( *Sys_Microseconds )( void );
 	void ( *Sys_Sleep )( unsigned int milliseconds );
 
 	void *( *Sys_LoadLibrary )( const char *name, dllfunc_t * funcs );

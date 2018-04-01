@@ -286,6 +286,7 @@ void CL_SoundModule_Init( bool verbose ) {
 	import.FS_IsUrl = FS_IsUrl;
 
 	import.Sys_Milliseconds = Sys_Milliseconds;
+	import.Sys_Microseconds = Sys_Microseconds;
 	import.Sys_Sleep = Sys_Sleep;
 
 	import.Sys_LoadLibrary = Com_LoadSysLibrary;

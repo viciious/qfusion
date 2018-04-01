@@ -153,6 +153,10 @@ static inline int64_t trap_Milliseconds( void ) {
 	return SOUND_IMPORT.Sys_Milliseconds();
 }
 
+static inline uint64_t trap_Microseconds( void ) {
+	return SOUND_IMPORT.Sys_Microseconds();
+}
+
 static inline void trap_Sleep( unsigned int milliseconds ) {
 	SOUND_IMPORT.Sys_Sleep( milliseconds );
 }
