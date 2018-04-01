@@ -114,7 +114,7 @@ inline void EffectsAllocator::FreeEntry( const void *entry ) {
 }
 
 #define MAX_DIRECT_OBSTRUCTION_SAMPLES ( 8 )
-#define MAX_REVERB_PRIMARY_RAY_SAMPLES ( 32 )
+#define MAX_REVERB_PRIMARY_RAY_SAMPLES ( 48 )
 
 static vec3_t randomDirectObstructionOffsets[(1 << 8)];
 static vec3_t randomReverbPrimaryRayDirs[(1 << 16)];
@@ -493,7 +493,6 @@ void ReverbEffect::InterpolateProps( const Effect *oldOne, int timeDelta ) {
 	decayTime = interpolator( decayTime, that->decayTime, 0.1f, 20.0f );
 	reflectionsGain = interpolator( reflectionsGain, that->reflectionsGain, 0.0f, 3.16f );
 	reflectionsDelay = interpolator( reflectionsDelay, that->reflectionsDelay, 0.0f, 0.3f );
-	lateReverbGain = interpolator( lateReverbGain, that->lateReverbGain, 0.0f, 10.0f );
 	lateReverbDelay = interpolator( lateReverbDelay, that->lateReverbDelay, 0.0f, 0.1f );
 }
 
@@ -682,11 +681,50 @@ static float ENV_ComputeDirectObstruction( src_t *src ) {
 	return 1.0f - 0.9f * ( numPassedRays / (float)numTestedRays );
 }
 
-#define REVERB_ENV_DISTANCE_THRESHOLD ( 2048.0f + 512.0f )
+// Actually just a mutable context for sampling algorithm intermediates
+class ReverbSampler {
+	static constexpr float REVERB_ENV_DISTANCE_THRESHOLD = 2048.0f;
 
-// Do not even bother casting rays 999999 units ahead for very attenuated sources.
-// However, clamp/normalize the hit distance using the same defined threshold
-static inline float ENV_SamplingEmissionRadius( src_t *src ) {
+	vec3_t testedListenerOrigin;
+	float primaryHitDistances[MAX_REVERB_PRIMARY_RAY_SAMPLES];
+	vec3_t reflectionPoints[MAX_REVERB_PRIMARY_RAY_SAMPLES];
+
+	unsigned numPrimaryRays;
+	unsigned numRaysHitSky;
+	unsigned numRaysHitMetal;
+	unsigned numReflectionPoints;
+	float averageDistance;
+
+	src_t *const src;
+	ReverbEffect *const effect;
+
+	inline float GetEmissionRadius() const;
+	void EmitPrimaryRays();
+	void ProcessPrimaryEmissionResults();
+	void EmitSecondaryRays();
+	float ComputePrimaryHitDistanceStdDev() const;
+	float ComputeRoomSizeFactor() const;
+	void SetMinimalReverbProps();
+public:
+	ReverbSampler( src_t *src_, ReverbEffect *effect_ )
+		: src( src_ ), effect( effect_ ) {
+		numPrimaryRays = 0;
+		numRaysHitSky = 0;
+		numRaysHitMetal = 0;
+		numReflectionPoints = 0;
+		averageDistance = 0.0f;
+	}
+
+	void Exec();
+};
+
+static void ENV_ComputeReverberation( src_t *src, ReverbEffect *effect ) {
+	ReverbSampler( src, effect ).Exec();
+}
+
+inline float ReverbSampler::GetEmissionRadius() const {
+	// Do not even bother casting rays 999999 units ahead for very attenuated sources.
+	// However, clamp/normalize the hit distance using the same defined threshold
 	float attenuation = src->attenuation;
 
 	if( attenuation <= 1.0f ) {
@@ -699,29 +737,36 @@ static inline float ENV_SamplingEmissionRadius( src_t *src ) {
 	return distance;
 }
 
-static void ENV_ComputeReverberation( src_t *src, ReverbEffect *effect ) {
-	trace_t trace;
-	float primaryHitDistances[MAX_REVERB_PRIMARY_RAY_SAMPLES];
-	vec3_t reflectionPoints[MAX_REVERB_PRIMARY_RAY_SAMPLES];
-	vec3_t testedListenerOrigin;
-
+void ReverbSampler::Exec() {
 	VectorCopy( oldListenerOrigin, testedListenerOrigin );
 	testedListenerOrigin[2] += 18.0f;
 
-	const float effectsScale = s_environment_effects_scale->value;
-	assert( effectsScale >= 0.0f && effectsScale <= 1.0f );
+	ENV_SetupSamplingProps( &src->envUpdateState.reverbPrimaryRaysSamplingProps, 16, MAX_REVERB_PRIMARY_RAY_SAMPLES );
 
-	const float primaryEmissionRadius = ENV_SamplingEmissionRadius( src );
+	EmitPrimaryRays();
 
-	envUpdateState_t *const updateState = &src->envUpdateState;
-	ENV_SetupSamplingProps( &updateState->reverbPrimaryRaysSamplingProps, 12, MAX_REVERB_PRIMARY_RAY_SAMPLES );
+	if( !numReflectionPoints ) {
+		SetMinimalReverbProps();
+		return;
+	}
 
-	float averageDistance = 0.0f;
-	unsigned numRaysHitSky = 0;
-	unsigned numRaysHitMetal = 0;
-	unsigned numReflectionPoints = 0;
-	unsigned numPrimaryRays = updateState->reverbPrimaryRaysSamplingProps.numSamples;
+	ProcessPrimaryEmissionResults();
+	EmitSecondaryRays();
+}
+
+void ReverbSampler::EmitPrimaryRays() {
+	const float primaryEmissionRadius = GetEmissionRadius();
+
+	averageDistance = 0.0f;
+	numRaysHitSky = 0;
+	numRaysHitMetal = 0;
+	numReflectionPoints = 0;
+
+	const auto *updateState = &src->envUpdateState;
+	numPrimaryRays = updateState->reverbPrimaryRaysSamplingProps.numSamples;
 	int valueIndex = updateState->reverbPrimaryRaysSamplingProps.valueIndex;
+
+	trace_t trace;
 	for( unsigned i = 0; i < numPrimaryRays; ++i ) {
 		float *sampleDir, *reflectionPoint;
 		valueIndex = ( valueIndex + 1 ) % ARRAYSIZE( randomReverbPrimaryRayDirs );
@@ -746,7 +791,8 @@ static void ENV_ComputeReverberation( src_t *src, ReverbEffect *effect ) {
 			continue;
 		}
 
-		if( surfFlags & SURF_METALSTEPS ) {
+		// Hack... let glass contribute to "metal" feeling
+		if( ( surfFlags & SURF_METALSTEPS ) || ( trace.contents & CONTENTS_TRANSLUCENT ) ) {
 			numRaysHitMetal++;
 		}
 
@@ -774,102 +820,126 @@ static void ENV_ComputeReverberation( src_t *src, ReverbEffect *effect ) {
 
 		numReflectionPoints++;
 	}
+}
 
-	float averageHitFactor = ( numReflectionPoints / (float)numPrimaryRays );
-	assert( averageHitFactor >= 0.0f && averageHitFactor <= 1.0f );
+float ReverbSampler::ComputePrimaryHitDistanceStdDev() const {
+	assert( numReflectionPoints );
 
-	// Obviously gain should be higher for enclosed environments.
-	// Do not lower it way too hard here as it is affected by "room size factor" too
-	effect->gain = 0.30f + 0.10f * averageHitFactor;
-	// Can be 1.25x volume non-linear units louder
-	effect->gain *= 0.75f + 0.5f * effectsScale;
-
-	// Simulate sound absorption by the void by lowering this value compared to its default one
-	float skyFactor = numRaysHitSky / (float)numPrimaryRays;
-	skyFactor = sqrtf( skyFactor );
-	effect->lateReverbGain = 1.26f - 0.08f * skyFactor;
-
-	if( numReflectionPoints ) {
-		averageDistance /= (float)numReflectionPoints;
-		const float averageDistanceFactor = averageDistance / REVERB_ENV_DISTANCE_THRESHOLD;
-		assert( averageDistanceFactor >= 0.0f && averageDistanceFactor <= 1.0f );
-
-		// Compute the standard deviation of hit distances to cut off high outliers
-		float hitDistanceStdDev = 0.0f;
-		for( int i = 0; i < numReflectionPoints; i++ ) {
-			float delta = primaryHitDistances[i] - averageDistance;
-			hitDistanceStdDev += delta * delta;
-		}
-		hitDistanceStdDev /= numReflectionPoints;
-		hitDistanceStdDev = sqrtf( hitDistanceStdDev );
-
-		unsigned numPassedSigmaTestPoints = 0;
-		float roomSizeFactor = 0.0f;
-		// Try count only points that have a hit distance > sigma
-		for( unsigned i = 0; i < numReflectionPoints; i++ ) {
-			if( primaryHitDistances[i] < averageDistance + hitDistanceStdDev ) {
-				continue;
-			}
-			roomSizeFactor += sqrtf( primaryHitDistances[i] / REVERB_ENV_DISTANCE_THRESHOLD );
-			numPassedSigmaTestPoints++;
-		}
-
-		if( numPassedSigmaTestPoints > 0 ) {
-			// Interpolate to prevent a jitter of roomSizeFactor
-			float frac = numPassedSigmaTestPoints / (float)numReflectionPoints;
-			assert( frac >= 0.0f && frac <= 1.0f );
-			frac = sqrtf( frac );
-			frac = sqrtf( frac );
-			roomSizeFactor /= numPassedSigmaTestPoints;
-			assert( roomSizeFactor >= 0.0f && roomSizeFactor <= 1.0f );
-			roomSizeFactor = frac * roomSizeFactor + ( 1.0f - frac ) * sqrtf( averageDistanceFactor );
-		} else {
-			roomSizeFactor = sqrtf( averageDistanceFactor );
-		}
-
-		assert( roomSizeFactor >= 0.0f && roomSizeFactor <= 1.0f );
-		// Set appropriate density based on room size and number of metallic surfaces in the environment
-		float metalFactor = numRaysHitMetal / (float)numPrimaryRays;
-		metalFactor = sqrtf( metalFactor );
-		effect->density = 1.0f - ( 0.6f + 0.4f * effectsScale ) * ( ( 1.0f - roomSizeFactor ) * metalFactor );
-		// Lowering the diffusion adds more "coloration" to the reverb.
-		// Lower the diffusion for larger open environments.
-		effect->diffusion = 1.0f - roomSizeFactor - skyFactor;
-		clamp_low( effect->diffusion, 0.0f );
-		assert( effect->diffusion <= 1.0f );
-		// Greater effectsScale lowers diffusion value so there is more "coloration" in the reverb.
-		effect->diffusion = powf( effect->diffusion, 0.25f + 1.5f * effectsScale );
-		// Modulate late reverb gain by room size (it has been already affected by sky absorption)
-		// Open environments get lesser late reverb gain
-		effect->lateReverbGain *= 1.0f - 0.1f * roomSizeFactor;
-		effect->lateReverbDelay = 0.001f + 0.05f * roomSizeFactor;
-		// Contains a component that grows linearly with the effects scale,
-		// the other one depends both of effects scale and room size factor
-		effect->decayTime = 0.50f + 1.50f * ( 0.5f + effectsScale ) * roomSizeFactor + 0.5f * effectsScale;
-		// Lower gain for huge environments. Otherwise it sounds way too artificial.
-		effect->gain *= 1.0f - 0.1f * roomSizeFactor;
-		// Set higher reflections gain for narrow environments
-		effect->reflectionsGain = 0.05f + ( 0.25f + 0.5f * effectsScale ) * ( 1.0f - roomSizeFactor );
-		// Obviously the reflections delay should be higher for large rooms.
-		effect->reflectionsDelay = 0.005f + ( 0.1f + 0.15f * effectsScale ) * roomSizeFactor;
-	} else {
-		// TODO: Extract to ReverbEffect:: method
-		// The gain is very low for zero reflections point so it should not be weird if an environment differs.
-		effect->gain = 0.1f;
-		effect->density = 1.0f;
-		effect->diffusion = 0.0f;
-		effect->reflectionsGain = 0.01f;
-		effect->reflectionsDelay = 0.0f;
-		effect->lateReverbDelay = 0.1f;
-		effect->decayTime = 0.5f;
+	float variance = 0.0f;
+	for( unsigned i = 0; i < numReflectionPoints; ++i ) {
+		float delta = primaryHitDistances[i] - averageDistance;
+		variance += delta * delta;
 	}
 
-	// Compute and set reverb obstruction
+	variance /= numReflectionPoints;
+	return sqrtf( variance );
+}
 
+float ReverbSampler::ComputeRoomSizeFactor() const {
+	assert( numReflectionPoints );
+
+	// Get the standard deviation of primary rays hit distances.
+	const float sigma = ComputePrimaryHitDistanceStdDev();
+
+	// Note: The hit distance distribution is not Gaussian and is not symmetrical!
+	// It heavily depends of the real environment,
+	// and might be close to Gaussian if a player is in a center of a huge box.
+	// Getting the farthest point that is within 3 sigma does not feel good.
+
+	// Select distances that >= the average distance
+	float contestedDistances[MAX_REVERB_PRIMARY_RAY_SAMPLES];
+	int numContestedDistances = 0;
+	for( unsigned i = 0; i < numReflectionPoints; ++i ) {
+		if( primaryHitDistances[i] >= averageDistance ) {
+			contestedDistances[numContestedDistances++] = primaryHitDistances[i];
+		}
+	}
+
+	// We are sure there is at least 1 distance >= the average distance
+	assert( numContestedDistances );
+
+	// Sort hit distances so the nearest one is the first
+	std::sort( contestedDistances, contestedDistances + numContestedDistances );
+
+	const float connectivityDistance = std::max( 384.0f, sigma );
+
+	float prevDistance = contestedDistances[0];
+	// Stop on first distance that violates "connectivity".
+	// This way distance threshold could propagate along a hallway or tube.
+	for( int i = 1; i < numContestedDistances; ++i ) {
+		float currDistance = contestedDistances[i];
+		assert( currDistance >= prevDistance );
+		if( currDistance - prevDistance > connectivityDistance ) {
+			break;
+		}
+		prevDistance = currDistance;
+	}
+
+	return prevDistance / REVERB_ENV_DISTANCE_THRESHOLD;
+}
+
+void ReverbSampler::ProcessPrimaryEmissionResults() {
+	assert( numReflectionPoints );
+	averageDistance /= numReflectionPoints;
+
+	const float roomSizeFactor = ComputeRoomSizeFactor();
+	assert( roomSizeFactor >= 0.0f && roomSizeFactor <= 1.0f );
+
+	const float metalFactor = sqrtf( numRaysHitMetal / (float)numPrimaryRays );
+	assert( metalFactor >= 0.0f && metalFactor <= 1.0f );
+
+	const float skyFactor = sqrtf( numRaysHitSky / (float)numPrimaryRays );
+	assert( skyFactor >= 0.0f && skyFactor <= 1.0f );
+
+	const float hitFactor = sqrtf( numReflectionPoints / (float)numPrimaryRays );
+	assert( hitFactor >= 0.0f && hitFactor <= 1.0f );
+
+	float effectsScale = s_environment_effects_scale->value;
+	// Might be modified asynchronously before value checks every frame?
+	clamp( effectsScale, 0.0f, 1.0f );
+
+	// Let gain depend of:
+	// * mainly of effects scale
+	// * secondary rays obstruction (see EmitSecondaryRays())
+	effect->gain = ( 0.2f + 0.3f * effectsScale ) * hitFactor;
+
+	effect->density = 1.0f - 0.2f * metalFactor;
+
+	// Let diffusion be lower for huge open spaces
+	effect->diffusion = 1.0f - skyFactor - roomSizeFactor;
+	clamp_low( effect->diffusion, 0.0f );
+
+	// Let decay time depend of:
+	// * mainly of effects scale
+	// * room size
+	// * diffusion (that's an extra hack to hear long "colorated" echoes in open spaces)
+	// Since diffusion depends itself of the room size factor, add only sky factor component
+	effect->decayTime = 0.75f + 4.0f * roomSizeFactor + skyFactor;
+
+	// Let it grow in small rooms but be absorbed by sky
+	effect->reflectionsGain = 0.005f + 0.25f * ( 1.0f - roomSizeFactor ) * ( 1.0f - skyFactor );
+
+	effect->reflectionsDelay = 0.007f + 0.150f * roomSizeFactor;
+	effect->lateReverbDelay = 0.011f + 0.085f * roomSizeFactor;
+}
+
+void ReverbSampler::SetMinimalReverbProps() {
+	effect->gain = 0.1f;
+	effect->density = 1.0f;
+	effect->diffusion = 1.0f;
+	effect->decayTime = 0.75f;
+	effect->reflectionsDelay = 0.007f;
+	effect->lateReverbDelay = 0.011f;
+	effect->gainHf = 0.1f;
+}
+
+void ReverbSampler::EmitSecondaryRays() {
 	// Compute the leaf num if needed
 	if( listenerLeafNum < 0 ) {
 		listenerLeafNum = trap_PointLeafNum( testedListenerOrigin );
 	}
+
+	trace_t trace;
 
 	unsigned numPassedSecondaryRays = 0;
 	for( unsigned i = 0; i < numReflectionPoints; i++ ) {
@@ -884,8 +954,17 @@ static void ENV_ComputeReverberation( src_t *src, ReverbEffect *effect ) {
 		}
 	}
 
-	effect->gainHf = 0.1f;
 	if( numReflectionPoints ) {
-		effect->gainHf += 0.8f * ( numPassedSecondaryRays / (float) numReflectionPoints );
+		float frac = numPassedSecondaryRays / (float)numReflectionPoints;
+		effect->gainHf = 0.1f + 0.8f * frac;
+		// We also modify effect gain by a fraction of secondary rays passed to listener.
+		// This is not right in theory, but is inevitable in the current game sound model
+		// where you can hear across the level through solid walls
+		// in order to avoid messy echoes coming from everywhere.
+		effect->gain *= 0.5f + 0.5f * frac;
+	} else {
+		// Set minimal feasible values
+		effect->gainHf = 0.1f;
+		effect->gain *= 0.5f;
 	}
 }

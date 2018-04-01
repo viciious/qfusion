@@ -236,7 +236,6 @@ public:
 	float decayTime;            // [0.1 ... 20.0]   default 1.49
 	float reflectionsGain;      // [0.0 ... 3.16]   default 0.05
 	float reflectionsDelay;     // [0.0 ... 0.3]    default 0.007
-	float lateReverbGain;       // [0.0 ... 10.0]   default 1.26
 	float lateReverbDelay;      // [0.0 ... 0.1]    default 0.011
 
 	ReverbEffect(): Effect( AL_EFFECT_REVERB ) {}
@@ -252,7 +251,6 @@ public:
 		decayTime = that->decayTime;
 		reflectionsGain = that->reflectionsGain;
 		reflectionsDelay = that->reflectionsDelay;
-		lateReverbGain = that->lateReverbGain;
 		lateReverbDelay = that->lateReverbDelay;
 	}
 };

@@ -223,7 +223,6 @@ void ReverbEffect::BindOrUpdate( src_t *src ) {
 	qalEffectf( src->effect, AL_REVERB_DECAY_TIME, this->decayTime );
 	qalEffectf( src->effect, AL_REVERB_REFLECTIONS_GAIN, this->reflectionsGain );
 	qalEffectf( src->effect, AL_REVERB_REFLECTIONS_DELAY, this->reflectionsDelay );
-	qalEffectf( src->effect, AL_REVERB_LATE_REVERB_GAIN, this->lateReverbGain );
 	qalEffectf( src->effect, AL_REVERB_LATE_REVERB_DELAY, this->lateReverbDelay );
 
 	qalFilterf( src->directFilter, AL_LOWPASS_GAINHF, 1.0f - directObstruction );
