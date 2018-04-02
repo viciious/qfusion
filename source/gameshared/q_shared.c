@@ -705,7 +705,6 @@ const char *COM_RemoveColorTokensExt( const char *str, bool draw ) {
 	return cleanString;
 }
 
-
 /*
 * COM_SanitizeColorString
 *

@@ -227,6 +227,38 @@ static size_t Con_BufferText( char *buffer, const char *delim ) {
 }
 
 /*
+* Con_RemoveBufferColorTokens
+*
+* Remove color tokens from the `in` buffer and write it to the `out`
+* buffer. `out` buffer must be at least as long as `in`.
+* It is valid to pass a buffer as both `in` and `out` to uncolor it
+* inplace.
+* Returns numer of chars written to the `out` buffer.
+*/
+static size_t Con_RemoveBufferColorTokens( const char *in, size_t in_size, char *out ) {
+	const char *end = in + in_size;
+	char *outp = out, c;
+	int gc;
+
+	while( in < end ) {
+		gc = Q_GrabCharFromColorString( &in, &c, NULL );
+		switch( gc ) {
+			case GRABCHAR_END:
+				++in;
+			case GRABCHAR_CHAR:
+				*outp++ = c;
+			case GRABCHAR_COLOR:
+				break;
+			default:
+				assert( 0 );
+		}
+	}
+
+	assert( outp - out >= 0 );
+	return (size_t)( outp - out );
+}
+
+/*
 * Con_Dump_f
 *
 * Save the console contents out to a file
@@ -273,6 +305,7 @@ static void Con_Dump_f( void ) {
 	buffer = Mem_TempMalloc( buffer_size );
 
 	Con_BufferText( buffer, newline );
+	buffer_size = Con_RemoveBufferColorTokens( buffer, buffer_size, buffer );
 
 	QMutex_Unlock( con.mutex );
 

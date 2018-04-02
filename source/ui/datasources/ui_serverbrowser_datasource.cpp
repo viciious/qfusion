@@ -111,7 +111,7 @@ void ServerInfo::fromInfo( const char *info ) {
 				hostname = value;
 
 				// hostname with color sequences stripped
-				cleanname = COM_RemoveColorTokensExt( value.c_str(), false );
+				cleanname = COM_RemoveColorTokens( value.c_str() );
 
 				// lowercase stripped version of non-colored name, used for sorting
 				locleanname = cleanname;
