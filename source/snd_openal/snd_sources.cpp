@@ -177,11 +177,7 @@ float UnderwaterFlangerEffect::GetMasterGain( src_t *src ) {
 
 	// Modify the gain by the direct obstruction factor
 	// Lowering the gain by 1/3 on full obstruction is fairly sufficient (its not linearly perceived)
-	float obstructionFactor = 0.33f * directObstruction;
-	// Modulate by the environment effects scale
-	float attenuationFactor = 1.0f - obstructionFactor * s_environment_effects_scale->value;
-	gain *= attenuationFactor;
-
+	gain *= 1.0f - 0.33f * directObstruction;
 	assert( gain >= 0.0f && gain <= 1.0f );
 	return gain;
 }
@@ -204,11 +200,7 @@ float ReverbEffect::GetMasterGain( src_t *src ) {
 	// GainHf close to 0 means the secondary reflections path is almost fully obstructed too.
 	// Thus, obstruction factor is within [0, 0.3..) range.
 	// Lowering the gain by 1/3 on full obstruction is fairly sufficient (its not linearly perceived)
-	float obstructionFactor = 0.33f * ( this->directObstruction + ( 1.0f - this->gainHf ) );
-	// Modulate by the environment effects scale
-	float attenuationFactor = 1.0f - obstructionFactor * s_environment_effects_scale->value;
-	gain *= attenuationFactor;
-
+	gain *= 1.0f - 0.33f * ( this->directObstruction + ( 1.0f - this->gainHf ) );
 	assert( gain >= 0.0f && gain <= 1.0f );
 	return gain;
 }

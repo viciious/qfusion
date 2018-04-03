@@ -454,9 +454,6 @@ void ENV_UpdateListener( const vec3_t origin, const vec3_t velocity ) {
 	if( s_environment_sampling_quality->value < 0.0f || s_environment_sampling_quality->value > 1.0f ) {
 		trap_Cvar_ForceSet( s_environment_sampling_quality->name, "0.5" );
 	}
-	if( s_environment_effects_scale->value < 0.0f || s_environment_effects_scale->value > 1.0f ) {
-		trap_Cvar_ForceSet( s_environment_effects_scale->name, "0.5" );
-	}
 
 	sourcesUpdatePriorityQueue.Clear();
 
@@ -892,22 +889,15 @@ void ReverbSampler::ProcessPrimaryEmissionResults() {
 	const float skyFactor = sqrtf( numRaysHitSky / (float)numPrimaryRays );
 	assert( skyFactor >= 0.0f && skyFactor <= 1.0f );
 
-	const float hitFactor = sqrtf( numReflectionPoints / (float)numPrimaryRays );
-	assert( hitFactor >= 0.0f && hitFactor <= 1.0f );
+	// It should be default.
+	// Secondary rays obstruction is the only modulation we apply.
+	// See EmitSecondaryRays()
+	effect->gain = 0.32f;
 
-	float effectsScale = s_environment_effects_scale->value;
-	// Might be modified asynchronously before value checks every frame?
-	clamp( effectsScale, 0.0f, 1.0f );
-
-	// Let gain depend of:
-	// * mainly of effects scale
-	// * secondary rays obstruction (see EmitSecondaryRays())
-	effect->gain = ( 0.2f + 0.3f * effectsScale ) * hitFactor;
-
-	effect->density = 1.0f - 0.2f * metalFactor;
+	effect->density = 1.0f - 0.7f * metalFactor;
 
 	// Let diffusion be lower for huge open spaces
-	effect->diffusion = 1.0f - skyFactor - roomSizeFactor;
+	effect->diffusion = 1.0f - 0.75f * skyFactor - 0.5f * roomSizeFactor;
 	clamp_low( effect->diffusion, 0.0f );
 
 	// Let decay time depend of:
@@ -915,13 +905,13 @@ void ReverbSampler::ProcessPrimaryEmissionResults() {
 	// * room size
 	// * diffusion (that's an extra hack to hear long "colorated" echoes in open spaces)
 	// Since diffusion depends itself of the room size factor, add only sky factor component
-	effect->decayTime = 0.75f + 4.0f * roomSizeFactor + skyFactor;
+	effect->decayTime = 0.75f + 3.0f * roomSizeFactor + skyFactor;
 
 	// Let it grow in small rooms but be absorbed by sky
-	effect->reflectionsGain = 0.005f + 0.25f * ( 1.0f - roomSizeFactor ) * ( 1.0f - skyFactor );
+	effect->reflectionsGain = 0.05f + 0.75f * powf( 1.0f - roomSizeFactor, 4.0f ) * ( 1.0f - skyFactor );
 
-	effect->reflectionsDelay = 0.007f + 0.150f * roomSizeFactor;
-	effect->lateReverbDelay = 0.011f + 0.085f * roomSizeFactor;
+	effect->reflectionsDelay = 0.007f + 0.100f * roomSizeFactor;
+	effect->lateReverbDelay = 0.011f + 0.055f * roomSizeFactor;
 }
 
 void ReverbSampler::SetMinimalReverbProps() {
@@ -957,15 +947,16 @@ void ReverbSampler::EmitSecondaryRays() {
 
 	if( numReflectionPoints ) {
 		float frac = numPassedSecondaryRays / (float)numReflectionPoints;
-		effect->gainHf = 0.1f + 0.8f * frac;
+		// A absence of a HF attenuation sounds poor, metallic/reflective environments should be the only exception.
+		effect->gainHf = 0.1f + ( 0.4f + 0.4f * numRaysHitMetal / (float)numReflectionPoints ) * frac;
 		// We also modify effect gain by a fraction of secondary rays passed to listener.
 		// This is not right in theory, but is inevitable in the current game sound model
 		// where you can hear across the level through solid walls
 		// in order to avoid messy echoes coming from everywhere.
-		effect->gain *= 0.5f + 0.5f * frac;
+		effect->gain *= 0.75f + 0.25f * frac;
 	} else {
 		// Set minimal feasible values
 		effect->gainHf = 0.1f;
-		effect->gain *= 0.5f;
+		effect->gain *= 0.75f;
 	}
 }

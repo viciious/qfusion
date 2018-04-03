@@ -85,7 +85,6 @@ extern cvar_t *s_doppler;
 extern cvar_t *s_sound_velocity;
 extern cvar_t *s_environment_effects;
 extern cvar_t *s_environment_sampling_quality;
-extern cvar_t *s_environment_effects_scale;
 extern cvar_t *s_hrtf;
 // Has effect only if environment effects are turned on
 extern cvar_t *s_attenuate_on_obstruction;
