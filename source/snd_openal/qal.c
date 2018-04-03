@@ -29,8 +29,13 @@ Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
 #include "qal.h"
 
 static bool alinit_fail = false;
-static bool efx_init_fail = false;
-static bool hrtf_init_fail = false;
+
+#define EFX_INIT_UNKNOWN ( -1 )
+#define EFX_INIT_FAILURE ( 0 )
+#define EFX_INIT_SUCCESS ( +1 )
+
+// Negative if not even tried
+static int efx_init_status = EFX_INIT_UNKNOWN;
 
 LPALGENEFFECTS qalGenEffects;
 LPALDELETEEFFECTS qalDeleteEffects;
@@ -193,48 +198,60 @@ static void *GPA( char *str ) {
 	}
 }
 
-static void QAL_EFX_Init() {
-	bool old_alinit_fail = alinit_fail;
-	alinit_fail = false;
+static void *GetEfxProcAddress( ALCdevice *device, const char *str ) {
+	if( !qalcGetProcAddress ) {
+		efx_init_status = EFX_INIT_FAILURE;
+		return NULL;
+	}
+	void *rv = qalcGetProcAddress( device, str );
+	if( !rv ) {
+		efx_init_status = EFX_INIT_FAILURE;
+	}
+	return rv;
+}
 
-	qalGenEffects = GPA( "alGenEffects" );
-	qalDeleteEffects = GPA( "alDeleteEffects" );
-	qalIsEffect = GPA( "alIsEffect" );
-	qalEffecti = GPA( "alEffecti" );
-	qalEffectiv = GPA( "alEffectiv" );
-	qalEffectf = GPA( "alEffectf" );
-	qalEffectfv = GPA( "alEffectfv" );
-	qalGetEffecti = GPA( "alGetEffecti" );
-	qalGetEffeciv = GPA( "alGetEffectiv" );
-	qalGetEffectf = GPA( "alGetEffectf" );
-	qalGetEffectfv = GPA( "alGetEffectfv" );
+static void QAL_EFX_Init( ALCdevice *device ) {
+	qalGenEffects = GetEfxProcAddress( device, "alGenEffects" );
+	qalDeleteEffects = GetEfxProcAddress( device, "alDeleteEffects" );
+	qalIsEffect = GetEfxProcAddress( device, "alIsEffect" );
+	qalEffecti = GetEfxProcAddress( device, "alEffecti" );
+	qalEffectiv = GetEfxProcAddress( device, "alEffectiv" );
+	qalEffectf = GetEfxProcAddress( device, "alEffectf" );
+	qalEffectfv = GetEfxProcAddress( device, "alEffectfv" );
+	qalGetEffecti = GetEfxProcAddress( device, "alGetEffecti" );
+	qalGetEffeciv = GetEfxProcAddress( device, "alGetEffectiv" );
+	qalGetEffectf = GetEfxProcAddress( device, "alGetEffectf" );
+	qalGetEffectfv = GetEfxProcAddress( device, "alGetEffectfv" );
 
-	qalGenFilters = GPA( "alGenFilters" );
-	qalDeleteFilters = GPA( "alDeleteFilters" );
-	qalIsFilter = GPA( "alIsFilter" );
-	qalFilteri = GPA( "alFilteri" );
-	qalFilteriv = GPA( "alFilteriv" );
-	qalFilterf = GPA( "alFilterf" );
-	qalFilterfv = GPA( "alFilterfv" );
-	qalGetFilteri = GPA( "alGetFilteri" );
-	qalGetFilteriv = GPA( "alGetFilteriv" );
-	qalGetFilterf = GPA( "alGetFilterf" );
-	qalGetFilterfv = GPA( "alGetFilterfv" );
+	qalGenFilters = GetEfxProcAddress( device, "alGenFilters" );
+	qalDeleteFilters = GetEfxProcAddress( device, "alDeleteFilters" );
+	qalIsFilter = GetEfxProcAddress( device, "alIsFilter" );
+	qalFilteri = GetEfxProcAddress( device, "alFilteri" );
+	qalFilteriv = GetEfxProcAddress( device, "alFilteriv" );
+	qalFilterf = GetEfxProcAddress( device, "alFilterf" );
+	qalFilterfv = GetEfxProcAddress( device, "alFilterfv" );
+	qalGetFilteri = GetEfxProcAddress( device, "alGetFilteri" );
+	qalGetFilteriv = GetEfxProcAddress( device, "alGetFilteriv" );
+	qalGetFilterf = GetEfxProcAddress( device, "alGetFilterf" );
+	qalGetFilterfv = GetEfxProcAddress( device, "alGetFilterfv" );
 
-	qalGenAuxiliaryEffectSlots = GPA( "alGenAuxiliaryEffectSlots" );
-	qalDeleteAuxiliaryEffectSlots = GPA( "alDeleteAuxiliaryEffectSlots" );
-	qalIsAuxiliaryEffectSlot = GPA( "alIsAuxiliaryEffectSlot" );
-	qalAuxiliaryEffectSloti = GPA( "alAuxiliaryEffectSloti" );
-	qalAuxiliaryEffectSlotiv = GPA( "alAuxiliaryEffectSlotiv" );
-	qalAuxiliaryEffectSlotf = GPA( "alAuxiliaryEffectSlotf" );
-	qalAuxiliaryEffectSlotfv = GPA( "alAuxiliaryEffectSlotfv" );
-	qalGetAuxiliaryEffectSloti = GPA( "alGetAuxiliaryEffectSloti" );
-	qalGetAuxiliaryEffectSlotiv = GPA( "alGetAuxiliaryEffectSlotiv" );
-	qalGetAuxiliaryEffectSlotf = GPA( "alGetAuxiliaryEffectSlotf" );
-	qalGetAuxiliaryEffectSlotfv = GPA( "alGetAuxiliaryEffectSlotfv" );
+	qalGenAuxiliaryEffectSlots = GetEfxProcAddress( device, "alGenAuxiliaryEffectSlots" );
+	qalDeleteAuxiliaryEffectSlots = GetEfxProcAddress( device, "alDeleteAuxiliaryEffectSlots" );
+	qalIsAuxiliaryEffectSlot = GetEfxProcAddress( device, "alIsAuxiliaryEffectSlot" );
+	qalAuxiliaryEffectSloti = GetEfxProcAddress( device, "alAuxiliaryEffectSloti" );
+	qalAuxiliaryEffectSlotiv = GetEfxProcAddress( device, "alAuxiliaryEffectSlotiv" );
+	qalAuxiliaryEffectSlotf = GetEfxProcAddress( device, "alAuxiliaryEffectSlotf" );
+	qalAuxiliaryEffectSlotfv = GetEfxProcAddress( device, "alAuxiliaryEffectSlotfv" );
+	qalGetAuxiliaryEffectSloti = GetEfxProcAddress( device, "alGetAuxiliaryEffectSloti" );
+	qalGetAuxiliaryEffectSlotiv = GetEfxProcAddress( device, "alGetAuxiliaryEffectSlotiv" );
+	qalGetAuxiliaryEffectSlotf = GetEfxProcAddress( device, "alGetAuxiliaryEffectSlotf" );
+	qalGetAuxiliaryEffectSlotfv = GetEfxProcAddress( device, "alGetAuxiliaryEffectSlotfv" );
 
-	efx_init_fail = alinit_fail;
-	alinit_fail = old_alinit_fail;
+	// If the status has not been set to "failure"
+	if( efx_init_status != EFX_INIT_FAILURE ) {
+		assert( efx_init_status = EFX_INIT_UNKNOWN );
+		efx_init_status = EFX_INIT_SUCCESS;
+	}
 }
 
 static void QAL_EFX_Shutdown() {
@@ -274,24 +291,7 @@ static void QAL_EFX_Shutdown() {
 	qalGetAuxiliaryEffectSlotf = NULL;
 	qalGetAuxiliaryEffectSlotfv = NULL;
 
-	efx_init_fail = false;
-}
-
-static void QAL_HRTF_Init() {
-	bool old_alinit_fail = alinit_fail;
-	alinit_fail = false;
-
-	// Just test whether these symbols are present.
-	// http://kcat.strangesoft.net/openal-extensions/SOFT_HRTF.txt
-	GPA( "alcGetStringiSOFT" );
-	GPA( "alcResetDeviceSOFT" );
-
-	hrtf_init_fail = alinit_fail;
-	alinit_fail = old_alinit_fail;
-}
-
-static void QAL_HRTF_Shutdown() {
-	hrtf_init_fail = false;
+	efx_init_status = EFX_INIT_UNKNOWN;
 }
 
 /*
@@ -400,9 +400,6 @@ bool QAL_Init( const char *libname, bool verbose ) {
 	qalcGetString = GPA( "alcGetString" );
 	qalcGetIntegerv = GPA( "alcGetIntegerv" );
 
-	QAL_HRTF_Init();
-	QAL_EFX_Init();
-
 	if( alinit_fail ) {
 		QAL_Shutdown();
 		Com_Printf( " Error: One or more symbols not found.\n" );
@@ -422,7 +419,6 @@ void QAL_Shutdown( void ) {
 	}
 
 	QAL_EFX_Shutdown();
-	QAL_HRTF_Shutdown();
 
 	qalEnable = NULL;
 	qalDisable = NULL;
@@ -497,29 +493,48 @@ void QAL_Shutdown( void ) {
 	qalcGetIntegerv = NULL;
 }
 
+bool QAL_Is_EFX_ExtensionSupported( ALCdevice *device ) {
+	// Note: This function might be called from different threads,
+	// but results of QAL_EFX_Init() should be idempotent,
+	// so we get some excessive computations at startup in worst case.
+	if( efx_init_status == EFX_INIT_UNKNOWN ) {
+		QAL_EFX_Init( device );
+	}
+
+	return efx_init_status == EFX_INIT_SUCCESS;
+}
+
+bool QAL_Is_HRTF_ExtensionSupported( ALCdevice *device ) {
+	if( !qalcGetProcAddress ) {
+		return false;
+	}
+
+	// Just test whether these symbols are present.`
+	// http://kcat.strangesoft.net/openal-extensions/SOFT_HRTF.txt
+	return qalcGetProcAddress( device, "alcGetStringiSOFT" ) && qalcGetProcAddress( device, "alcResetDeviceSOFT" );
+}
+
 #else // OPENAL_RUNTIME is not defined
 
 bool QAL_Init( const char *libname, bool verbose ) {
-	// We have decided to disable EFX on Android.
-	// Even if a third-party library supports these effects,
-	// and, furthermore, if there is a hardware support for these effects,
-	// there is no sufficient processing power for environment sampling.
-	efx_init_fail = true;
-	hrtf_init_fail = true;
 	return true;
 }
 
 void QAL_Shutdown( void ) {
-	efx_init_fail = false;
-	hrtf_init_fail = false;
+}
+
+bool QAL_Is_EFX_ExtensionSupported( ALCdevice *device ) {
+	// We have decided to disable EFX on Android.
+	// Even if a third-party library supports these effects,
+	// and, furthermore, if there is a hardware support for these effects,
+	// there is no sufficient processing power for environment sampling.
+	return false;
+}
+
+bool QAL_Is_HRTF_ExtensionSupported( ALCdevice *device ) {
+	// See reasons for EFX above
+	return false;
 }
 
 #endif
 
-bool QAL_Is_EFX_ExtensionSupported() {
-	return !efx_init_fail;
-}
-
-bool QAL_Is_HRTF_ExtensionSupported() {
-	return !hrtf_init_fail;
-}

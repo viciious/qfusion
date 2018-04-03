@@ -413,11 +413,9 @@ extern LPALGETAUXILIARYEFFECTSLOTFV qalGetAuxiliaryEffectSlotfv;
 bool QAL_Init( const char *libname, bool verbose );
 void QAL_Shutdown( void );
 
-// Check whether the extension is de-facto supported on loading.
-// qalIsExtensionSupported()/qalcIsExtensionSupported() lie sometimes.
-bool QAL_Is_EFX_ExtensionSupported();
+bool QAL_Is_EFX_ExtensionSupported( ALCdevice *device );
 
-bool QAL_Is_HRTF_ExtensionSupported();
+bool QAL_Is_HRTF_ExtensionSupported( ALCdevice *device );
 
 #ifdef __cplusplus
 }

@@ -132,9 +132,6 @@ bool SF_Init( void *hwnd, int maxEntities, bool verbose ) {
 	s_globalfocus = trap_Cvar_Get( "s_globalfocus", "0", CVAR_ARCHIVE );
 
 	s_environment_effects = trap_Cvar_Get( "s_environment_effects", "1", CVAR_ARCHIVE | CVAR_LATCH_SOUND );
-	if( !QAL_Is_EFX_ExtensionSupported() ) {
-		trap_Cvar_ForceSet( s_environment_effects->name, "0" );
-	}
 	s_environment_sampling_quality = trap_Cvar_Get( "s_environment_sampling_quality", "0.5", CVAR_ARCHIVE );
 	if ( s_environment_sampling_quality->value < 0 || s_environment_sampling_quality->value > 1.0f ) {
 		trap_Cvar_ForceSet( s_environment_sampling_quality->name, "0.5" );

@@ -193,14 +193,14 @@ static bool S_Init( void *hwnd, int maxEntities, bool verbose ) {
 	}
 
 	attrPtr = &attrList[0];
-	if( QAL_Is_EFX_ExtensionSupported() && s_environment_effects->integer ) {
+	if( QAL_Is_EFX_ExtensionSupported( alDevice ) && s_environment_effects->integer ) {
 		// We limit each source to a single "auxiliary send" for optimization purposes.
 		// This means each source has a single auxiliary output that feeds an effect aside from a direct output.
 		*attrPtr++ = ALC_MAX_AUXILIARY_SENDS;
 		*attrPtr++ = 1;
 	}
 
-	if( QAL_Is_HRTF_ExtensionSupported() ) {
+	if( QAL_Is_HRTF_ExtensionSupported( alDevice ) ) {
 		*attrPtr++ = ALC_HRTF_SOFT;
 		*attrPtr++ = s_hrtf->integer ? 1 : 0;
 	} else if( s_hrtf->integer ) {
@@ -247,8 +247,8 @@ static bool S_Init( void *hwnd, int maxEntities, bool verbose ) {
 		Com_Printf( "  Vendor:       %s\n", qalGetString( AL_VENDOR ) );
 		Com_Printf( "  Version:      %s\n", qalGetString( AL_VERSION ) );
 		Com_Printf( "  Renderer:     %s\n", qalGetString( AL_RENDERER ) );
-		Com_Printf( "  EFX support:  %s\n", QAL_Is_EFX_ExtensionSupported() ? "yes" : "no" );
-		Com_Printf( "  HRTF support: %s\n", QAL_Is_HRTF_ExtensionSupported() ? "yes" : "no" );
+		Com_Printf( "  EFX support:  %s\n", QAL_Is_EFX_ExtensionSupported( alDevice ) ? "yes" : "no" );
+		Com_Printf( "  HRTF support: %s\n", QAL_Is_HRTF_ExtensionSupported( alDevice ) ? "yes" : "no" );
 		Com_Printf( "  Extensions:   %s\n", qalGetString( AL_EXTENSIONS ) );
 	}
 

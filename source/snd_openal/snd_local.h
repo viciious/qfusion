@@ -39,7 +39,7 @@ typedef struct { const char *name; void **funcPointer; } dllfunc_t;
 
 #ifdef _WIN32
 #define ALDRIVER "OpenAL32.dll"
-#define ALDEVICE_DEFAULT "Generic Software"
+#define ALDEVICE_DEFAULT NULL
 #elif defined ( __MACOSX__ )
 #define ALDRIVER "/System/Library/Frameworks/OpenAL.framework/OpenAL"
 #define ALDEVICE_DEFAULT NULL
