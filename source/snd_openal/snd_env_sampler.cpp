@@ -123,21 +123,6 @@ static vec3_t reverbPrimaryRayDirs[MAX_REVERB_PRIMARY_RAY_SAMPLES];
 #define M_2_PI ( 2.0 * ( M_PI ) )
 #endif
 
-static inline void MakeSampleDirection( vec3_t dir, unsigned i, unsigned samples ) {
-	float offset = 2.0f / (float)samples;
-	float increment = M_PI * (3.0f - sqrtf(5.0f));
-
-	float y = ((i*offset)-1) + (offset/2.0f);
-	float r = sqrtf(1 - y*y);
-	float phi = i * increment;
-	float x = cosf( phi ) * r;
-	float z = sinf( phi ) * r;
-	
-	dir[0] = x;
-	dir[1] = y;
-	dir[2] = z;
-}
-
 #ifndef ARRAYSIZE
 #define ARRAYSIZE( x ) ( sizeof( x ) / sizeof( x[0] ) )
 #endif
@@ -607,8 +592,20 @@ static void ENV_UpdateSourceEnvironment( src_t *src, int64_t millisNow, const sr
 static void ENV_SetupPrimaryRayTables( unsigned numSamples ) {
 	unsigned i;
 
-	for( i = 0; i < ARRAYSIZE( reverbPrimaryRayDirs ); i++ ) {
-		MakeSampleDirection( reverbPrimaryRayDirs[i], i, numSamples );
+	// algorithm source https://stackoverflow.com/a/26127012
+	for( i = 0; i < numSamples; i++ ) {
+		float offset = 2.0f / (float)numSamples;
+		float increment = M_PI * ( 3.0f - sqrtf( 5.0f ) );
+
+		float y = ( i * offset ) - 1 + ( offset / 2.0f );
+		float r = sqrtf( 1 - y*y );
+		float phi = i * increment;
+		float x = cosf( phi ) * r;
+		float z = sinf( phi ) * r;
+	
+		reverbPrimaryRayDirs[i][0] = x;
+		reverbPrimaryRayDirs[i][1] = y;
+		reverbPrimaryRayDirs[i][2] = z;
 	}
 }
 
