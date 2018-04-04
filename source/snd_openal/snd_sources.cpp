@@ -76,6 +76,7 @@ static void source_setup( src_t *src, sfx_t *sfx, int priority, int entNum, int 
 	src->isLocked = false;
 	src->isLooping = false;
 	src->isTracking = false;
+	src->isLingering = false;
 	src->volumeVar = s_volume;
 	VectorClear( src->origin );
 	VectorClear( src->velocity );
@@ -134,6 +135,9 @@ static void source_kill( src_t *src ) {
 	src->isLocked = false;
 	src->isLooping = false;
 	src->isTracking = false;
+
+	src->isLingering = false;
+	src->lingeringTimeoutAt = 0;
 
 	ENV_UnregisterSource( src );
 }
@@ -539,32 +543,49 @@ void S_UpdateSources( void ) {
 	int i, entNum;
 	ALint state;
 
+	const int64_t millisNow = trap_Milliseconds();
+
 	for( i = 0; i < src_count; i++ ) {
-		if( !srclist[i].isActive ) {
+		src_t *src = &srclist[i];
+		if( !src->isActive ) {
 			continue;
 		}
-		if( srclist[i].isLocked ) {
+		if( src->isLocked ) {
 			continue;
 		}
 
-		if( srclist[i].volumeVar->modified ) {
+		if( src->volumeVar->modified ) {
 			S_AdjustGain( &srclist[i] );
 		}
 
-		entNum = srclist[i].entNum;
+		entNum = src->entNum;
 
 		// Check if it's done, and flag it
-		qalGetSourcei( srclist[i].source, AL_SOURCE_STATE, &state );
+		qalGetSourcei( src->source, AL_SOURCE_STATE, &state );
 		if( state == AL_STOPPED ) {
-			source_kill( &srclist[i] );
+			// If there is no effect attached, kill the source immediately
+			const Effect *effect = src->envUpdateState.effect;
+			if( !effect ) {
+				source_kill( src );
+			} else {
+				if( !src->isLingering ) {
+					src->isLingering = true;
+					src->lingeringTimeoutAt = millisNow + effect->GetLingeringTimeout();
+					// Set the lowest priority possible, so it is a first candidate for killing if there is no free sources
+					src->priority = SRCPRI_AMBIENT - 1;
+				} else if( src->lingeringTimeoutAt <= millisNow ) {
+					source_kill( src );
+				}
+			}
 			if( entNum >= 0 && entNum < max_ents ) {
 				entlist[entNum].src = NULL;
 			}
 			continue;
 		}
 
-		if( srclist[i].isLooping ) {
+		if( src->isLooping ) {
 			// If a looping effect hasn't been touched this frame, kill it
+			// Note: lingering produces bad results in this case
 			if( !entlist[entNum].touched ) {
 				source_kill( &srclist[i] );
 				entlist[entNum].src = NULL;
@@ -573,7 +594,7 @@ void S_UpdateSources( void ) {
 			}
 		}
 
-		source_spatialize( &srclist[i] );
+		source_spatialize( src );
 	}
 }
 

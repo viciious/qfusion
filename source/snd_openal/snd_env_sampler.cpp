@@ -278,6 +278,11 @@ static void ENV_CollectRegularEnvironmentUpdates() {
 			continue;
 		}
 
+		// Don't update lingering sources environment
+		if( src->isLingering ) {
+			continue;
+		}
+
 		if( updateState->nextEnvUpdateAt <= millisNow ) {
 			// If the playback has been just added
 			if( !updateState->nextEnvUpdateAt ) {

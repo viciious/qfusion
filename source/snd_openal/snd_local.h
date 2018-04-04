@@ -176,6 +176,7 @@ class Effect {
 public:
 	virtual void BindOrUpdate( src_s *src ) = 0;
 	virtual void InterpolateProps( const Effect *oldOne, int timeDelta ) = 0;
+	virtual unsigned GetLingeringTimeout() const = 0;
 	virtual ~Effect() {}
 
 	template <typename T> static const T Cast( const Effect *effect ) {
@@ -225,6 +226,9 @@ public:
 	UnderwaterFlangerEffect(): Effect( AL_EFFECT_FLANGER ) {}
 	void BindOrUpdate( src_s *src ) override;
 	void InterpolateProps( const Effect *oldOne, int timeDelta ) override;
+	unsigned GetLingeringTimeout() const override {
+		return 1000;
+	}
 };
 
 class ReverbEffect final: public Effect {
@@ -261,6 +265,10 @@ public:
 		reflectionsDelay = that->reflectionsDelay;
 		lateReverbDelay = that->lateReverbDelay;
 		secondaryRaysObstruction = that->secondaryRaysObstruction;
+	}
+
+	unsigned GetLingeringTimeout() const override {
+		return (unsigned)( decayTime * 1000 + 500 );
 	}
 };
 
@@ -319,6 +327,9 @@ typedef struct src_s {
 	bool isLooping;
 	bool isTracking;
 	bool keepAlive;
+	bool isLingering;
+
+	int64_t lingeringTimeoutAt;
 
 	envUpdateState_t envUpdateState;
 
