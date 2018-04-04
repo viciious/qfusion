@@ -117,23 +117,25 @@ inline void EffectsAllocator::FreeEntry( const void *entry ) {
 #define MAX_REVERB_PRIMARY_RAY_SAMPLES ( 48 )
 
 static vec3_t randomDirectObstructionOffsets[(1 << 8)];
-static vec3_t randomReverbPrimaryRayDirs[(1 << 16)];
+static vec3_t reverbPrimaryRayDirs[MAX_REVERB_PRIMARY_RAY_SAMPLES];
 
 #ifndef M_2_PI
 #define M_2_PI ( 2.0 * ( M_PI ) )
 #endif
 
-static inline void MakeRandomDirection( vec3_t dir ) {
-	float theta = ( float )( M_2_PI * 0.999999 * random() );
-	float phi = (float)( M_PI * random() );
-	float sinTheta = sinf( theta );
-	float cosTheta = cosf( theta );
-	float sinPhi = sinf( phi );
-	float cosPhi = cosf( phi );
+static inline void MakeSampleDirection( vec3_t dir, unsigned i, unsigned samples ) {
+	float offset = 2.0f / (float)samples;
+	float increment = M_PI * (3.0f - sqrtf(5.0f));
 
-	dir[0] = sinTheta * cosPhi;
-	dir[1] = sinTheta * sinPhi;
-	dir[2] = cosTheta;
+	float y = ((i*offset)-1) + (offset/2.0f);
+	float r = sqrtf(1 - y*y);
+	float phi = i * increment;
+	float x = cosf( phi ) * r;
+	float z = sinf( phi ) * r;
+	
+	dir[0] = x;
+	dir[1] = y;
+	dir[2] = z;
 }
 
 #ifndef ARRAYSIZE
@@ -147,10 +149,6 @@ static void ENV_InitRandomTables() {
 		for( j = 0; j < 3; ++j ) {
 			randomDirectObstructionOffsets[i][j] = -20.0f + 40.0f * random();
 		}
-	}
-
-	for( i = 0; i < ARRAYSIZE( randomReverbPrimaryRayDirs ); i++ ) {
-		MakeRandomDirection( randomReverbPrimaryRayDirs[i] );
 	}
 }
 
@@ -606,6 +604,14 @@ static void ENV_UpdateSourceEnvironment( src_t *src, int64_t millisNow, const sr
 	updateState->effect->BindOrUpdate( src );
 }
 
+static void ENV_SetupPrimaryRayTables( unsigned numSamples ) {
+	unsigned i;
+
+	for( i = 0; i < ARRAYSIZE( reverbPrimaryRayDirs ); i++ ) {
+		MakeSampleDirection( reverbPrimaryRayDirs[i], i, numSamples );
+	}
+}
+
 static void ENV_SetupSamplingProps( samplingProps_t *props, unsigned minSamples, unsigned maxSamples ) {
 	unsigned numSamples;
 	float quality = s_environment_sampling_quality->value;
@@ -624,6 +630,8 @@ static void ENV_SetupSamplingProps( samplingProps_t *props, unsigned minSamples,
 	props->quality = quality;
 	props->numSamples = numSamples;
 	props->valueIndex = (uint16_t)( random() * std::numeric_limits<uint16_t>::max() );
+
+	ENV_SetupPrimaryRayTables( numSamples );
 }
 
 static float ENV_ComputeDirectObstruction( src_t *src ) {
@@ -765,13 +773,11 @@ void ReverbSampler::EmitPrimaryRays() {
 
 	const auto *updateState = &src->envUpdateState;
 	numPrimaryRays = updateState->reverbPrimaryRaysSamplingProps.numSamples;
-	int valueIndex = updateState->reverbPrimaryRaysSamplingProps.valueIndex;
 
 	trace_t trace;
 	for( unsigned i = 0; i < numPrimaryRays; ++i ) {
 		float *sampleDir, *reflectionPoint;
-		valueIndex = ( valueIndex + 1 ) % ARRAYSIZE( randomReverbPrimaryRayDirs );
-		sampleDir = randomReverbPrimaryRayDirs[valueIndex];
+		sampleDir = reverbPrimaryRayDirs[i];
 
 		vec3_t testedRayPoint;
 		VectorScale( sampleDir, primaryEmissionRadius, testedRayPoint );
