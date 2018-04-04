@@ -117,7 +117,6 @@ inline void EffectsAllocator::FreeEntry( const void *entry ) {
 #define MAX_REVERB_PRIMARY_RAY_SAMPLES ( 48 )
 
 static vec3_t randomDirectObstructionOffsets[(1 << 8)];
-static vec3_t reverbPrimaryRayDirs[MAX_REVERB_PRIMARY_RAY_SAMPLES];
 
 #ifndef M_2_PI
 #define M_2_PI ( 2.0 * ( M_PI ) )
@@ -163,7 +162,6 @@ void ENV_RegisterSource( src_t *src ) {
 	src->envUpdateState.nextEnvUpdateAt = 0;
 	// Reset sampling patterns by setting an illegal quality value
 	src->envUpdateState.directObstructionSamplingProps.quality = -1.0f;
-	src->envUpdateState.reverbPrimaryRaysSamplingProps.quality = -1.0f;
 }
 
 void ENV_UnregisterSource( src_t *src ) {
@@ -589,46 +587,31 @@ static void ENV_UpdateSourceEnvironment( src_t *src, int64_t millisNow, const sr
 	updateState->effect->BindOrUpdate( src );
 }
 
-static void ENV_SetupPrimaryRayTables( unsigned numSamples ) {
-	unsigned i;
+static inline unsigned ENV_GetNumSamplesForCurrentQuality( unsigned minSamples, unsigned maxSamples ) {
+	float quality = s_environment_sampling_quality->value;
 
-	// algorithm source https://stackoverflow.com/a/26127012
-	for( i = 0; i < numSamples; i++ ) {
-		float offset = 2.0f / (float)numSamples;
-		float increment = M_PI * ( 3.0f - sqrtf( 5.0f ) );
+	assert( quality >= 0.0f && quality <= 1.0f );
+	assert( minSamples < maxSamples );
 
-		float y = ( i * offset ) - 1 + ( offset / 2.0f );
-		float r = sqrtf( 1 - y*y );
-		float phi = i * increment;
-		float x = cosf( phi ) * r;
-		float z = sinf( phi ) * r;
-	
-		reverbPrimaryRayDirs[i][0] = x;
-		reverbPrimaryRayDirs[i][1] = y;
-		reverbPrimaryRayDirs[i][2] = z;
-	}
+	unsigned numSamples = (unsigned)( minSamples + ( maxSamples - minSamples ) * quality );
+	assert( numSamples && numSamples <= maxSamples );
+	return numSamples;
 }
 
-static void ENV_SetupSamplingProps( samplingProps_t *props, unsigned minSamples, unsigned maxSamples ) {
-	unsigned numSamples;
+static void ENV_SetupDirectObstructionSamplingProps( src_t *src, unsigned minSamples, unsigned maxSamples ) {
 	float quality = s_environment_sampling_quality->value;
+	samplingProps_t *props = &src->envUpdateState.directObstructionSamplingProps;
 
 	// If the quality is valid and has not been modified since the pattern has been set
 	if( props->quality == quality ) {
 		return;
 	}
 
-	assert( quality >= 0.0f && quality <= 1.0f );
-	assert( minSamples < maxSamples );
-
-	numSamples = (unsigned)( minSamples + ( maxSamples - minSamples ) * quality );
-	assert( numSamples && numSamples <= maxSamples );
+	unsigned numSamples = ENV_GetNumSamplesForCurrentQuality( minSamples, maxSamples );
 
 	props->quality = quality;
 	props->numSamples = numSamples;
 	props->valueIndex = (uint16_t)( random() * std::numeric_limits<uint16_t>::max() );
-
-	ENV_SetupPrimaryRayTables( numSamples );
 }
 
 static float ENV_ComputeDirectObstruction( src_t *src ) {
@@ -668,7 +651,7 @@ static float ENV_ComputeDirectObstruction( src_t *src ) {
 		return 1.0f;
 	}
 
-	ENV_SetupSamplingProps( &updateState->directObstructionSamplingProps, 3, MAX_DIRECT_OBSTRUCTION_SAMPLES );
+	ENV_SetupDirectObstructionSamplingProps( src, 3, MAX_DIRECT_OBSTRUCTION_SAMPLES );
 
 	numPassedRays = 0;
 	numTestedRays = updateState->directObstructionSamplingProps.numSamples;
@@ -692,6 +675,7 @@ class ReverbSampler {
 	static constexpr float REVERB_ENV_DISTANCE_THRESHOLD = 2048.0f;
 
 	vec3_t testedListenerOrigin;
+	vec3_t primaryRayDirs[MAX_REVERB_PRIMARY_RAY_SAMPLES];
 	float primaryHitDistances[MAX_REVERB_PRIMARY_RAY_SAMPLES];
 	vec3_t reflectionPoints[MAX_REVERB_PRIMARY_RAY_SAMPLES];
 
@@ -706,6 +690,7 @@ class ReverbSampler {
 
 	inline float GetEmissionRadius() const;
 	void EmitPrimaryRays();
+	void SetupPrimaryRayDirs();
 	void ProcessPrimaryEmissionResults();
 	void EmitSecondaryRays();
 	float ComputePrimaryHitDistanceStdDev() const;
@@ -747,7 +732,9 @@ void ReverbSampler::Exec() {
 	VectorCopy( oldListenerOrigin, testedListenerOrigin );
 	testedListenerOrigin[2] += 18.0f;
 
-	ENV_SetupSamplingProps( &src->envUpdateState.reverbPrimaryRaysSamplingProps, 16, MAX_REVERB_PRIMARY_RAY_SAMPLES );
+	numPrimaryRays = ENV_GetNumSamplesForCurrentQuality( 16, MAX_REVERB_PRIMARY_RAY_SAMPLES );
+
+	SetupPrimaryRayDirs();
 
 	EmitPrimaryRays();
 
@@ -760,6 +747,26 @@ void ReverbSampler::Exec() {
 	EmitSecondaryRays();
 }
 
+void ReverbSampler::SetupPrimaryRayDirs() {
+	assert( numPrimaryRays );
+
+	// algorithm source https://stackoverflow.com/a/26127012
+	for( unsigned i = 0; i < numPrimaryRays; i++ ) {
+		float offset = 2.0f / (float)numPrimaryRays;
+		float increment = ( (float)M_PI ) * ( 3.0f - sqrtf( 5.0f ) );
+
+		float y = ( i * offset ) - 1 + ( offset / 2.0f );
+		float r = sqrtf( 1 - y*y );
+		float phi = i * increment;
+		float x = cosf( phi ) * r;
+		float z = sinf( phi ) * r;
+
+		primaryRayDirs[i][0] = x;
+		primaryRayDirs[i][1] = y;
+		primaryRayDirs[i][2] = z;
+	}
+}
+
 void ReverbSampler::EmitPrimaryRays() {
 	const float primaryEmissionRadius = GetEmissionRadius();
 
@@ -768,13 +775,10 @@ void ReverbSampler::EmitPrimaryRays() {
 	numRaysHitMetal = 0;
 	numReflectionPoints = 0;
 
-	const auto *updateState = &src->envUpdateState;
-	numPrimaryRays = updateState->reverbPrimaryRaysSamplingProps.numSamples;
-
 	trace_t trace;
 	for( unsigned i = 0; i < numPrimaryRays; ++i ) {
 		float *sampleDir, *reflectionPoint;
-		sampleDir = reverbPrimaryRayDirs[i];
+		sampleDir = primaryRayDirs[i];
 
 		vec3_t testedRayPoint;
 		VectorScale( sampleDir, primaryEmissionRadius, testedRayPoint );

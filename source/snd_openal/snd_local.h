@@ -273,7 +273,6 @@ typedef struct envUpdateState_s {
 	Effect *effect;
 
 	samplingProps_t directObstructionSamplingProps;
-	samplingProps_t reverbPrimaryRaysSamplingProps;
 
 	vec3_t lastUpdateOrigin;
 	vec3_t lastUpdateVelocity;
