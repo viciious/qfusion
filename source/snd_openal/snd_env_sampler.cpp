@@ -203,7 +203,11 @@ void ENV_UnregisterSource( src_t *src ) {
 	// Detach the direct filter
 	qalSourcei( src->source, AL_DIRECT_FILTER, AL_FILTER_NULL );
 	// Restore the original source gain
-	qalSourcef( src->source, AL_GAIN, src->fvol * s_volume->value );
+	if( src->volumeVar ) {
+		qalSourcef( src->source, AL_GAIN, src->fvol * src->volumeVar->value );
+	} else {
+		qalSourcef( src->source, AL_GAIN, src->fvol * s_volume->value );
+	}
 }
 
 class SourcesUpdatePriorityQueue {
@@ -266,7 +270,6 @@ static void ENV_CollectRegularEnvironmentUpdates() {
 	envUpdateState_t *updateState;
 	int64_t millisNow;
 	int contents;
-	bool wasInLiquid, isInLiquid;
 
 	millisNow = trap_Milliseconds();
 
@@ -287,10 +290,9 @@ static void ENV_CollectRegularEnvironmentUpdates() {
 		}
 
 		contents = trap_PointContents( src->origin );
-		isInLiquid = ( contents & ( CONTENTS_LAVA | CONTENTS_SLIME | CONTENTS_WATER ) ) != 0;
-		wasInLiquid = updateState->wasInLiquid;
-		updateState->wasInLiquid = isInLiquid;
-		if( isInLiquid ^ wasInLiquid ) {
+		bool wasInLiquid = updateState->isInLiquid;
+		updateState->isInLiquid = ( contents & ( CONTENTS_LAVA | CONTENTS_SLIME | CONTENTS_WATER ) ) != 0;
+		if( updateState->isInLiquid ^ wasInLiquid ) {
 			priorityQueue.AddSource( src, 2.0f );
 			continue;
 		}
@@ -569,13 +571,14 @@ static void ENV_UpdateSourceEnvironment( src_t *src, int64_t millisNow, const sr
 
 	updateState->oldEffect = updateState->effect;
 	bool needsInterpolation = true;
-	if( updateState->wasInLiquid || wasListenerInLiquid ) {
+	if( updateState->isInLiquid || wasListenerInLiquid ) {
 		float directObstruction = 0.9f;
-		if( updateState->wasInLiquid && wasListenerInLiquid ) {
+		if( updateState->isInLiquid && wasListenerInLiquid ) {
 			directObstruction = ENV_ComputeDirectObstruction( src );
 		}
 		auto *newEffect = effectsAllocator.NewFlangerEffect( src );
 		newEffect->directObstruction = directObstruction;
+		newEffect->hasMediumTransition = updateState->isInLiquid ^ wasListenerInLiquid;
 		updateState->effect = newEffect;
 	} else {
 		auto *newEffect = effectsAllocator.NewReverbEffect( src );

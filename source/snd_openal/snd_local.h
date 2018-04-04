@@ -182,6 +182,8 @@ public:
 		// We might think of optimizing it in future, that's why the method is favourable over the direct cast
 		return dynamic_cast<T>( const_cast<Effect *>( effect ) );
 	}
+
+	void AdjustGain( src_s *src ) const;
 protected:
 	ALint type;
 	Effect( ALint type_ ): type( type_ ) {}
@@ -210,22 +212,23 @@ protected:
 
 	void CheckCurrentlyBoundEffect( src_s *src );
 	virtual void IntiallySetupEffect( src_s *src );
-	virtual float GetMasterGain( src_s *src ) = 0;
+	virtual float GetMasterGain( src_s *src ) const = 0;
 	void AttachEffect( src_s *src );
 };
 
 class UnderwaterFlangerEffect final: public Effect {
 	void IntiallySetupEffect( src_s *src ) override;
-	float GetMasterGain( src_s *src ) override;
+	float GetMasterGain( src_s *src ) const override;
 public:
 	float directObstruction;
+	bool hasMediumTransition;
 	UnderwaterFlangerEffect(): Effect( AL_EFFECT_FLANGER ) {}
 	void BindOrUpdate( src_s *src ) override;
 	void InterpolateProps( const Effect *oldOne, int timeDelta ) override;
 };
 
 class ReverbEffect final: public Effect {
-	float GetMasterGain( struct src_s *src ) override;
+	float GetMasterGain( struct src_s *src ) const override;
 public:
 	float directObstruction;
 	float density;              // [0.0 ... 1.0]    default 1.0
@@ -280,7 +283,7 @@ typedef struct envUpdateState_s {
 
 	float priorityInQueue;
 
-	bool wasInLiquid;
+	bool isInLiquid;
 } envUpdateState_t;
 
 /*

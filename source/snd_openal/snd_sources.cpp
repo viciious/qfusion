@@ -38,6 +38,19 @@ typedef struct sentity_s {
 static sentity_t *entlist = NULL; //[MAX_EDICTS];
 static int max_ents;
 
+static void S_AdjustGain( src_t *src ) {
+	if( auto *effect = src->envUpdateState.effect ) {
+		effect->AdjustGain( src );
+		return;
+	}
+
+	if( src->volumeVar ) {
+		qalSourcef( src->source, AL_GAIN, src->fvol * src->volumeVar->value );
+	} else {
+		qalSourcef( src->source, AL_GAIN, src->fvol * s_volume->value );
+	}
+}
+
 /*
 * source_setup
 */
@@ -152,9 +165,13 @@ void Effect::IntiallySetupEffect( src_t *src ) {
 	qalEffecti( src->effect, AL_EFFECT_TYPE, this->type );
 }
 
+void Effect::AdjustGain( src_t *src ) const {
+	qalSourcef( src->source, AL_GAIN, GetMasterGain( src ) );
+}
+
 void Effect::AttachEffect( src_t *src ) {
 	// Set gain in any case (useful if the "attenuate on obstruction" flag has been turned off).
-	qalSourcef( src->source, AL_GAIN, GetMasterGain( src ) );
+	AdjustGain( src );
 
 	// Attach the effect to the slot
 	qalAuxiliaryEffectSloti( src->effectSlot, AL_EFFECTSLOT_EFFECT, src->effect );
@@ -169,15 +186,21 @@ void UnderwaterFlangerEffect::IntiallySetupEffect( src_t *src ) {
 	qalEffectf( src->effect, AL_FLANGER_FEEDBACK, -0.4f );
 }
 
-float UnderwaterFlangerEffect::GetMasterGain( src_t *src ) {
-	float gain = src->fvol * s_volume->value;
+float UnderwaterFlangerEffect::GetMasterGain( src_t *src ) const {
+	float gain = src->fvol * src->volumeVar->value;
+	// Lower gain significantly if there is a medium transition
+	// (if the listener is not in liquid and the source is, and vice versa)
+	if( hasMediumTransition ) {
+		gain *= 0.25f;
+	}
+
 	if( !s_attenuate_on_obstruction->integer ) {
 		return gain;
 	}
 
 	// Modify the gain by the direct obstruction factor
-	// Lowering the gain by 1/3 on full obstruction is fairly sufficient (its not linearly perceived)
-	gain *= 1.0f - 0.33f * directObstruction;
+	// Lowering the gain by 1/4 on full obstruction is fairly sufficient (its not linearly perceived)
+	gain *= 1.0f - 0.25f * directObstruction;
 	assert( gain >= 0.0f && gain <= 1.0f );
 	return gain;
 }
@@ -190,17 +213,17 @@ void UnderwaterFlangerEffect::BindOrUpdate( src_t *src ) {
 	AttachEffect( src );
 }
 
-float ReverbEffect::GetMasterGain( src_t *src ) {
-	float gain = src->fvol * s_volume->value;
+float ReverbEffect::GetMasterGain( src_t *src ) const {
+	float gain = src->fvol * src->volumeVar->value;
 	if( !s_attenuate_on_obstruction->integer ) {
-		return false;
+		return gain;
 	}
 
 	// Direct obstruction = 1 means the direct path to the listener is fully obstructed.
 	// GainHf close to 0 means the secondary reflections path is almost fully obstructed too.
-	// Thus, obstruction factor is within [0, 0.3..) range.
-	// Lowering the gain by 1/3 on full obstruction is fairly sufficient (its not linearly perceived)
-	gain *= 1.0f - 0.33f * ( this->directObstruction + ( 1.0f - this->gainHf ) );
+	// Thus, obstruction factor is within [0, 0.25..) range.
+	// Lowering the gain by 1/4 on full obstruction is fairly sufficient (its not linearly perceived)
+	gain *= 1.0f - 0.25f * ( this->directObstruction + ( 1.0f - this->gainHf ) );
 	assert( gain >= 0.0f && gain <= 1.0f );
 	return gain;
 }
@@ -283,7 +306,7 @@ static void source_loop( int priority, sfx_t *sfx, int entNum, float fvol, float
 		entlist[entNum].src = src;
 	}
 
-	qalSourcef( src->source, AL_GAIN, src->fvol * src->volumeVar->value );
+	S_AdjustGain( src );
 
 	qalSourcef( src->source, AL_REFERENCE_DISTANCE, s_attenuation_refdistance );
 	qalSourcef( src->source, AL_MAX_DISTANCE, s_attenuation_maxdistance );
@@ -730,7 +753,7 @@ src_t *S_AllocRawSource( int entNum, float fvol, float attenuation, cvar_t *volu
 	}
 
 	src->volumeVar = volumeVar;
-	qalSourcef( src->source, AL_GAIN, src->fvol * src->volumeVar->value );
+	S_AdjustGain( src );
 
 	source_spatialize( src );
 	return src;
