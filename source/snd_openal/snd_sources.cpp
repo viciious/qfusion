@@ -199,8 +199,8 @@ float UnderwaterFlangerEffect::GetMasterGain( src_t *src ) const {
 	}
 
 	// Modify the gain by the direct obstruction factor
-	// Lowering the gain by 1/4 on full obstruction is fairly sufficient (its not linearly perceived)
-	gain *= 1.0f - 0.25f * directObstruction;
+	// Lowering the gain by 1/3 on full obstruction is fairly sufficient (its not linearly perceived)
+	gain *= 1.0f - 0.33f * directObstruction;
 	assert( gain >= 0.0f && gain <= 1.0f );
 	return gain;
 }
@@ -219,11 +219,11 @@ float ReverbEffect::GetMasterGain( src_t *src ) const {
 		return gain;
 	}
 
-	// Direct obstruction = 1 means the direct path to the listener is fully obstructed.
-	// GainHf close to 0 means the secondary reflections path is almost fully obstructed too.
-	// Thus, obstruction factor is within [0, 0.25..) range.
-	// Lowering the gain by 1/4 on full obstruction is fairly sufficient (its not linearly perceived)
-	gain *= 1.0f - 0.25f * ( this->directObstruction + ( 1.0f - this->gainHf ) );
+	// Both partial obstruction factors are within [0, 1] range, so we multiply by 0.5
+	float obstructionFactor = 0.5f * ( this->directObstruction + this->secondaryRaysObstruction );
+	assert( obstructionFactor >= 0.0f && obstructionFactor <= 1.0f );
+	// Lowering the gain by 1/3 is enough
+	gain *= 1.0f - 0.33f * obstructionFactor;
 	assert( gain >= 0.0f && gain <= 1.0f );
 	return gain;
 }
@@ -548,7 +548,7 @@ void S_UpdateSources( void ) {
 		}
 
 		if( srclist[i].volumeVar->modified ) {
-			qalSourcef( srclist[i].source, AL_GAIN, srclist[i].fvol * srclist[i].volumeVar->value );
+			S_AdjustGain( &srclist[i] );
 		}
 
 		entNum = srclist[i].entNum;

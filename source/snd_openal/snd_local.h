@@ -230,7 +230,9 @@ public:
 class ReverbEffect final: public Effect {
 	float GetMasterGain( struct src_s *src ) const override;
 public:
+	// A regular direct obstruction (same as for the flanger effect)
 	float directObstruction;
+
 	float density;              // [0.0 ... 1.0]    default 1.0
 	float diffusion;            // [0.0 ... 1.0]    default 1.0
 	float gain;                 // [0.0 ... 1.0]    default 0.32
@@ -240,7 +242,11 @@ public:
 	float reflectionsDelay;     // [0.0 ... 0.3]    default 0.007
 	float lateReverbDelay;      // [0.0 ... 0.1]    default 0.011
 
+	// An intermediate of the reverb sampling algorithm, useful for gain adjustment
+	float secondaryRaysObstruction;
+
 	ReverbEffect(): Effect( AL_EFFECT_REVERB ) {}
+
 	void BindOrUpdate( struct src_s *src ) override;
 	void InterpolateProps( const Effect *oldOne, int timeDelta ) override;
 
@@ -254,6 +260,7 @@ public:
 		reflectionsGain = that->reflectionsGain;
 		reflectionsDelay = that->reflectionsDelay;
 		lateReverbDelay = that->lateReverbDelay;
+		secondaryRaysObstruction = that->secondaryRaysObstruction;
 	}
 };
 

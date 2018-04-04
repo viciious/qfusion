@@ -475,6 +475,7 @@ void ReverbEffect::InterpolateProps( const Effect *oldOne, int timeDelta ) {
 	reflectionsGain = interpolator( reflectionsGain, that->reflectionsGain, 0.0f, 3.16f );
 	reflectionsDelay = interpolator( reflectionsDelay, that->reflectionsDelay, 0.0f, 0.3f );
 	lateReverbDelay = interpolator( lateReverbDelay, that->lateReverbDelay, 0.0f, 0.1f );
+	secondaryRaysObstruction = interpolator( secondaryRaysObstruction, that->secondaryRaysObstruction, 0.0f, 1.0f );
 }
 
 static void ENV_InterpolateEnvironmentProps( src_t *src, int64_t millisNow ) {
@@ -648,7 +649,7 @@ static float ENV_ComputeDirectObstruction( src_t *src ) {
 	trap_Trace( &trace, testedListenerOrigin, src->origin, vec3_origin, vec3_origin, MASK_SOLID );
 	if( trace.fraction == 1.0f && !trace.startsolid ) {
 		// Consider zero obstruction in this case
-		return 1.0f;
+		return 0.0f;
 	}
 
 	ENV_SetupDirectObstructionSamplingProps( src, 3, MAX_DIRECT_OBSTRUCTION_SAMPLES );
@@ -957,6 +958,8 @@ void ReverbSampler::EmitSecondaryRays() {
 
 	if( numReflectionPoints ) {
 		float frac = numPassedSecondaryRays / (float)numReflectionPoints;
+		// The secondary rays obstruction is complement to the `frac`
+		effect->secondaryRaysObstruction = 1.0f - frac;
 		// A absence of a HF attenuation sounds poor, metallic/reflective environments should be the only exception.
 		effect->gainHf = 0.1f + ( 0.4f + 0.4f * numRaysHitMetal / (float)numReflectionPoints ) * frac;
 		// We also modify effect gain by a fraction of secondary rays passed to listener.
@@ -966,6 +969,7 @@ void ReverbSampler::EmitSecondaryRays() {
 		effect->gain *= 0.75f + 0.25f * frac;
 	} else {
 		// Set minimal feasible values
+		effect->secondaryRaysObstruction = 1.0f;
 		effect->gainHf = 0.1f;
 		effect->gain *= 0.75f;
 	}
