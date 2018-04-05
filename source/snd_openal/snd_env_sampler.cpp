@@ -1,13 +1,6 @@
 #include "snd_env_sampler.h"
 #include "snd_local.h"
 
-#ifdef min
-#undef min
-#endif
-#ifdef max
-#undef max
-#endif
-
 #include <algorithm>
 #include <limits>
 
@@ -581,6 +574,9 @@ static void ENV_UpdateSourceEnvironment( src_t *src, int64_t millisNow, const sr
 		}
 		updateState->effect = newEffect;
 	}
+
+	updateState->effect->distanceAtLastUpdate = sqrtf( DistanceSquared( src->origin, oldListenerOrigin ) );
+	updateState->effect->lastUpdateAt = millisNow;
 
 	if( needsInterpolation ) {
 		ENV_InterpolateEnvironmentProps( src, millisNow );

@@ -40,6 +40,7 @@ cvar_t *s_doppler;
 cvar_t *s_sound_velocity;
 cvar_t *s_environment_effects;
 cvar_t *s_environment_sampling_quality;
+cvar_t *s_effects_number_threshold;
 cvar_t *s_hrtf;
 cvar_t *s_attenuate_on_obstruction;
 cvar_t *s_stereo2mono;
@@ -135,6 +136,7 @@ bool SF_Init( void *hwnd, int maxEntities, bool verbose ) {
 	if ( s_environment_sampling_quality->value < 0 || s_environment_sampling_quality->value > 1.0f ) {
 		trap_Cvar_ForceSet( s_environment_sampling_quality->name, "0.5" );
 	}
+	s_effects_number_threshold = trap_Cvar_Get( "s_effects_number_threshold", "15", CVAR_ARCHIVE );
 	s_hrtf = trap_Cvar_Get( "s_hrtf", "1", CVAR_ARCHIVE | CVAR_LATCH_SOUND );
 	s_attenuate_on_obstruction = trap_Cvar_Get( "s_attenuate_on_obstruction", "1", CVAR_ARCHIVE );
 

@@ -25,6 +25,8 @@ Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
 #include <snd_cmdque.h>
 #include "snd_env_sampler.h"
 
+#include <algorithm>
+
 src_t srclist[MAX_SRC];
 int src_count = 0;
 static bool src_inited = false;
@@ -536,6 +538,11 @@ void S_SetEntitySpatialization( int entnum, const vec3_t origin, const vec3_t ve
 	VectorCopy( velocity, sent->velocity );
 }
 
+/**
+* A zombie is a source that still has an "active" flag but AL reports that it is stopped (is completed).
+*/
+static void S_ProcessZombieSources( src_t **zombieSources, int numZombieSources, int numActiveEffects, int64_t millisNow );
+
 /*
 * S_UpdateSources
 */
@@ -545,11 +552,20 @@ void S_UpdateSources( void ) {
 
 	const int64_t millisNow = trap_Milliseconds();
 
+	src_t *zombieSources[MAX_SRC];
+	int numZombieSources = 0;
+	int numActiveEffects = 0;
+
 	for( i = 0; i < src_count; i++ ) {
 		src_t *src = &srclist[i];
 		if( !src->isActive ) {
 			continue;
 		}
+
+		if( src->envUpdateState.effect ) {
+			numActiveEffects++;
+		}
+
 		if( src->isLocked ) {
 			continue;
 		}
@@ -560,26 +576,19 @@ void S_UpdateSources( void ) {
 
 		entNum = src->entNum;
 
-		// Check if it's done, and flag it
 		qalGetSourcei( src->source, AL_SOURCE_STATE, &state );
 		if( state == AL_STOPPED ) {
-			// If there is no effect attached, kill the source immediately
-			const Effect *effect = src->envUpdateState.effect;
-			if( !effect ) {
+			// If there is no effect attached, kill the source immediately.
+			// Do not even bother adding this source to a list of zombie sources.
+			if( !src->envUpdateState.effect ) {
 				source_kill( src );
 			} else {
-				if( !src->isLingering ) {
-					src->isLingering = true;
-					src->lingeringTimeoutAt = millisNow + effect->GetLingeringTimeout();
-					// Set the lowest priority possible, so it is a first candidate for killing if there is no free sources
-					src->priority = SRCPRI_AMBIENT - 1;
-				} else if( src->lingeringTimeoutAt <= millisNow ) {
-					source_kill( src );
-				}
+				zombieSources[numZombieSources++] = src;
 			}
 			if( entNum >= 0 && entNum < max_ents ) {
 				entlist[entNum].src = NULL;
 			}
+			src->entNum = -1;
 			continue;
 		}
 
@@ -587,7 +596,12 @@ void S_UpdateSources( void ) {
 			// If a looping effect hasn't been touched this frame, kill it
 			// Note: lingering produces bad results in this case
 			if( !entlist[entNum].touched ) {
+				// Don't even bother adding this source to a list of zombie sources...
 				source_kill( &srclist[i] );
+				// Do not misinform zombies processing logic
+				if( src->envUpdateState.effect ) {
+					numActiveEffects--;
+				}
 				entlist[entNum].src = NULL;
 			} else {
 				entlist[entNum].touched = false;
@@ -596,7 +610,86 @@ void S_UpdateSources( void ) {
 
 		source_spatialize( src );
 	}
+
+	S_ProcessZombieSources( zombieSources, numZombieSources, numActiveEffects, millisNow );
 }
+
+/**
+* A zombie is a source that still has an "active" flag but AL reports that it is stopped (is completed).
+*/
+static void S_ProcessZombieSources( src_t **zombieSources, int numZombieSources, int numActiveEffects, int64_t millisNow ) {
+	// First, kill all sources with expired lingering timeout
+	for( int i = 0; i < numZombieSources; ) {
+		src_t *const src = zombieSources[i];
+		// Adding a source to "zombies" list makes sense only for sources with attached effects
+		assert( src->envUpdateState.effect );
+
+		// If the source is not lingering, set the lingering state
+		if( !src->isLingering ) {
+			src->isLingering = true;
+			src->lingeringTimeoutAt = millisNow + src->envUpdateState.effect->GetLingeringTimeout();
+			i++;
+			continue;
+		}
+
+		// If the source lingering timeout has not expired
+		if( src->lingeringTimeoutAt > millisNow ) {
+			i++;
+			continue;
+		}
+
+		source_kill( src );
+		// Replace the current array cell by the last one, and repeat testing this cell next iteration
+		zombieSources[i] = zombieSources[numZombieSources - 1];
+		numZombieSources--;
+		numActiveEffects--;
+	}
+
+	// Now we know an actual number of zombie sources and active effects left.
+	// Aside from that, all zombie sources left in list are lingering.
+
+	int effectsNumberThreshold = s_effects_number_threshold->integer;
+	if( effectsNumberThreshold < 8 ) {
+		effectsNumberThreshold = 8;
+		trap_Cvar_ForceSet( s_effects_number_threshold->name, "8" );
+	} else if( effectsNumberThreshold > 32 ) {
+		effectsNumberThreshold = 32;
+		trap_Cvar_ForceSet( s_effects_number_threshold->name, "32" );
+	}
+
+	if( numActiveEffects <= effectsNumberThreshold ) {
+		return;
+	}
+
+	auto cmp = [=]( const src_t *lhs, const src_t *rhs ) {
+		// Let sounds that have a lower quality hint be evicted first from the max heap
+		// (The natural comparison order uses the opposite sign).
+		return lhs->sfx->qualityHint > rhs->sfx->qualityHint;
+	};
+
+	std::make_heap( zombieSources, zombieSources + numZombieSources, cmp );
+
+	for(;; ) {
+		if( numActiveEffects <= effectsNumberThreshold ) {
+			break;
+		}
+		if( numZombieSources <= 0 ) {
+			break;
+		}
+
+		std::pop_heap( zombieSources, zombieSources + numZombieSources, cmp );
+		src_t *const src = zombieSources[numZombieSources - 1];
+		numZombieSources--;
+
+		if( src->envUpdateState.effect->ShouldKeepLingering( src->sfx->qualityHint, millisNow ) ) {
+			continue;
+		}
+
+		source_kill( src );
+		numActiveEffects--;
+	}
+}
+
 
 /*
 * S_AllocSource
