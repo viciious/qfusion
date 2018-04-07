@@ -338,6 +338,7 @@ typedef struct envUpdateState_s {
 	float priorityInQueue;
 
 	bool isInLiquid;
+	bool needsInterpolation;
 } envUpdateState_t;
 
 /*

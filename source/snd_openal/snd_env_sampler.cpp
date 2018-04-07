@@ -4,10 +4,27 @@
 #include <algorithm>
 #include <limits>
 
-static vec3_t oldListenerOrigin;
-static vec3_t oldListenerVelocity;
-static int listenerLeafNum = -1;
-static bool wasListenerInLiquid;
+struct ListenerProps {
+	vec3_t origin;
+	vec3_t velocity;
+	mutable int leafNum;
+	bool isInLiquid;
+
+	ListenerProps(): leafNum( -1 ), isInLiquid( false ) {}
+
+	int GetLeafNum() const {
+		if( leafNum < 0 ) {
+			leafNum = trap_PointLeafNum( origin );
+		}
+		return leafNum;
+	}
+
+	void InvalidateCachedUpdateState() {
+		leafNum = -1;
+	}
+};
+
+static ListenerProps listenerProps;
 
 class alignas( 8 )EffectsAllocator {
 	static_assert( sizeof( ReverbEffect ) > sizeof( UnderwaterFlangerEffect ), "" );
@@ -134,17 +151,13 @@ void ENV_Init() {
 		return;
 	}
 
-	VectorClear( oldListenerOrigin );
-	VectorClear( oldListenerVelocity );
-	wasListenerInLiquid = false;
+	listenerProps.InvalidateCachedUpdateState();
 
 	ENV_InitRandomTables();
-
-	listenerLeafNum = -1;
 }
 
 void ENV_Shutdown() {
-	listenerLeafNum = -1;
+	listenerProps.InvalidateCachedUpdateState();
 }
 
 void ENV_RegisterSource( src_t *src ) {
@@ -214,8 +227,6 @@ static SourcesUpdatePriorityQueue sourcesUpdatePriorityQueue;
 static void ENV_ProcessUpdatesPriorityQueue();
 
 static void ENV_UpdateSourceEnvironment( src_t *src, int64_t millisNow, const src_t *tryReusePropsSrc );
-static float ENV_ComputeDirectObstruction( src_t *src );
-static void ENV_ComputeReverberation( src_t *src, ReverbEffect *effect );
 
 static inline void ENV_CollectForcedEnvironmentUpdates() {
 	src_t *src, *end;
@@ -345,13 +356,7 @@ static void ENV_ProcessUpdatesPriorityQueue() {
 	const int64_t millis = (int64_t)( micros / 1000 );
 	src_t *src;
 
-	// Reset the listener leaf num for the new update session.
-	// This prevents reusing outdated leaf nums,
-	// especially after a map change when it might even lead to crash,
-	// and allows caching the leaf for this update session,
-	// since we know that a valid value of the leaf is always up-to-date.
-	// The leaf will be computed on demand if its necessary.
-	listenerLeafNum = -1;
+	listenerProps.InvalidateCachedUpdateState();
 
 	const sfx_t *lastProcessedSfx = nullptr;
 	const src_t *lastProcessedSrc = nullptr;
@@ -411,9 +416,9 @@ void ENV_UpdateListener( const vec3_t origin, const vec3_t velocity ) {
 	// Check whether we have teleported or entered/left a liquid.
 	// Run a forced major update in this case.
 
-	if( DistanceSquared( origin, oldListenerOrigin ) > 100.0f * 100.0f ) {
+	if( DistanceSquared( origin, listenerProps.origin ) > 100.0f * 100.0f ) {
 		needsForcedUpdate = true;
-	} else if( DistanceSquared( velocity, oldListenerVelocity ) > 200.0f * 200.0f ) {
+	} else if( DistanceSquared( velocity, listenerProps.velocity ) > 200.0f * 200.0f ) {
 		needsForcedUpdate = true;
 	}
 
@@ -423,13 +428,13 @@ void ENV_UpdateListener( const vec3_t origin, const vec3_t velocity ) {
 	int contents = trap_PointContents( testedOrigin );
 
 	isListenerInLiquid = ( contents & ( CONTENTS_LAVA | CONTENTS_SLIME | CONTENTS_WATER ) ) != 0;
-	if( wasListenerInLiquid != isListenerInLiquid ) {
+	if( listenerProps.isInLiquid != isListenerInLiquid ) {
 		needsForcedUpdate = true;
 	}
 
-	VectorCopy( origin, oldListenerOrigin );
-	VectorCopy( velocity, oldListenerVelocity );
-	wasListenerInLiquid = isListenerInLiquid;
+	VectorCopy( origin, listenerProps.origin );
+	VectorCopy( velocity, listenerProps.velocity );
+	listenerProps.isInLiquid = isListenerInLiquid;
 
 	// Sanitize the possibly modified cvar before the environment update
 	if( s_environment_sampling_quality->value < 0.0f || s_environment_sampling_quality->value > 1.0f ) {
@@ -531,6 +536,85 @@ static bool ENV_TryReuseSourceReverbProps( src_t *src, const src_t *tryReuseProp
 	return true;
 }
 
+class EffectSampler {
+public:
+	virtual Effect *TryApply( const ListenerProps &listenerProps, src_t *src, const src_t *tryReusePropsSrc ) = 0;
+};
+
+class ObstructedEffectSampler: public virtual EffectSampler {
+protected:
+	float ComputeDirectObstruction( const ListenerProps &listenerProps, src_t *src );
+};
+
+class UnderwaterFlangerEffectSampler final: public ObstructedEffectSampler {
+public:
+	Effect *TryApply( const ListenerProps &listenerProps, src_t *src, const src_t *tryReusePropsSrc ) override;
+};
+
+static UnderwaterFlangerEffectSampler underwaterFlangerEffectSampler;
+
+class ReverbEffectSampler final: public ObstructedEffectSampler {
+	static constexpr float REVERB_ENV_DISTANCE_THRESHOLD = 2048.0f;
+
+	vec3_t primaryRayDirs[MAX_REVERB_PRIMARY_RAY_SAMPLES];
+	vec3_t reflectionPoints[MAX_REVERB_PRIMARY_RAY_SAMPLES];
+	float primaryHitDistances[MAX_REVERB_PRIMARY_RAY_SAMPLES];
+	vec3_t testedListenerOrigin;
+
+	unsigned numPrimaryRays;
+	unsigned numRaysHitSky;
+	unsigned numRaysHitMetal;
+	unsigned numReflectionPoints;
+	float averageDistance;
+
+	const ListenerProps *listenerProps;
+	src_t * src;
+	ReverbEffect * effect;
+
+	void ComputeReverberation( const ListenerProps &listenerProps_, src_t *src_, ReverbEffect *effect_ );
+
+	void ResetMutableState( const ListenerProps &listenerProps_, src_t *src_, ReverbEffect *effect_ ) {
+		numPrimaryRays = 0;
+		numRaysHitSky = 0;
+		numRaysHitMetal = 0;
+		numReflectionPoints = 0;
+		averageDistance = 0.0f;
+
+		listenerProps = &listenerProps_;
+		src = src_;
+		effect = effect_;
+
+		VectorCopy( listenerProps_.origin, testedListenerOrigin );
+		testedListenerOrigin[2] += 18.0f;
+	}
+
+	inline float GetEmissionRadius() const;
+	void EmitPrimaryRays();
+	void SetupPrimaryRayDirs();
+	void ProcessPrimaryEmissionResults();
+	void EmitSecondaryRays();
+	float ComputePrimaryHitDistanceStdDev() const;
+	float ComputeRoomSizeFactor() const;
+	void SetMinimalReverbProps();
+
+public:
+	Effect *TryApply( const ListenerProps &listenerProps, src_t *src, const src_t *tryReusePropsSrc ) override;
+};
+
+static ReverbEffectSampler reverbEffectSampler;
+
+// Tries to apply samplers starting from highest priority ones
+static Effect *ENV_ApplyEffectSamplers( src_t *src, const src_t *tryReusePropsSrc ) {
+	if( Effect *effect = underwaterFlangerEffectSampler.TryApply( listenerProps, src, tryReusePropsSrc ) ) {
+		return effect;
+	}
+	if( Effect *effect = reverbEffectSampler.TryApply( listenerProps, src, tryReusePropsSrc ) ) {
+		return effect;
+	}
+
+	trap_Error( "Can't find an applicable effect sampler\n" );
+}
+
 static void ENV_UpdateSourceEnvironment( src_t *src, int64_t millisNow, const src_t *tryReusePropsSrc ) {
 	envUpdateState_t *updateState = &src->envUpdateState;
 
@@ -550,35 +634,14 @@ static void ENV_UpdateSourceEnvironment( src_t *src, int64_t millisNow, const sr
 	VectorCopy( src->velocity, updateState->lastUpdateVelocity );
 
 	updateState->oldEffect = updateState->effect;
-	bool needsInterpolation = true;
-	if( updateState->isInLiquid || wasListenerInLiquid ) {
-		float directObstruction = 0.9f;
-		if( updateState->isInLiquid && wasListenerInLiquid ) {
-			directObstruction = ENV_ComputeDirectObstruction( src );
-		}
-		auto *newEffect = effectsAllocator.NewFlangerEffect( src );
-		newEffect->directObstruction = directObstruction;
-		newEffect->hasMediumTransition = updateState->isInLiquid ^ wasListenerInLiquid;
-		updateState->effect = newEffect;
-	} else {
-		auto *newEffect = effectsAllocator.NewReverbEffect( src );
-		newEffect->directObstruction = ENV_ComputeDirectObstruction( src );
-		// We try reuse props only for reverberation effects
-		// since reverberation effects sampling is extremely expensive.
-		// Moreover, direct obstruction reuse is just not valid,
-		// since even a small origin difference completely changes it.
-		if( ENV_TryReuseSourceReverbProps( src, tryReusePropsSrc, newEffect ) ) {
-			needsInterpolation = false;
-		} else {
-			ENV_ComputeReverberation( src, newEffect );
-		}
-		updateState->effect = newEffect;
-	}
+	updateState->needsInterpolation = true;
 
-	updateState->effect->distanceAtLastUpdate = sqrtf( DistanceSquared( src->origin, oldListenerOrigin ) );
+	updateState->effect = ENV_ApplyEffectSamplers( src, tryReusePropsSrc );
+
+	updateState->effect->distanceAtLastUpdate = sqrtf( DistanceSquared( src->origin, listenerProps.origin ) );
 	updateState->effect->lastUpdateAt = millisNow;
 
-	if( needsInterpolation ) {
+	if( updateState->needsInterpolation ) {
 		ENV_InterpolateEnvironmentProps( src, millisNow );
 	}
 
@@ -587,6 +650,37 @@ static void ENV_UpdateSourceEnvironment( src_t *src, int64_t millisNow, const sr
 	updateState->oldEffect = nullptr;
 
 	updateState->effect->BindOrUpdate( src );
+}
+
+Effect *UnderwaterFlangerEffectSampler::TryApply( const ListenerProps &listenerProps, src_t *src, const src_t * ) {
+	if( !listenerProps.isInLiquid && !src->envUpdateState.isInLiquid ) {
+		return nullptr;
+	}
+
+	float directObstruction = 0.9f;
+	if( src->envUpdateState.isInLiquid && listenerProps.isInLiquid ) {
+		directObstruction = ComputeDirectObstruction( listenerProps, src );
+	}
+
+	auto *effect = effectsAllocator.NewFlangerEffect( src );
+	effect->directObstruction = directObstruction;
+	effect->hasMediumTransition = src->envUpdateState.isInLiquid ^ listenerProps.isInLiquid;
+	return effect;
+}
+
+Effect *ReverbEffectSampler::TryApply( const ListenerProps &listenerProps, src_t *src, const src_t *tryReusePropsSrc ) {
+	ReverbEffect *effect = effectsAllocator.NewReverbEffect( src );
+	effect->directObstruction = ComputeDirectObstruction( listenerProps, src );
+	// We try reuse props only for reverberation effects
+	// since reverberation effects sampling is extremely expensive.
+	// Moreover, direct obstruction reuse is just not valid,
+	// since even a small origin difference completely changes it.
+	if( ENV_TryReuseSourceReverbProps( src, tryReusePropsSrc, effect ) ) {
+		src->envUpdateState.needsInterpolation = false;
+	} else {
+		ComputeReverberation( listenerProps, src, effect );
+	}
+	return effect;
 }
 
 static inline unsigned ENV_GetNumSamplesForCurrentQuality( unsigned minSamples, unsigned maxSamples ) {
@@ -616,7 +710,7 @@ static void ENV_SetupDirectObstructionSamplingProps( src_t *src, unsigned minSam
 	props->valueIndex = (uint16_t)( random() * std::numeric_limits<uint16_t>::max() );
 }
 
-static float ENV_ComputeDirectObstruction( src_t *src ) {
+float ObstructedEffectSampler::ComputeDirectObstruction( const ListenerProps &listenerProps, src_t *src ) {
 	trace_t trace;
 	envUpdateState_t *updateState;
 	float *originOffset;
@@ -628,7 +722,7 @@ static float ENV_ComputeDirectObstruction( src_t *src ) {
 
 	updateState = &src->envUpdateState;
 
-	VectorCopy( oldListenerOrigin, testedListenerOrigin );
+	VectorCopy( listenerProps.origin, testedListenerOrigin );
 	// TODO: We assume standard view height
 	testedListenerOrigin[2] += 18.0f;
 
@@ -638,12 +732,7 @@ static float ENV_ComputeDirectObstruction( src_t *src ) {
 		return 0.0f;
 	}
 
-	// Compute the leaf num if needed
-	if( listenerLeafNum < 0 ) {
-		listenerLeafNum = trap_PointLeafNum( testedListenerOrigin );
-	}
-
-	if( !trap_LeafsInPVS( listenerLeafNum, trap_PointLeafNum( src->origin ) ) ) {
+	if( !trap_LeafsInPVS( listenerProps.GetLeafNum(), trap_PointLeafNum( src->origin ) ) ) {
 		return 1.0f;
 	}
 
@@ -672,50 +761,7 @@ static float ENV_ComputeDirectObstruction( src_t *src ) {
 	return 1.0f - 0.9f * ( numPassedRays / (float)numTestedRays );
 }
 
-// Actually just a mutable context for sampling algorithm intermediates
-class ReverbSampler {
-	static constexpr float REVERB_ENV_DISTANCE_THRESHOLD = 2048.0f;
-
-	vec3_t testedListenerOrigin;
-	vec3_t primaryRayDirs[MAX_REVERB_PRIMARY_RAY_SAMPLES];
-	float primaryHitDistances[MAX_REVERB_PRIMARY_RAY_SAMPLES];
-	vec3_t reflectionPoints[MAX_REVERB_PRIMARY_RAY_SAMPLES];
-
-	unsigned numPrimaryRays;
-	unsigned numRaysHitSky;
-	unsigned numRaysHitMetal;
-	unsigned numReflectionPoints;
-	float averageDistance;
-
-	src_t *const src;
-	ReverbEffect *const effect;
-
-	inline float GetEmissionRadius() const;
-	void EmitPrimaryRays();
-	void SetupPrimaryRayDirs();
-	void ProcessPrimaryEmissionResults();
-	void EmitSecondaryRays();
-	float ComputePrimaryHitDistanceStdDev() const;
-	float ComputeRoomSizeFactor() const;
-	void SetMinimalReverbProps();
-public:
-	ReverbSampler( src_t *src_, ReverbEffect *effect_ )
-		: src( src_ ), effect( effect_ ) {
-		numPrimaryRays = 0;
-		numRaysHitSky = 0;
-		numRaysHitMetal = 0;
-		numReflectionPoints = 0;
-		averageDistance = 0.0f;
-	}
-
-	void Exec();
-};
-
-static void ENV_ComputeReverberation( src_t *src, ReverbEffect *effect ) {
-	ReverbSampler( src, effect ).Exec();
-}
-
-inline float ReverbSampler::GetEmissionRadius() const {
+inline float ReverbEffectSampler::GetEmissionRadius() const {
 	// Do not even bother casting rays 999999 units ahead for very attenuated sources.
 	// However, clamp/normalize the hit distance using the same defined threshold
 	float attenuation = src->attenuation;
@@ -730,9 +776,10 @@ inline float ReverbSampler::GetEmissionRadius() const {
 	return distance;
 }
 
-void ReverbSampler::Exec() {
-	VectorCopy( oldListenerOrigin, testedListenerOrigin );
-	testedListenerOrigin[2] += 18.0f;
+void ReverbEffectSampler::ComputeReverberation( const ListenerProps &listenerProps_,
+												src_t *src_,
+												ReverbEffect *effect_ ) {
+	ResetMutableState( listenerProps_, src_, effect_ );
 
 	numPrimaryRays = ENV_GetNumSamplesForCurrentQuality( 16, MAX_REVERB_PRIMARY_RAY_SAMPLES );
 
@@ -749,7 +796,7 @@ void ReverbSampler::Exec() {
 	EmitSecondaryRays();
 }
 
-void ReverbSampler::SetupPrimaryRayDirs() {
+void ReverbEffectSampler::SetupPrimaryRayDirs() {
 	assert( numPrimaryRays );
 
 	// algorithm source https://stackoverflow.com/a/26127012
@@ -769,7 +816,7 @@ void ReverbSampler::SetupPrimaryRayDirs() {
 	}
 }
 
-void ReverbSampler::EmitPrimaryRays() {
+void ReverbEffectSampler::EmitPrimaryRays() {
 	const float primaryEmissionRadius = GetEmissionRadius();
 
 	averageDistance = 0.0f;
@@ -832,7 +879,7 @@ void ReverbSampler::EmitPrimaryRays() {
 	}
 }
 
-float ReverbSampler::ComputePrimaryHitDistanceStdDev() const {
+float ReverbEffectSampler::ComputePrimaryHitDistanceStdDev() const {
 	assert( numReflectionPoints );
 
 	float variance = 0.0f;
@@ -845,7 +892,7 @@ float ReverbSampler::ComputePrimaryHitDistanceStdDev() const {
 	return sqrtf( variance );
 }
 
-float ReverbSampler::ComputeRoomSizeFactor() const {
+float ReverbEffectSampler::ComputeRoomSizeFactor() const {
 	assert( numReflectionPoints );
 
 	// Get the standard deviation of primary rays hit distances.
@@ -888,7 +935,7 @@ float ReverbSampler::ComputeRoomSizeFactor() const {
 	return prevDistance / REVERB_ENV_DISTANCE_THRESHOLD;
 }
 
-void ReverbSampler::ProcessPrimaryEmissionResults() {
+void ReverbEffectSampler::ProcessPrimaryEmissionResults() {
 	assert( numReflectionPoints );
 	averageDistance /= numReflectionPoints;
 
@@ -926,7 +973,7 @@ void ReverbSampler::ProcessPrimaryEmissionResults() {
 	effect->lateReverbDelay = 0.011f + 0.055f * roomSizeFactor;
 }
 
-void ReverbSampler::SetMinimalReverbProps() {
+void ReverbEffectSampler::SetMinimalReverbProps() {
 	effect->gain = 0.1f;
 	effect->density = 1.0f;
 	effect->diffusion = 1.0f;
@@ -936,11 +983,8 @@ void ReverbSampler::SetMinimalReverbProps() {
 	effect->gainHf = 0.1f;
 }
 
-void ReverbSampler::EmitSecondaryRays() {
-	// Compute the leaf num if needed
-	if( listenerLeafNum < 0 ) {
-		listenerLeafNum = trap_PointLeafNum( testedListenerOrigin );
-	}
+void ReverbEffectSampler::EmitSecondaryRays() {
+	int listenerLeafNum = listenerProps->GetLeafNum();
 
 	trace_t trace;
 
