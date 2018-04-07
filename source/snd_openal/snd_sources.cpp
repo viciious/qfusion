@@ -171,6 +171,10 @@ void Effect::IntiallySetupEffect( src_t *src ) {
 	qalEffecti( src->effect, AL_EFFECT_TYPE, this->type );
 }
 
+float Effect::GetMasterGain( src_s *src ) const {
+	return src->fvol * src->volumeVar->value;
+}
+
 void Effect::AdjustGain( src_t *src ) const {
 	qalSourcef( src->source, AL_GAIN, GetMasterGain( src ) );
 }
@@ -247,6 +251,47 @@ void ReverbEffect::BindOrUpdate( src_t *src ) {
 	qalEffectf( src->effect, AL_REVERB_LATE_REVERB_DELAY, this->lateReverbDelay );
 
 	qalFilterf( src->directFilter, AL_LOWPASS_GAINHF, 1.0f - directObstruction );
+
+	AttachEffect( src );
+}
+
+void ChorusEffect::BindOrUpdate( struct src_s *src ) {
+	CheckCurrentlyBoundEffect( src );
+
+	qalEffecti( src->effect, AL_CHORUS_PHASE, phase );
+	qalEffecti( src->effect, AL_CHORUS_WAVEFORM, waveform );
+
+	qalEffectf( src->effect, AL_CHORUS_DELAY, delay );
+	qalEffectf( src->effect, AL_CHORUS_DEPTH, depth );
+	qalEffectf( src->effect, AL_CHORUS_RATE, rate );
+	qalEffectf( src->effect, AL_CHORUS_FEEDBACK, feedback );
+
+	qalFilterf( src->directFilter, AL_LOWPASS_GAINHF, 1.0f );
+
+	AttachEffect( src );
+}
+
+void DistortionEffect::BindOrUpdate( struct src_s *src ) {
+	CheckCurrentlyBoundEffect( src );
+
+	qalEffectf( src->effect, AL_DISTORTION_EDGE, edge );
+	qalEffectf( src->effect, AL_DISTORTION_EDGE, gain );
+
+	qalFilterf( src->directFilter, AL_LOWPASS_GAINHF, 1.0f );
+
+	AttachEffect( src );
+}
+
+void EchoEffect::BindOrUpdate( struct src_s *src ) {
+	CheckCurrentlyBoundEffect( src );
+
+	qalEffectf( src->effect, AL_ECHO_DELAY, delay );
+	qalEffectf( src->effect, AL_ECHO_LRDELAY, lrDelay );
+	qalEffectf( src->effect, AL_ECHO_DAMPING, damping );
+	qalEffectf( src->effect, AL_ECHO_FEEDBACK, feedback );
+	qalEffectf( src->effect, AL_ECHO_SPREAD, spread );
+
+	qalFilterf( src->directFilter, AL_LOWPASS_GAINHF, 1.0f );
 
 	AttachEffect( src );
 }

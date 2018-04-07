@@ -345,6 +345,33 @@ extern LPALGETAUXILIARYEFFECTSLOTFV qalGetAuxiliaryEffectSlotfv;
 #define AL_FLANGER_FEEDBACK                      0x0005
 #define AL_FLANGER_DELAY                         0x0006
 
+/* Chorus effect parameters */
+#define AL_CHORUS_WAVEFORM                       0x0001
+#define AL_CHORUS_PHASE                          0x0002
+#define AL_CHORUS_RATE                           0x0003
+#define AL_CHORUS_DEPTH                          0x0004
+#define AL_CHORUS_FEEDBACK                       0x0005
+#define AL_CHORUS_DELAY                          0x0006
+
+/* Distortion effect parameters */
+#define AL_DISTORTION_EDGE                       0x0001
+#define AL_DISTORTION_GAIN                       0x0002
+#define AL_DISTORTION_LOWPASS_CUTOFF             0x0003
+#define AL_DISTORTION_EQCENTER                   0x0004
+#define AL_DISTORTION_EQBANDWIDTH                0x0005
+
+/* Echo effect parameters */
+#define AL_ECHO_DELAY                            0x0001
+#define AL_ECHO_LRDELAY                          0x0002
+#define AL_ECHO_DAMPING                          0x0003
+#define AL_ECHO_FEEDBACK                         0x0004
+#define AL_ECHO_SPREAD                           0x0005
+
+/* Ringmodulator effect parameters */
+#define AL_RING_MODULATOR_FREQUENCY              0x0001
+#define AL_RING_MODULATOR_HIGHPASS_CUTOFF        0x0002
+#define AL_RING_MODULATOR_WAVEFORM               0x0003
+
 /* Effect type */
 #define AL_EFFECT_FIRST_PARAMETER                0x0000
 #define AL_EFFECT_LAST_PARAMETER                 0x8000

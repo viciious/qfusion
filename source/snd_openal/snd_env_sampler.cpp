@@ -27,7 +27,10 @@ struct ListenerProps {
 static ListenerProps listenerProps;
 
 class alignas( 8 )EffectsAllocator {
-	static_assert( sizeof( ReverbEffect ) > sizeof( UnderwaterFlangerEffect ), "" );
+	static_assert( sizeof( ReverbEffect ) >= sizeof( UnderwaterFlangerEffect ), "" );
+	static_assert( sizeof( ReverbEffect ) >= sizeof( ChorusEffect ), "" );
+	static_assert( sizeof( ReverbEffect ) >= sizeof( DistortionEffect ), "" );
+	static_assert( sizeof( ReverbEffect ) >= sizeof( EchoEffect ), "" );
 
 	static constexpr auto ENTRY_SIZE =
 		sizeof( ReverbEffect ) % 8 ? sizeof( ReverbEffect ) + ( 8 - ( sizeof( ReverbEffect ) % 8 ) ) : sizeof( ReverbEffect );
@@ -55,6 +58,18 @@ public:
 
 	ReverbEffect *NewReverbEffect( const src_t *src ) {
 		return new( AllocEntry( src, AL_EFFECT_REVERB ) )ReverbEffect();
+	}
+
+	ChorusEffect *NewChorusEffect( const src_t *src ) {
+		return new( AllocEntry( src, AL_EFFECT_CHORUS ) )ChorusEffect();
+	}
+
+	DistortionEffect *NewDistortionEffect( const src_t *src ) {
+		return new( AllocEntry( src, AL_EFFECT_DISTORTION ) )DistortionEffect();
+	}
+
+	EchoEffect *NewEchoEffect( const src_t *src ) {
+		return new( AllocEntry( src, AL_EFFECT_ECHO ) )EchoEffect();
 	}
 
 	inline void DeleteEffect( Effect *effect );
@@ -113,7 +128,7 @@ inline void EffectsAllocator::FreeEntry( const void *entry ) {
 	ALint *const effectTypeRef = &effectTypes[sourceIndex][interleavedSlotIndex];
 
 #ifndef PUBLIC_BUILD
-	if( *effectTypeRef != AL_EFFECT_REVERB && *effectTypeRef != AL_EFFECT_FLANGER ) {
+	if( *effectTypeRef <= AL_EFFECT_NULL || *effectTypeRef >= AL_EFFECT_EAXREVERB ) {
 		const char *format = "EffectsAllocator::FreeEntry(): An effect for source #%d and slot %d is not in use\n";
 		trap_Error( va( format, sourceIndex, interleavedSlotIndex ) );
 	}
