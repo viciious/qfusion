@@ -19,6 +19,7 @@ Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
 */
 #include "g_local.h"
 #include "../matchmaker/mm_query.h"
+#include "g_gametypes.h"
 
 #include <new>
 
@@ -312,7 +313,7 @@ public:
 
 stat_query_api_t *sq_api;
 
-static void G_Match_RaceReport( void );
+static void G_Match_SendRaceReport( void );
 
 //====================================================
 
@@ -911,48 +912,43 @@ void G_AddPlayerReport( edict_t *ent, bool final ) {
 	}
 }
 
-// common header
-static void g_mm_writeHeader( stat_query_t *query, int teamGame ) {
-	stat_query_section_t *matchsection = sq_api->CreateSection( query, 0, "match" );
+// It is assumed that the writer points to the root object.
+static void G_MatchReport_WriteHeaderFields( QueryWriter &writer, int teamGame ) {
+	// Note: booleans are transmitted as integers due to underlying api limitations
+	writer << "match_id"       << trap_GetConfigString( CS_MATCHUUID );
+	writer << "gametype"       << gs.gametypeName;
+	writer << "map_name"       << level.mapname;
+	writer << "server_name"    << trap_Cvar_String( "sv_hostname" );
+	writer << "time_played"    << level.finalMatchDuration / 1000;
+	writer << "time_limit"     << GS_MatchDuration() / 1000;
+	writer << "score_limit"    << g_scorelimit->integer;
+	writer << "is_instagib"    << ( GS_Instagib() ? 1 : 0 );
+	writer << "is_team_game"   << ( teamGame ? 1 : 0 );
+	writer << "is_race_game"   << ( GS_RaceGametype() ? 1 : 0 );
+	writer << "mod_name"       << trap_Cvar_String( "fs_game" );
 
-	// Write match properties
-	// sq_api->SetNumber( matchsection, "final", (target_cl==NULL) ? 1 : 0 );
-	sq_api->SetString( matchsection, "gametype", gs.gametypeName );
-	sq_api->SetString( matchsection, "map", level.mapname );
-	sq_api->SetString( matchsection, "hostname", trap_Cvar_String( "sv_hostname" ) );
-	sq_api->SetNumber( matchsection, "timeplayed", level.finalMatchDuration / 1000 );
-	sq_api->SetNumber( matchsection, "timelimit", GS_MatchDuration() / 1000 );
-	sq_api->SetNumber( matchsection, "scorelimit", g_scorelimit->integer );
-	sq_api->SetNumber( matchsection, "instagib", ( GS_Instagib() ? 1 : 0 ) );
-	sq_api->SetNumber( matchsection, "teamgame", teamGame );
-	sq_api->SetNumber( matchsection, "racegame", ( GS_RaceGametype() ? 1 : 0 ) );
-	sq_api->SetString( matchsection, "gamedir", trap_Cvar_String( "fs_game" ) );
-	sq_api->SetNumber( matchsection, "timestamp", trap_Milliseconds() );
+	// TODO: Write match start time!
+
 	if( g_autorecord->integer ) {
-		sq_api->SetString( matchsection, "demo_filename", va( "%s%s", level.autorecord_name, game.demoExtension ) );
+		writer << "demo_filename" << va( "%s%s", level.autorecord_name, game.demoExtension );
 	}
 }
 
-static stat_query_t *G_Match_GenerateReport( void ) {
-	stat_query_t *query;
-	stat_query_section_t *playersarray;
-	stat_query_section_t *weaponindices;
+static void G_MatchReport_AddPlayerAwards( QueryWriter &writer, gclient_quit_t *cl );
+static void G_MatchReport_AddPlayerLogFrags( QueryWriter &writer, gclient_quit_t *cl );
+static void G_MatchReport_AddPlayerWeapons( QueryWriter &writer, gclient_quit_t *cl, const char **weaponNames );
 
+static void G_Match_SendRegularReport( void ) {
 	gclient_quit_t *cl;
 	int i, teamGame, duelGame;
 	static const char *weapnames[WEAP_TOTAL] = { NULL };
-	score_stats_t *stats;
-	char uuid_buffer[UUID_BUFFER_SIZE];
 
 	// Feature: do not report matches with duration less than 1 minute (actually 66 seconds)
 	if( level.finalMatchDuration <= SIGNIFICANT_MATCH_DURATION ) {
-		return 0;
+		return;
 	}
 
-	query = sq_api->CreateQuery( NULL, "server/matchReport", false );
-	if( !query ) {
-		return 0;
-	}
+	QueryWriter writer( sq_api, "server/matchReport" );
 
 	// ch : race properties through GS_RaceGametype()
 
@@ -962,170 +958,193 @@ static stat_query_t *G_Match_GenerateReport( void ) {
 	// ch : fixme do mark duels as teamgames
 	if( duelGame ) {
 		teamGame = 0;
-	} else if( !GS_TeamBasedGametype() ) {
+	} else if( !GS_TeamBasedGametype()) {
 		teamGame = 0;
 	} else {
 		teamGame = 1;
 	}
 
-	g_mm_writeHeader( query, teamGame );
+	G_MatchReport_WriteHeaderFields( writer, teamGame );
 
 	// Write team properties (if any)
 	if( teamlist[TEAM_ALPHA].numplayers > 0 && teamGame != 0 ) {
-		stat_query_section_t *teamarray = sq_api->CreateArray( query, 0, "teams" );
-
-		for( i = TEAM_ALPHA; i <= TEAM_BETA; i++ ) {
-			stat_query_section_t *team = sq_api->CreateSection( query, teamarray, 0 );
-			sq_api->SetString( team, "name", trap_GetConfigString( CS_TEAM_SPECTATOR_NAME + ( i - TEAM_SPECTATOR ) ) );
-			sq_api->SetNumber( team, "index", i - TEAM_ALPHA );
-			sq_api->SetNumber( team, "score", teamlist[i].stats.score );
+		writer << "teams" << '[';
+		{
+			for( i = TEAM_ALPHA; i <= TEAM_BETA; i++ ) {
+				writer << '{';
+				{
+					writer << "name" << trap_GetConfigString( CS_TEAM_SPECTATOR_NAME + ( i - TEAM_SPECTATOR ));
+					// TODO:... What do Statsow controllers expect?
+					writer << "index" << i - TEAM_ALPHA;
+					writer << "score" << teamlist[i].stats.score;
+				}
+				writer << '}';
+			}
 		}
+		writer << ']';
 	}
 
 	// Provide the weapon indices for the stats server
 	// Note that redundant weapons (that were not used) are allowed to be present here
-	weaponindices = sq_api->CreateSection( query, 0, "weapon_indices" );
-	for( int j = 0; j < WEAP_TOTAL; ++j ) {
-		weapnames[j] = GS_FindItemByTag( WEAP_GUNBLADE + j )->shortname;
-		sq_api->SetNumber( weaponindices, weapnames[j], j );
+	writer << "weapon_indices" << '{';
+	{
+		for( int j = 0; j < WEAP_TOTAL; ++j ) {
+			weapnames[j] = GS_FindItemByTag( WEAP_GUNBLADE + j )->shortname;
+			writer << weapnames[j] << j;
+		}
 	}
+	writer << '}';
 
 	// Write player properties
-	playersarray = sq_api->CreateArray( query, 0, "players" );
+	writer << "players" << '[';
 	for( cl = game.quits; cl; cl = cl->next ) {
-		stat_query_section_t *playersection, *accsection, *awardssection, *statsSection;
-		gameaward_t *ga;
-		int numAwards;
+		writer << '{';
+		{
+			writer << "session_id"  << cl->mm_session;
+			writer << "name"        << cl->netname;
+			writer << "score"       << cl->stats.score;
+			writer << "time_played" << cl->timePlayed;
+			writer << "is_final"    << ( cl->final ? 1 : 0 );
 
-		stats = &cl->stats;
-
-		playersection = sq_api->CreateSection( query, playersarray, 0 );
-
-		// GENERAL INFO
-		sq_api->SetString( playersection, "name", cl->netname );
-		sq_api->SetNumber( playersection, "score", cl->stats.score );
-		sq_api->SetNumber( playersection, "timeplayed", cl->timePlayed );
-		sq_api->SetNumber( playersection, "final", cl->final );
-
-		statsSection = sq_api->CreateSection( query, playersection, "various_stats" );
-
-		for( const auto &keyAndValue: cl->stats ) {
-			sq_api->SetNumber( statsSection, keyAndValue.first, keyAndValue.second );
-		}
-
-		if( teamGame != 0 ) {
-			sq_api->SetNumber( playersection, "team", cl->team - TEAM_ALPHA );
-		}
-
-		// AWARDS
-		numAwards = 0;
-		if( stats->awardAllocator && LA_Size( stats->awardAllocator ) > 0 ) {
-			numAwards += LA_Size( stats->awardAllocator );
-		}
-
-		if( numAwards ) {
-			stat_query_section_t *gasection;
-			int size;
-
-			awardssection = sq_api->CreateArray( query, playersection, "awards" );
-
-			if( stats->awardAllocator ) {
-				size = numAwards;
-				for( i = 0; i < size; i++ ) {
-					ga = (gameaward_t*)LA_Pointer( stats->awardAllocator, i );
-					gasection = sq_api->CreateSection( query, awardssection, 0 );
-					sq_api->SetString( gasection, "name", ga->name );
-					sq_api->SetNumber( gasection, "count", ga->count );
+			writer << "various_stats" << '{';
+			{
+				for( const auto &keyAndValue: cl->stats ) {
+					writer << keyAndValue.first << keyAndValue.second;
 				}
 			}
+			writer << '}';
 
-			// theoretically you could Free() the awards now, but they are from levelpool
-			// so they are deallocated anyway after this
-		}
-
-		// WEAPONS
-
-		// first pass calculate the number of weapons, see if we even need this section
-		for( i = 0; i < ( AMMO_TOTAL - WEAP_TOTAL ); i++ ) {
-			if( stats->accuracy_shots[i] > 0 ) {
-				break;
+			if( teamGame != 0 ) {
+				writer << "team" << cl->team - TEAM_ALPHA;
 			}
+
+			G_MatchReport_AddPlayerAwards( writer, cl );
+			G_MatchReport_AddPlayerWeapons( writer, cl, weapnames );
+			G_MatchReport_AddPlayerLogFrags( writer, cl );
 		}
-		if( i < ( AMMO_TOTAL - WEAP_TOTAL ) ) {
-			int j;
+		writer << '}';
+	}
+	writer << ']';
 
-			accsection = sq_api->CreateArray( query, playersection, "weapons" );
+	writer.Send();
+}
 
-			// we only loop thru the lower section of weapons since we put both
-			// weak and strong shots inside the same weapon
-			for( j = 0; j < AMMO_WEAK_GUNBLADE - WEAP_TOTAL; j++ ) {
-				int weak, hits, shots;
-				double acc;
-				stat_query_section_t *weapsection;
-
-				weak = j + ( AMMO_WEAK_GUNBLADE - WEAP_TOTAL );
-				if( stats->accuracy_shots[j] == 0 && stats->accuracy_shots[weak] == 0 ) {
-					continue;
-				}
-
-				weapsection = sq_api->CreateSection( query, accsection, NULL );
-
-				// STRONG
-				hits = stats->accuracy_hits[j];
-				shots = stats->accuracy_shots[j];
-
-				// copied from cg_scoreboard.c, but changed the last -1 to 0 (no hits is zero acc, right??)
-				acc = (double) ( hits > 0 ? ( ( hits ) == ( shots ) ? 100 : ( min( (int)( floor( ( 100.0f * ( hits ) ) / ( (float)( shots ) ) + 0.5f ) ), 99 ) ) ) : 0 );
-
-				sq_api->SetString( weapsection, "name", weapnames[j] );
-
-				statsSection = sq_api->CreateSection( query, weapsection, "various_stats" );
-
-				sq_api->SetNumber( statsSection, "strong_hits", hits );
-				sq_api->SetNumber( statsSection, "strong_shots", shots );
-				sq_api->SetNumber( statsSection, "strong_acc", acc );
-				sq_api->SetNumber( statsSection, "strong_dmg", stats->accuracy_damage[j] );
-				sq_api->SetNumber( statsSection, "strong_frags", stats->accuracy_frags[j] );
-
-				// WEAK
-				hits = stats->accuracy_hits[weak];
-				shots = stats->accuracy_shots[weak];
-
-				// copied from cg_scoreboard.c, but changed the last -1 to 0 (no hits is zero acc, right??)
-				acc = (double) ( hits > 0 ? ( ( hits ) == ( shots ) ? 100 : ( min( (int)( floor( ( 100.0f * ( hits ) ) / ( (float)( shots ) ) + 0.5f ) ), 99 ) ) ) : 0 );
-
-				sq_api->SetNumber( statsSection, "weak_hits", hits );
-				sq_api->SetNumber( statsSection, "weak_shots", shots );
-				sq_api->SetNumber( statsSection, "weak_acc", acc );
-				sq_api->SetNumber( statsSection, "weak_dmg", stats->accuracy_damage[weak] );
-				sq_api->SetNumber( statsSection, "weak_frags", stats->accuracy_frags[weak] );
-			}
-		}
-
-		// duel frags
-		if( /* duelGame && */ stats->fragAllocator != 0 && LA_Size( stats->fragAllocator ) > 0 ) {
-			stat_query_section_t *fragSection;
-			loggedFrag_t *lfrag;
-			int size;
-
-			fragSection = sq_api->CreateArray( query, playersection, "log_frags" );
-			size = LA_Size( stats->fragAllocator );
-			for( i = 0; i < size; i++ ) {
-				stat_query_section_t *sect;
-
-				lfrag = (loggedFrag_t*)LA_Pointer( stats->fragAllocator, i );
-
-				sect = sq_api->CreateSection( query, fragSection, 0 );
-				sq_api->SetString( sect, "victim", lfrag->victim.ToString( uuid_buffer ) );
-				sq_api->SetNumber( sect, "weapon", lfrag->weapon );
-				sq_api->SetNumber( sect, "time", lfrag->time );
-			}
-		}
-
-		sq_api->SetString( playersection, "session_id", cl->mm_session.ToString( uuid_buffer ) );
+static void G_MatchReport_AddPlayerAwards( QueryWriter &writer, gclient_quit_t *cl ) {
+	const auto *stats = &cl->stats;
+	if( !stats->awardAllocator || !LA_Size( stats->awardAllocator ) ) {
+		return;
 	}
 
-	return query;
+	writer << "awards" << '[';
+	{
+		for( size_t i = 0, size = LA_Size( stats->awardAllocator ); i < size; i++ ) {
+			const auto *ga = (gameaward_t *)LA_Pointer( stats->awardAllocator, i );
+			writer << '{';
+			{
+				writer << "name"  << ga->name;
+				writer << "count" << ga->count;
+			}
+			writer << '}';
+		}
+	}
+	writer << ']';
+}
+
+static void G_MatchReport_AddPlayerLogFrags( QueryWriter &writer, gclient_quit_t *cl ) {
+	const auto *stats = &cl->stats;
+	if( !stats->fragAllocator || !LA_Size( stats->fragAllocator ) ) {
+		return;
+	}
+
+	writer << "log_frags" << '[';
+	{
+		for( size_t i = 0, size = LA_Size( stats->fragAllocator ); i < size; i++ ) {
+			const auto *frag = (loggedFrag_t *)LA_Pointer( stats->fragAllocator, i );
+			writer << '{';
+			{
+				writer << "victim" << frag->victim;
+				writer << "weapon" << frag->weapon;
+				writer << "time" << frag->time;
+			}
+			writer << '}';
+		}
+	}
+	writer << ']';
+}
+
+// TODO: Should be lifted to gameshared
+static inline double ComputeAccuracy( int hits, int shots ) {
+	if( !hits ) {
+		return 0.0;
+	}
+	if( hits == shots ) {
+		return 100.0;
+	}
+
+	// copied from cg_scoreboard.c, but changed the last -1 to 0 (no hits is zero acc, right??)
+	return ( min( (int)( floor( ( 100.0f * ( hits ) ) / ( (float)( shots ) ) + 0.5f ) ), 99 ) );
+}
+
+static void G_MatchReport_AddPlayerWeapons( QueryWriter &writer, gclient_quit_t *cl, const char **weaponNames ) {
+	const auto *stats = &cl->stats;
+	int i;
+
+	// first pass calculate the number of weapons, see if we even need this section
+	for( i = 0; i < ( AMMO_TOTAL - WEAP_TOTAL ); i++ ) {
+		if( stats->accuracy_shots[i] > 0 ) {
+			break;
+		}
+	}
+
+	if( i >= ( AMMO_TOTAL - WEAP_TOTAL ) ) {
+		return;
+	}
+
+	writer << "weapons" << '[';
+	{
+		int j;
+
+		// we only loop thru the lower section of weapons since we put both
+		// weak and strong shots inside the same weapon
+		for( j = 0; j < AMMO_WEAK_GUNBLADE - WEAP_TOTAL; j++ ) {
+			const int weak = j + ( AMMO_WEAK_GUNBLADE - WEAP_TOTAL );
+			// Don't submit unused weapons
+			if( stats->accuracy_shots[j] == 0 && stats->accuracy_shots[weak] == 0 ) {
+				continue;
+			}
+
+			writer << '{';
+			{
+				writer << "name" << weaponNames[j];
+
+				writer << "various_stats" << '{';
+				{
+					// STRONG
+					int hits = stats->accuracy_hits[j];
+					int shots = stats->accuracy_shots[j];
+
+					writer << "strong_hits"   << hits;
+					writer << "strong_shots"  << shots;
+					writer << "strong_acc"    << ComputeAccuracy( hits, shots );
+					writer << "strong_dmg"    << stats->accuracy_damage[j];
+					writer << "strong_frags"  << stats->accuracy_frags[j];
+
+					// WEAK
+					hits = stats->accuracy_hits[weak];
+					shots = stats->accuracy_shots[weak];
+
+					writer << "weak_hits"   << hits;
+					writer << "weak_shots"  << shots;
+					writer << "weak_acc"    << ComputeAccuracy( hits, shots );
+					writer << "weak_dmg"    << stats->accuracy_damage[weak];
+					writer << "weak_frags"  << stats->accuracy_frags[weak];
+				}
+				writer << '}';
+			}
+			writer << '}';
+		}
+	}
+	writer << ']';
 }
 
 /*
@@ -1134,7 +1153,6 @@ static stat_query_t *G_Match_GenerateReport( void ) {
 void G_Match_SendReport( void ) {
 	edict_t *ent;
 	gclient_quit_t *qcl, *qnext;
-	stat_query_t *query;
 	int numPlayers;
 
 	// TODO: check if MM is enabled
@@ -1145,7 +1163,7 @@ void G_Match_SendReport( void ) {
 	}
 
 	if( GS_RaceGametype() ) {
-		G_Match_RaceReport();
+		G_Match_SendRaceReport();
 		return;
 	}
 
@@ -1161,14 +1179,7 @@ void G_Match_SendReport( void ) {
 			numPlayers++;
 
 		if( numPlayers > 1 ) {
-			// emit them all
-			query = G_Match_GenerateReport();
-			if( query ) {
-				trap_MM_SendQuery( query );
-
-				// this will be free'd by callbacks
-				query = NULL;
-			}
+			G_Match_SendRegularReport();
 		}
 	}
 
@@ -1182,73 +1193,54 @@ void G_Match_SendReport( void ) {
 }
 
 /*
-* G_Match_RaceReport
+* G_Match_SendRaceReport
 */
-static void G_Match_RaceReport( void ) {
-	stat_query_t *query;
-	stat_query_section_t *runsArray;
-	stat_query_section_t *timesArray, *dummy;
-	raceRun_t *prr;
-	int i, j, size;
-	char uuid_buffer[UUID_BUFFER_SIZE];
-
+static void G_Match_SendRaceReport( void ) {
 	if( !GS_RaceGametype() ) {
 		G_Printf( "G_Match_RaceReport.. not race gametype\n" );
 		return;
 	}
 
 	if( !game.raceruns || !LA_Size( game.raceruns ) ) {
-		G_Printf( "G_Match_RaceReport.. no runs to report\n" );
 		return;
 	}
 
-	/*
-	* match : { .... }
-	* runs :
-	* [
-	*   {
-	*       session_id : 3434343,
-	*   times : [ 12, 43, 56, 7878, 4 ]
-	*    }
-	* ]
-	*  ( TODO: get the nickname there )
-	*/
-	query = sq_api->CreateQuery( NULL, "server/matchReport", false );
-	if( !query ) {
-		G_Printf( "G_Match_RaceReport.. failed to create query object\n" );
-		return;
-	}
+	QueryWriter writer( sq_api, "server/matchReport" );
 
-	g_mm_writeHeader( query, false );
+	G_MatchReport_WriteHeaderFields( writer, false );
 
-	// Players array
-	runsArray = sq_api->CreateArray( query, 0, "runs" );
-	size = LA_Size( game.raceruns );
-	for( i = 0; i < size; i++ ) {
-		prr = (raceRun_t*)LA_Pointer( game.raceruns, i );
+	writer << "race_runs" << '[';
+	{
+		size_t size = LA_Size( game.raceruns );
+		for( size_t i = 0; i < size; i++ ) {
+			raceRun_t *prr = (raceRun_t*)LA_Pointer( game.raceruns, i );
 
-		dummy = sq_api->CreateSection( query, runsArray, 0 );
+			writer << '{';
+			{
+				// Setting session id and nickname is mutually exclusive
+				if( prr->owner.IsValidSessionId() ) {
+					writer << "session_id" << prr->owner;
+				} else {
+					writer << "nickname" << prr->nickname;
+				}
 
-		// Setting session id and nickname is mutually exclusive
-		if( prr->owner.IsValidSessionId() ) {
-			sq_api->SetString( dummy, "session_id", prr->owner.ToString( uuid_buffer ) );
-		} else {
-			sq_api->SetString( dummy, "nickname", prr->nickname );
+				// TODO: This is not a real-world UTC time!
+				writer << "timestamp" << prr->timestamp;
+
+				writer << "times" << '[';
+				{
+					// Accessing the "+1" element is legal (its the final time). Supply it along with other times.
+					for( int j = 0; j < prr->numSectors + 1; j++ )
+						writer << prr->times[j];
+				}
+				writer << ']';
+			}
+			writer << '}';
 		}
-
-		sq_api->SetNumber( dummy, "timestamp", prr->timestamp );
-		timesArray = sq_api->CreateArray( query, dummy, "times" );
-
-		for( j = 0; j < prr->numSectors; j++ )
-			sq_api->AddArrayNumber( timesArray, prr->times[j] );
-
-		// FINAL TIME
-		sq_api->AddArrayNumber( timesArray, prr->times[prr->numSectors] );
 	}
+	writer << ']';
 
-	trap_MM_SendQuery( query );
-
-	query = NULL;
+	writer.Send();
 
 	// clear gameruns
 	LinearAllocator_Free( game.raceruns );
