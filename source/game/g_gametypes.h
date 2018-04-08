@@ -57,11 +57,11 @@ typedef struct {
 } loggedFrag_t;
 
 typedef struct {
-	char nickname[32];  // not set if session id is valid
-	mm_uuid_t owner;	// session-id
-	int64_t timestamp;	// milliseconds
+	char nickname[32];    // not set if session id is valid
+	mm_uuid_t owner;	  // session id of the player, it is allowed to play without logging in in race
+	int64_t utcTimestamp; // real-world timestamp corresponding to the run completion
 	int numSectors;
-	int64_t *times;		// unsigned int * numSectors+1, where last is final time
+	int64_t *times;		  // unsigned int * numSectors+1, where last is final time
 } raceRun_t;
 
 class GVariousStats {

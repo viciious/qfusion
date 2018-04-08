@@ -669,7 +669,7 @@ void G_SetRaceTime( edict_t *ent, int sector, int64_t time ) {
 		raceRun_t *nrr; // new global racerun
 
 		rr->times[rr->numSectors] = time;
-		rr->timestamp = trap_Milliseconds();
+		rr->utcTimestamp = game.utcTimeMillis;
 
 		// validate the client
 		// no bots for race, at all
@@ -926,8 +926,7 @@ static void G_MatchReport_WriteHeaderFields( QueryWriter &writer, int teamGame )
 	writer << "is_team_game"   << ( teamGame ? 1 : 0 );
 	writer << "is_race_game"   << ( GS_RaceGametype() ? 1 : 0 );
 	writer << "mod_name"       << trap_Cvar_String( "fs_game" );
-
-	// TODO: Write match start time!
+	writer << "utc_start_time" << game.utcMatchStartTime;
 
 	if( g_autorecord->integer ) {
 		writer << "demo_filename" << va( "%s%s", level.autorecord_name, game.demoExtension );
@@ -1224,8 +1223,7 @@ static void G_Match_SendRaceReport( void ) {
 					writer << "nickname" << prr->nickname;
 				}
 
-				// TODO: This is not a real-world UTC time!
-				writer << "timestamp" << prr->timestamp;
+				writer << "timestamp" << prr->utcTimestamp;
 
 				writer << "times" << '[';
 				{

@@ -161,7 +161,9 @@ typedef struct {
 	int64_t realtime;				// actual time, set with Sys_Milliseconds every frame
 	int64_t serverTime;				// actual time in the server
 
-	time_t localTime;               // local time in milliseconds
+	int64_t utcTimeMillis;          // local time since epoch
+	int64_t utcMatchStartTime;      // utcTimeMillis at the actual match start
+	                                // (we can't compute it based on the current time due to possible timeouts)
 
 	int numBots;
 
