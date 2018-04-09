@@ -695,6 +695,71 @@ void G_SplashFrac( const vec3_t origin, const vec3_t mins, const vec3_t maxs, co
 #undef SPLASH_HDIST_CLAMP
 }
 
+/**
+ * RS_SplashFrac
+ * Racesow version of G_SplashFrac by Weqo
+ */
+void RS_SplashFrac( const vec3_t origin, const vec3_t mins, const vec3_t maxs, const vec3_t point, float maxradius, vec3_t pushdir, float *kickFrac, float *dmgFrac, float splashFrac )
+{
+	vec3_t boxcenter = { 0, 0, 0 };
+	float distance = 0;
+	int i;
+	float innerradius;
+	float outerradius;
+	float g_distance;
+	float h_distance;
+
+	if( maxradius <= 0 )
+	{
+		if( kickFrac )
+			*kickFrac = 0;
+		if( dmgFrac)
+			*dmgFrac = 0;
+
+		return;
+	}
+
+	innerradius = ( maxs[0] + maxs[1] - mins[0] - mins[1] ) * 0.25;
+	outerradius = ( maxs[2] - mins[2] ); // cylinder height
+
+	// find center of the box
+	for( i = 0; i < 3; i++ ) {
+		boxcenter[i] = origin[i] + maxs[i] + mins[i];
+	}
+
+	// find box radius to explosion origin direction
+	VectorSubtract( boxcenter, point, pushdir );
+
+	g_distance = sqrtf( pushdir[0]*pushdir[0] + pushdir[1]*pushdir[1] ); // distance on virtual ground
+	h_distance = fabsf( pushdir[2] );				    // corrected distance in height
+
+	if( ( h_distance <= outerradius / 2 ) || ( g_distance > innerradius ) )
+		distance = g_distance - innerradius;
+
+	if( ( h_distance > outerradius / 2 ) || ( g_distance <= innerradius ) )
+		distance = h_distance - outerradius / 2;
+
+	if( ( h_distance > outerradius / 2 ) || ( g_distance > innerradius ) )
+		distance = sqrtf( ( g_distance - innerradius ) * ( g_distance - innerradius ) + ( h_distance - outerradius / 2 ) * ( h_distance - outerradius / 2 ) );
+
+	if( dmgFrac )
+	{
+		// soft sin curve
+		*dmgFrac = sinf( DEG2RAD( ( distance / maxradius ) * 80 ) );
+		clamp( *dmgFrac, 0.0f, 1.0f );
+	}
+
+	if( kickFrac )
+	{
+		distance = fabsf( distance / maxradius );
+		clamp( distance, 0.0f, 1.0f );
+		*kickFrac = 1.0 - powf( distance, splashFrac );
+	}
+
+	VectorSubtract( boxcenter, point, pushdir );
+	VectorNormalize( pushdir );
+}
+
 /*
 * G_RadiusDamage
 */
@@ -759,11 +824,15 @@ void G_RadiusDamage( edict_t *inflictor, edict_t *attacker, cplane_t *plane, edi
 			}
 
 			if( weapondef ) {
-				G_SplashFrac4D( ENTNUM( ent ), inflictor->s.origin, radius, pushDir, &kickFrac, NULL, 0 );
+				if( GS_RaceGametype() ) {
+					RS_SplashFrac4D( ENTNUM( ent ), inflictor->s.origin, radius, pushDir, &kickFrac, NULL, 0, weapondef->firedef.splashfrac );
+				} else {
+					G_SplashFrac4D( ENTNUM( ent ), inflictor->s.origin, radius, pushDir, &kickFrac, NULL, 0 );
 
-				minknockback = weapondef->firedef.minknockback;
-				maxknockback = weapondef->firedef.knockback;
-				clamp_high( minknockback, maxknockback );
+					minknockback = weapondef->firedef.minknockback;
+					maxknockback = weapondef->firedef.knockback;
+					clamp_high( minknockback, maxknockback );
+				}
 				knockback = ( minknockback + ( (float)( maxknockback - minknockback ) * kickFrac ) ) * g_self_knockback->value;
 				damage *= weapondef->firedef.selfdamage;
 			}

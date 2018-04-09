@@ -629,9 +629,28 @@ static void W_Touch_Grenade( edict_t *ent, edict_t *other, cplane_t *plane, int 
 	}
 
 	// don't explode on doors and plats that take damage
-	if( !other->takedamage || ISBRUSHMODEL( other->s.modelindex ) ) {
-		G_AddEvent( ent, EV_GRENADE_BOUNCE, ( ent->s.effects & EF_STRONG_WEAPON ) ? FIRE_MODE_STRONG : FIRE_MODE_WEAK, true );
-		return;
+	// except for doors and plats that take damage in race
+	if( !other->takedamage || ( !GS_RaceGametype() && ISBRUSHMODEL( other->s.modelindex ) ) ) {
+		// race - make grenades bounce twice
+		if( GS_RaceGametype() ) {
+			if( ent->s.effects & EF_STRONG_WEAPON ) {
+				ent->health -= 1;
+			}
+			if( !( ent->s.effects & EF_STRONG_WEAPON ) || ( ( VectorLength( ent->velocity ) && Q_rint( ent->health ) > 0 ) || ent->timeStamp + 350 > level.time ) ) {
+				// kill some velocity on each bounce
+				float friction = 0.85;
+				gs_weapon_definition_t *weapondef = GS_GetWeaponDef( WEAP_GRENADELAUNCHER );
+				if( weapondef ) {
+					friction = bound( 0, weapondef->firedef.friction, 2 );
+				}
+				VectorScale( ent->velocity, friction, ent->velocity );
+				G_AddEvent( ent, EV_GRENADE_BOUNCE, ( ent->s.effects & EF_STRONG_WEAPON ) ? FIRE_MODE_STRONG : FIRE_MODE_WEAK, true );
+				return;
+			}
+		} else {
+			G_AddEvent( ent, EV_GRENADE_BOUNCE, ( ent->s.effects & EF_STRONG_WEAPON ) ? FIRE_MODE_STRONG : FIRE_MODE_WEAK, true );
+			return;
+		}
 	}
 
 	if( other->takedamage ) {
@@ -686,10 +705,20 @@ edict_t *W_Fire_Grenade( edict_t *self, vec3_t start, vec3_t angles, int speed, 
 	grenade->think = W_Grenade_Explode;
 	grenade->classname = "grenade";
 	grenade->enemy = NULL;
+	if( GS_RaceGametype() ) {
+		gs_weapon_definition_t *weapondef = GS_GetWeaponDef( WEAP_GRENADELAUNCHER );
+		if( weapondef->firedef.gravity ) {
+			grenade->gravity = weapondef->firedef.gravity;
+		}
+	}
 
 	if( mod == MOD_GRENADE_S ) {
 		grenade->s.modelindex = trap_ModelIndex( PATH_GRENADE_STRONG_MODEL );
 		grenade->s.effects |= EF_STRONG_WEAPON;
+		if( GS_RaceGametype() ) {
+			// bounce count
+			grenade->health = 2;
+		}
 	} else {
 		grenade->s.modelindex = trap_ModelIndex( PATH_GRENADE_WEAK_MODEL );
 		grenade->s.effects &= ~EF_STRONG_WEAPON;
@@ -768,6 +797,11 @@ static void W_Touch_Rocket( edict_t *ent, edict_t *other, cplane_t *plane, int s
 edict_t *W_Fire_Rocket( edict_t *self, vec3_t start, vec3_t angles, int speed, float damage, int minKnockback, int maxKnockback, int stun, int minDamage, int radius, int timeout, int mod, int timeDelta ) {
 	edict_t *rocket;
 
+	// in race, rockets are slower in water
+	if( GS_RaceGametype() ) {
+		speed = self->waterlevel > 1 ? speed * 0.5 : speed;
+	}
+
 	if( GS_Instagib() ) {
 		damage = 9999;
 	}
@@ -800,6 +834,7 @@ static void W_Plasma_Explosion( edict_t *ent, edict_t *ignore, cplane_t *plane, 
 	event = G_SpawnEvent( EV_PLASMA_EXPLOSION, DirToByte( plane ? plane->normal : NULL ), ent->s.origin );
 	event->s.firemode = ( ent->s.effects & EF_STRONG_WEAPON ) ? FIRE_MODE_STRONG : FIRE_MODE_WEAK;
 	event->s.weapon = radius & 127;
+	event->s.ownerNum = ENTNUM( ent->r.owner ); // race related, shouldn't matter for basewsw
 
 	G_RadiusDamage( ent, ent->r.owner, plane, ignore, ent->style );
 
@@ -830,6 +865,13 @@ static void W_Touch_Plasma( edict_t *ent, edict_t *other, cplane_t *plane, int s
 			G_SplashFrac4D( ENTNUM( other ), ent->s.origin, ent->projectileInfo.radius, dir, NULL, NULL, ent->timeDelta );
 		} else {
 			VectorNormalize2( ent->velocity, dir );
+		}
+
+		// race - hack for plasma shooters which shoot on buttons
+		if( GS_RaceGametype() && (surfFlags & SURF_NOIMPACT) ) {
+			G_Damage( other, ent, ent->r.owner, dir, ent->velocity, ent->s.origin, ent->projectileInfo.maxDamage, 0, 0, DAMAGE_NO_KNOCKBACK, ent->style );
+			G_FreeEdict( ent );
+			return;
 		}
 
 		G_Damage( other, ent, ent->r.owner, dir, ent->velocity, ent->s.origin, ent->projectileInfo.maxDamage, ent->projectileInfo.maxKnockback, ent->projectileInfo.stun, DAMAGE_KNOCKBACK_SOFT, ent->style );
@@ -977,6 +1019,7 @@ static void W_Touch_Bolt( edict_t *self, edict_t *other, cplane_t *plane, int su
 		event = G_SpawnEvent( EV_BOLT_EXPLOSION, DirToByte( plane ? plane->normal : NULL ), self->s.origin );
 		event->s.firemode = FIRE_MODE_WEAK;
 	}
+	event->s.ownerNum = ENTNUM( self->r.owner ); // race related, shouldn't matter for basewsw
 
 	if( missed && self->r.client ) {
 		G_AwardPlayerMissedElectrobolt( self->r.owner, MOD_ELECTROBOLT_W ); // hit something that isnt a player
@@ -1056,6 +1099,13 @@ void W_Fire_Electrobolt_Combined( edict_t *self, vec3_t start, vec3_t angles, fl
 			knockback = maxknockback - ( ( maxknockback - minknockback ) * frac );
 
 			G_Damage( hit, self, self, dir, dir, tr.endpos, damage, knockback, stun, dmgflags, mod );
+
+			if( GS_RaceGametype() ) {
+				// race - hit check for shootable buttons
+				if( hit->movetype == MOVETYPE_NONE || hit->movetype == MOVETYPE_PUSH ) {
+					break;
+				}
+			}
 
 			// spawn a impact event on each damaged ent
 			event = G_SpawnEvent( EV_BOLT_EXPLOSION, DirToByte( tr.plane.normal ), tr.endpos );
@@ -1169,6 +1219,13 @@ void W_Fire_Electrobolt_FullInstant( edict_t *self, vec3_t start, vec3_t angles,
 			knockback = maxknockback - ( ( maxknockback - minknockback ) * frac );
 
 			G_Damage( hit, self, self, dir, dir, tr.endpos, damage, knockback, stun, dmgflags, mod );
+
+			if( GS_RaceGametype() ) {
+				// race - hit check for shootable buttons
+				if( hit->movetype == MOVETYPE_NONE || hit->movetype == MOVETYPE_PUSH ) {
+					break;
+				}
+			}
 
 			// spawn a impact event on each damaged ent
 			event = G_SpawnEvent( EV_BOLT_EXPLOSION, DirToByte( tr.plane.normal ), tr.endpos );
@@ -1567,10 +1624,12 @@ static edict_t *_FindOrSpawnLaser( edict_t *owner, int entType, bool *newLaser )
 
 		laser->s.type = entType;
 		laser->s.ownerNum = ownerNum;
-		laser->movetype = MOVETYPE_NONE;
 		laser->r.solid = SOLID_NOT;
 		laser->s.modelindex = 255; // needs to have some value so it isn't filtered by the server culling
 		laser->r.svflags &= ~SVF_NOCLIENT;
+		// The only real utility of this flag is to prevent aggressive entity culling by anticheat.
+		// The netcode/entity system needs an overhaul, use this hack as a temporary workaround.
+		laser->r.svflags |= SVF_TRANSMITORIGIN2;
 	}
 
 	return laser;

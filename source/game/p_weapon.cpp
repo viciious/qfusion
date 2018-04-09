@@ -193,6 +193,10 @@ static void G_ProjectileDistancePrestep( edict_t *projectile, float distance ) {
 
 	mask = ( projectile->r.clipmask ) ? projectile->r.clipmask : MASK_SHOT; // race trick should come set up inside clipmask
 
+	if( GS_RaceGametype() && projectile->movetype == MOVETYPE_LINEARPROJECTILE ) {
+		VectorCopy( projectile->s.linearMovementBegin, projectile->s.origin );
+	}
+
 #ifdef PLASMAHACK
 	VectorCopy( projectile->s.origin, plasma_hack_start );
 #endif
@@ -200,8 +204,15 @@ static void G_ProjectileDistancePrestep( edict_t *projectile, float distance ) {
 	VectorMA( projectile->s.origin, distance, dir, dest );
 	G_Trace4D( &trace, projectile->s.origin, projectile->r.mins, projectile->r.maxs, dest, projectile->r.owner, mask, projectile->timeDelta );
 
-	for( i = 0; i < 3; i++ )
-		projectile->s.origin[i] = projectile->olds.origin[i] = trace.endpos[i];
+	if( GS_RaceGametype() ) {
+		for( i = 0; i < 3; i++ ) {
+			projectile->s.origin[i] = projectile->s.linearMovementBegin[i] = projectile->olds.origin[i] = projectile->olds.linearMovementBegin[i] = trace.endpos[i];
+		}
+	} else {
+		for( i = 0; i < 3; i++ ) {
+			projectile->s.origin[i] = projectile->olds.origin[i] = trace.endpos[i];
+		}
+	}
 
 	GClip_LinkEntity( projectile );
 	SV_Impact( projectile, &trace );
@@ -806,7 +817,11 @@ void G_FireWeapon( edict_t *ent, int parm ) {
 		//if( projectile->s.linearProjectile ) // convert distance to time for linear projectiles
 		//	G_ProjectileTimePrestep( projectile, 1000.0f * ( g_projectile_prestep->value / VectorLengthFast( projectile->velocity ) ) );
 		//else
-		G_ProjectileDistancePrestep( projectile, g_projectile_prestep->value );
+		if( GS_RaceGametype() && firedef->prestep != 0 ) {
+			G_ProjectileDistancePrestep( projectile, firedef->prestep );
+		} else {
+			G_ProjectileDistancePrestep( projectile, g_projectile_prestep->value );
+		}
 		if( projectile->s.linearMovement )
 			VectorCopy( projectile->s.origin, projectile->s.linearMovementBegin );
 	}
@@ -814,7 +829,8 @@ void G_FireWeapon( edict_t *ent, int parm ) {
 #ifdef NO_ROCKET_ANTILAG
 
 	// hack for disabling antilag on rockets
-	if( projectile && projectile->s.type == ET_ROCKET ) {
+	// race - disable antilag for plasma too
+	if( projectile && ( projectile->s.type == ET_ROCKET || ( GS_RaceGametype() && projectile->s.type == ET_PLASMA ) ) ) {
 		int timeOffset;
 
 		timeOffset = -projectile->timeDelta;
