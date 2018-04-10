@@ -45,8 +45,8 @@ static inline bool CM_MightCollideInLeaf_SSE42( const vec_bounds_t shapeMins,
 	return VectorLengthSquared( perp ) <= distanceThreshold * distanceThreshold;
 }
 
-void CMSse42TraceComputer::ClipBoxToLeaf( CMTraceContext *tlc, cbrush_t **markbrushes,
-										  int nummarkbrushes, cface_t **markfaces, int nummarkfaces ) {
+void CMSse42TraceComputer::ClipBoxToLeaf( CMTraceContext *tlc, cbrush_t *brushes,
+										  int numbrushes, cface_t *markfaces, int nummarkfaces ) {
 	int i, j;
 	cbrush_t *b;
 	cface_t *patch;
@@ -56,8 +56,8 @@ void CMSse42TraceComputer::ClipBoxToLeaf( CMTraceContext *tlc, cbrush_t **markbr
 	const float *fraction = &tlc->trace->fraction;
 
 	// trace line against all brushes
-	for( i = 0; i < nummarkbrushes; i++ ) {
-		b = markbrushes[i];
+	for( i = 0; i < numbrushes; i++ ) {
+		b = &brushes[i];
 		if( !( b->contents & tlc->contents ) ) {
 			continue;
 		}
@@ -73,7 +73,7 @@ void CMSse42TraceComputer::ClipBoxToLeaf( CMTraceContext *tlc, cbrush_t **markbr
 
 	// trace line against all patches
 	for( i = 0; i < nummarkfaces; i++ ) {
-		patch = markfaces[i];
+		patch = &markfaces[i];
 		if( !( patch->contents & tlc->contents ) ) {
 			continue;
 		}

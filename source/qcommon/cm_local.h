@@ -91,25 +91,25 @@ typedef struct cface_s {
 } cface_t;
 
 typedef struct {
-	cbrush_t **markbrushes;
-	cface_t **markfaces;
+	cbrush_t *brushes;
+	cface_t *faces;
 
+	int numbrushes;
+	int numfaces;
 	int contents;
 	int cluster;
 	int area;
-	int nummarkbrushes;
-	int nummarkfaces;
 } cleaf_t;
 
 typedef struct cmodel_s {
-	cface_t **markfaces;
-	cbrush_t **markbrushes;
+	cface_t *faces;
+	cbrush_t *brushes;
 
 	vec3_t mins, maxs;
 	vec3_t cyl_offset;
 
-	int nummarkfaces;
-	int nummarkbrushes;
+	int numfaces;
+	int numbrushes;
 
 	float cyl_halfheight;
 	float cyl_radius;
@@ -162,6 +162,10 @@ struct cmodel_state_s {
 	cface_t *map_faces;             // instance-local (is not shared)
 
 	uint8_t **map_face_brushdata;   // shared between instances contrary to map_faces to avoid duplication for no reasons.
+
+	cbrush_t *leaf_inline_brushes;
+	cbrushside_t *leaf_inline_sides;
+	cface_t *leaf_inline_faces;
 
 	int nummarkfaces;
 	cface_t **map_markfaces;        // instance-local (is not shared)

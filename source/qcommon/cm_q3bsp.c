@@ -22,6 +22,7 @@ Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
 #include "qcommon.h"
 #include "cm_local.h"
 #include "patch.h"
+#include "qfiles.h"
 
 #define MAX_FACET_PLANES 32
 
@@ -559,15 +560,21 @@ static void CMod_LoadSubmodels( cmodel_state_t *cms, lump_t *l ) {
 	cms->numcmodels = count;
 
 	for( i = 0; i < count; i++, in++, out++ ) {
-		out->nummarkfaces = LittleLong( in->numfaces );
-		out->markfaces = Mem_Alloc( cms->mempool, out->nummarkfaces * sizeof( cface_t * ) );
-		out->nummarkbrushes = LittleLong( in->numbrushes );
-		out->markbrushes = Mem_Alloc( cms->mempool, out->nummarkbrushes * sizeof( cbrush_t * ) );
+		out->numfaces = LittleLong( in->numfaces );
+		out->faces = Mem_Alloc( cms->mempool, out->numfaces * sizeof( cface_t  ) );
+		out->numbrushes = LittleLong( in->numbrushes );
+		out->brushes = Mem_Alloc( cms->mempool, out->numbrushes * sizeof( cbrush_t ) );
 
-		for( j = 0; j < out->nummarkfaces; j++ )
-			out->markfaces[j] = cms->map_faces + LittleLong( in->firstface ) + j;
-		for( j = 0; j < out->nummarkbrushes; j++ )
-			out->markbrushes[j] = cms->map_brushes + LittleLong( in->firstbrush ) + j;
+		// There is no necessity to copy brush/face data for model-inline brushes/faces
+		// since models are rarely used/accessed anyway.
+		// Model brushes/faces are converted to inline only to conform
+		// to the new CM interface that accepts plain brush/face arrays.
+		for( j = 0; j < out->numfaces; j++ ) {
+			out->faces[j] = cms->map_faces[LittleLong( in->firstface ) + j];
+		}
+		for( j = 0; j < out->numbrushes; j++ ) {
+			out->brushes[j] = cms->map_brushes[LittleLong( in->firstbrush ) + j];
+		}
 
 		for( j = 0; j < 3; j++ ) {
 			// spread the mins / maxs by a pixel
@@ -661,42 +668,90 @@ static void CMod_LoadLeafs( cmodel_state_t *cms, lump_t *l ) {
 	out = cms->map_leafs = Mem_Alloc( cms->mempool, count * sizeof( *out ) );
 	cms->numleafs = count;
 
+	int *const first_leaf_faces = Mem_TempMalloc( cms->numleafs * sizeof( int ) );
+	int *const first_leaf_brushes = Mem_TempMalloc( cms->numleafs * sizeof( int ) );
+
 	for( i = 0; i < count; i++, in++, out++ ) {
+
 		out->contents = 0;
 		out->cluster = LittleLong( in->cluster );
 		out->area = LittleLong( in->area );
-		out->markbrushes = cms->map_markbrushes + LittleLong( in->firstleafbrush );
-		out->nummarkbrushes = LittleLong( in->numleafbrushes );
-		out->markfaces = cms->map_markfaces + LittleLong( in->firstleafface );
-		out->nummarkfaces = LittleLong( in->numleaffaces );
+		out->numbrushes = LittleLong( in->numleafbrushes );
+		out->numfaces = LittleLong( in->numleaffaces );
+
+		first_leaf_brushes[i] = LittleLong( in->firstleafbrush );
+		first_leaf_faces[i] = LittleLong( in->firstleafface );
+
+		cbrush_t **markbrushes = cms->map_markbrushes + first_leaf_brushes[i];
+		cface_t **markfaces = cms->map_markfaces + first_leaf_faces[i];
 
 		// OR brushes' contents
-		for( j = 0; j < out->nummarkbrushes; j++ )
-			out->contents |= out->markbrushes[j]->contents;
+		for( j = 0; j < out->numbrushes; j++ )
+			out->contents |= markbrushes[j]->contents;
 
 		// exclude markfaces that have no facets
 		// so we don't perform this check at runtime
-		for( j = 0; j < out->nummarkfaces; ) {
+		for( j = 0; j < out->numfaces; ) {
 			k = j;
-			if( !out->markfaces[j]->facets ) {
-				for(; ( ++j < out->nummarkfaces ) && !out->markfaces[j]->facets; ) ;
-				if( j < out->nummarkfaces ) {
-					memmove( &out->markfaces[k], &out->markfaces[j], ( out->nummarkfaces - j ) * sizeof( *out->markfaces ) );
+			if( !markfaces[j]->facets ) {
+				for(; ( ++j < out->numfaces ) && !markfaces[j]->facets; ) ;
+				if( j < out->numfaces ) {
+					memmove( &markfaces[k], &markfaces[j], ( out->numfaces - j ) * sizeof( *markfaces ) );
 				}
-				out->nummarkfaces -= j - k;
+				out->numfaces -= j - k;
 
 			}
 			j = k + 1;
 		}
 
 		// OR patches' contents
-		for( j = 0; j < out->nummarkfaces; j++ )
-			out->contents |= out->markfaces[j]->contents;
+		for( j = 0; j < out->numfaces; j++ )
+			out->contents |= markfaces[j]->contents;
 
 		if( out->area >= cms->numareas ) {
 			cms->numareas = out->area + 1;
 		}
 	}
+
+	int num_brushes = 0;
+	int num_faces = 0;
+	int num_sides = 0;
+	out = cms->map_leafs;
+	for( i = 0; i < cms->numleafs; ++i, ++out ) {
+		num_brushes += out->numbrushes;
+		num_faces += out->numfaces;
+		for( j = 0; j < out->numbrushes; ++j ) {
+			cbrush_t **markbrushes = cms->map_markbrushes + first_leaf_brushes[i];
+			num_sides += markbrushes[j]->numsides;
+		}
+	}
+
+	cbrush_t *leaf_brushes = cms->leaf_inline_brushes = Mem_Alloc( cms->mempool, sizeof( cbrush_t ) * num_brushes );
+	cbrushside_t *leaf_sides = cms->leaf_inline_sides = Mem_Alloc( cms->mempool, sizeof( cbrushside_t ) * num_sides );
+	cface_t *leaf_faces = cms->leaf_inline_faces = Mem_Alloc( cms->mempool, sizeof( cface_t ) * num_faces );
+
+	out = cms->map_leafs;
+	for( i = 0; i < cms->numleafs; ++i, ++out ) {
+		out->brushes = leaf_brushes;
+		out->faces = leaf_faces;
+		for( j = 0; j < out->numbrushes; ++j ) {
+			cbrush_t **markbrushes = cms->map_markbrushes + first_leaf_brushes[i];
+			leaf_brushes[j] = *markbrushes[j];
+			leaf_brushes[j].brushsides = leaf_sides;
+			for( k = 0; k < leaf_brushes[j].numsides; ++k ) {
+				*leaf_sides++ = markbrushes[j]->brushsides[k];
+			}
+		}
+		leaf_brushes += out->numbrushes;
+		for( j = 0; j < out->numfaces; ++j ) {
+			cface_t **markfaces = cms->map_markfaces + first_leaf_faces[i];
+			leaf_faces[j] = *markfaces[j];
+		}
+		leaf_faces += out->numfaces;
+	}
+
+	Mem_TempFree( first_leaf_brushes );
+	Mem_TempFree( first_leaf_faces );
 }
 
 /*
@@ -926,8 +981,18 @@ void CM_LoadQ3BrushModel( cmodel_state_t *cms, void *parent, void *buf, bspForma
 
 	FS_FreeFile( buf );
 
-	if( cms->numvertexes ) {
+	// Free no longer needed data
+	if( cms->map_verts ) {
 		Mem_Free( cms->map_verts );
+		cms->map_verts = NULL;
+	}
+	if( cms->map_markfaces ) {
+		Mem_Free( cms->map_markfaces );
+		cms->map_markfaces = NULL;
+	}
+	if( cms->map_markbrushes ) {
+		Mem_Free( cms->map_markbrushes );
+		cms->map_markbrushes = NULL;
 	}
 }
 

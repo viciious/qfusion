@@ -76,10 +76,10 @@ extern "C" void CM_InitBoxHull( cmodel_state_t *cms ) {
 	cms->box_markbrushes[0] = cms->box_brush;
 
 	cms->box_cmodel->builtin = true;
-	cms->box_cmodel->nummarkfaces = 0;
-	cms->box_cmodel->markfaces = NULL;
-	cms->box_cmodel->markbrushes = cms->box_markbrushes;
-	cms->box_cmodel->nummarkbrushes = 1;
+	cms->box_cmodel->numfaces = 0;
+	cms->box_cmodel->faces = NULL;
+	cms->box_cmodel->brushes = cms->box_brush;
+	cms->box_cmodel->numbrushes = 1;
 
 	for( int i = 0; i < 6; i++ ) {
 		// brush sides
@@ -129,10 +129,10 @@ extern "C" void CM_InitOctagonHull( cmodel_state_t *cms ) {
 	cms->oct_markbrushes[0] = cms->oct_brush;
 
 	cms->oct_cmodel->builtin = true;
-	cms->oct_cmodel->nummarkfaces = 0;
-	cms->oct_cmodel->markfaces = NULL;
-	cms->oct_cmodel->markbrushes = cms->oct_markbrushes;
-	cms->oct_cmodel->nummarkbrushes = 1;
+	cms->oct_cmodel->numfaces = 0;
+	cms->oct_cmodel->faces = NULL;
+	cms->oct_cmodel->brushes = cms->oct_brush;
+	cms->oct_cmodel->numbrushes = 1;
 
 	// axial planes
 	for( int i = 0; i < 6; i++ ) {
@@ -481,8 +481,8 @@ static inline bool CM_MightCollide( const vec_bounds_t shapeMins, const vec_boun
 }
 
 void CMTraceComputer::CollideBox( CMTraceContext *tlc, void ( CMTraceComputer::*method )( CMTraceContext *, cbrush_t * ),
-								  cbrush_t **markbrushes, int nummarkbrushes,
-								  cface_t **markfaces, int nummarkfaces ) {
+								  cbrush_t *brushes, int nummarkbrushes,
+								  cface_t *markfaces, int nummarkfaces ) {
 	int i, j;
 	cbrush_t *b;
 	cface_t *patch;
@@ -493,7 +493,7 @@ void CMTraceComputer::CollideBox( CMTraceContext *tlc, void ( CMTraceComputer::*
 
 	// trace line against all brushes
 	for( i = 0; i < nummarkbrushes; i++ ) {
-		b = markbrushes[i];
+		b = &brushes[i];
 		if( !( b->contents & tlc->contents ) ) {
 			continue;
 		}
@@ -508,7 +508,7 @@ void CMTraceComputer::CollideBox( CMTraceContext *tlc, void ( CMTraceComputer::*
 
 	// trace line against all patches
 	for( i = 0; i < nummarkfaces; i++ ) {
-		patch = markfaces[i];
+		patch = &markfaces[i];
 		if( !( patch->contents & tlc->contents ) ) {
 			continue;
 		}
@@ -550,8 +550,8 @@ static inline bool CM_MightCollideInLeaf( const vec_bounds_t shapeMins,
 	return VectorLengthSquared( perp ) <= distanceThreshold * distanceThreshold;
 }
 
-void CMTraceComputer::ClipBoxToLeaf( CMTraceContext *tlc, cbrush_t **markbrushes,
-									 int nummarkbrushes, cface_t **markfaces, int nummarkfaces ) {
+void CMTraceComputer::ClipBoxToLeaf( CMTraceContext *tlc, cbrush_t *brushes,
+									 int numbrushes, cface_t *markfaces, int nummarkfaces ) {
 	int i, j;
 	cbrush_t *b;
 	cface_t *patch;
@@ -564,8 +564,8 @@ void CMTraceComputer::ClipBoxToLeaf( CMTraceContext *tlc, cbrush_t **markbrushes
 	const float *fraction = &tlc->trace->fraction;
 
 	// trace line against all brushes
-	for( i = 0; i < nummarkbrushes; i++ ) {
-		b = markbrushes[i];
+	for( i = 0; i < numbrushes; i++ ) {
+		b = &brushes[i];
 		if( !( b->contents & tlc->contents ) ) {
 			continue;
 		}
@@ -580,7 +580,7 @@ void CMTraceComputer::ClipBoxToLeaf( CMTraceContext *tlc, cbrush_t **markbrushes
 
 	// trace line against all patches
 	for( i = 0; i < nummarkfaces; i++ ) {
-		patch = markfaces[i];
+		patch = &markfaces[i];
 		if( !( patch->contents & tlc->contents ) ) {
 			continue;
 		}
@@ -619,7 +619,7 @@ loc0:
 
 		leaf = &cms->map_leafs[-1 - num];
 		if( leaf->contents & tlc->contents ) {
-			ClipBoxToLeaf( tlc, leaf->markbrushes, leaf->nummarkbrushes, leaf->markfaces, leaf->nummarkfaces );
+			ClipBoxToLeaf( tlc, leaf->brushes, leaf->numbrushes, leaf->faces, leaf->numfaces );
 		}
 		return;
 	}
@@ -740,7 +740,7 @@ void CMTraceComputer::Trace( trace_t *tr, const vec3_t start, const vec3_t end,
 		auto func = &CMTraceComputer::TestBoxInBrush;
 		if( cmodel != cms->map_cmodels ) {
 			if( BoundsIntersect( cmodel->mins, cmodel->maxs, tlc.absmins, tlc.absmaxs ) ) {
-				CollideBox( &tlc, func, cmodel->markbrushes, cmodel->nummarkbrushes, cmodel->markfaces, cmodel->nummarkfaces );
+				CollideBox( &tlc, func, cmodel->brushes, cmodel->numbrushes, cmodel->faces, cmodel->numfaces );
 			}
 		} else {
 			vec3_t boxmins, boxmaxs;
@@ -755,7 +755,7 @@ void CMTraceComputer::Trace( trace_t *tr, const vec3_t start, const vec3_t end,
 			for( int i = 0; i < numleafs; i++ ) {
 				cleaf_t *leaf = &cms->map_leafs[leafs[i]];
 					if( leaf->contents & tlc.contents ) {
-						CollideBox( &tlc, func, leaf->markbrushes, leaf->nummarkbrushes, leaf->markfaces, leaf->nummarkfaces );
+						CollideBox( &tlc, func, leaf->brushes, leaf->numbrushes, leaf->faces, leaf->numfaces );
 						if( tr->allsolid ) {
 							break;
 						}
@@ -800,7 +800,7 @@ void CMTraceComputer::Trace( trace_t *tr, const vec3_t start, const vec3_t end,
 		RecursiveHullCheck( &tlc, 0, 0, 1, const_cast<float *>( start ), const_cast<float *>( end ) );
 	} else if( BoundsIntersect( cmodel->mins, cmodel->maxs, tlc.absmins, tlc.absmaxs ) ) {
 		auto func = &CMTraceComputer::ClipBoxToBrush;
-		CollideBox( &tlc, func, cmodel->markbrushes, cmodel->nummarkbrushes, cmodel->markfaces, cmodel->nummarkfaces );
+		CollideBox( &tlc, func, cmodel->brushes, cmodel->numbrushes, cmodel->faces, cmodel->numfaces );
 	}
 
 	if( tr->fraction == 1 ) {

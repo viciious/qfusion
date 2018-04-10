@@ -71,8 +71,8 @@ static void CM_Clear( cmodel_state_t *cms ) {
 
 	if( cms->map_cmodels != &cms->map_cmodel_empty ) {
 		for( i = 0; i < cms->numcmodels; i++ ) {
-			Mem_Free( cms->map_cmodels[i].markfaces );
-			Mem_Free( cms->map_cmodels[i].markbrushes );
+			Mem_Free( cms->map_cmodels[i].faces );
+			Mem_Free( cms->map_cmodels[i].brushes );
 		}
 		Mem_Free( cms->map_cmodels );
 		cms->map_cmodels = &cms->map_cmodel_empty;
@@ -105,6 +105,21 @@ static void CM_Clear( cmodel_state_t *cms ) {
 		}
 		Mem_Free( cms->map_face_brushdata );
 		cms->map_face_brushdata = NULL;
+	}
+
+	if( cms->leaf_inline_brushes ) {
+		Mem_Free( cms->leaf_inline_brushes );
+		cms->leaf_inline_brushes = NULL;
+	}
+
+	if( cms->leaf_inline_sides ) {
+		Mem_Free( cms->leaf_inline_sides );
+		cms->leaf_inline_sides = NULL;
+	}
+
+	if( cms->leaf_inline_faces ) {
+		Mem_Free( cms->leaf_inline_faces );
+		cms->leaf_inline_faces = NULL;
 	}
 
 	if( cms->map_nodes ) {

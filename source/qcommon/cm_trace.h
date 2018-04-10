@@ -46,11 +46,11 @@ struct CMTraceComputer {
 	virtual void SetupClipContext( CMTraceContext *tlc ) {}
 
 	virtual void CollideBox( CMTraceContext *tlc, void ( CMTraceComputer::*method )( CMTraceContext *, cbrush_s * ),
-							 cbrush_s **markbrushes, int nummarkbrushes, cface_s **markfaces, int nummarkfaces );
+							 cbrush_s *brushes, int numbrushes, cface_s *markfaces, int nummarkfaces );
 
 
-	virtual void ClipBoxToLeaf( CMTraceContext *tlc, cbrush_s **markbrushes,
-								int nummarkbrushes, cface_s **markfaces, int nummarkfaces );
+	virtual void ClipBoxToLeaf( CMTraceContext *tlc, cbrush_s *brushes,
+								int numbrushes, cface_s *markfaces, int nummarkfaces );
 
 	// Lets avoid making these calls virtual, there is a small but definite performance penalty
 	// (something around 5-10%s, and this really matter as all newly introduced engine features rely on fast CM raycasting).
@@ -76,8 +76,8 @@ struct CMSse42TraceComputer final: public CMTraceComputer {
 
 	void SetupClipContext( CMTraceContext *tlc ) override;
 
-	void ClipBoxToLeaf( CMTraceContext *tlc, cbrush_s **markbrushes, int nummarkbrushes,
-						cface_s **markfaces, int nummarkfaces ) override;
+	void ClipBoxToLeaf( CMTraceContext *tlc, cbrush_s *brushes, int numbrushes,
+						cface_s *markfaces, int nummarkfaces ) override;
 
 	// Overrides a base member by hiding it
 	void ClipBoxToBrush( CMTraceContext *tlc, cbrush_s *brush );

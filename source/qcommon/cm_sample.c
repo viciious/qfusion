@@ -108,8 +108,8 @@ static inline int CM_PatchContents( cface_t *patch, vec3_t p ) {
 static int CM_PointContents( cmodel_state_t *cms, vec3_t p, cmodel_t *cmodel ) {
 	int i, superContents, contents;
 	int nummarkfaces, nummarkbrushes;
-	cface_t *patch, **markface;
-	cbrush_t *brush, **markbrush;
+	cface_t *patch, *markface;
+	cbrush_t *brush, *markbrush;
 
 	if( !cms->numnodes ) {  // map not loaded
 		return 0;
@@ -121,25 +121,25 @@ static int CM_PointContents( cmodel_state_t *cms, vec3_t p, cmodel_t *cmodel ) {
 		leaf = &cms->map_leafs[CM_PointLeafnum( cms, p )];
 		superContents = leaf->contents;
 
-		markbrush = leaf->markbrushes;
-		nummarkbrushes = leaf->nummarkbrushes;
+		markbrush = leaf->brushes;
+		nummarkbrushes = leaf->numbrushes;
 
-		markface = leaf->markfaces;
-		nummarkfaces = leaf->nummarkfaces;
+		markface = leaf->faces;
+		nummarkfaces = leaf->numfaces;
 	} else {
 		superContents = ~0;
 
-		markbrush = cmodel->markbrushes;
-		nummarkbrushes = cmodel->nummarkbrushes;
+		markbrush = cmodel->brushes;
+		nummarkbrushes = cmodel->numbrushes;
 
-		markface = cmodel->markfaces;
-		nummarkfaces = cmodel->nummarkfaces;
+		markface = cmodel->faces;
+		nummarkfaces = cmodel->numfaces;
 	}
 
 	contents = superContents;
 
 	for( i = 0; i < nummarkbrushes; i++ ) {
-		brush = markbrush[i];
+		brush = &markbrush[i];
 
 		// check if brush adds something to contents
 		if( contents & brush->contents ) {
@@ -150,7 +150,7 @@ static int CM_PointContents( cmodel_state_t *cms, vec3_t p, cmodel_t *cmodel ) {
 	}
 
 	for( i = 0; i < nummarkfaces; i++ ) {
-		patch = markface[i];
+		patch = &markface[i];
 
 		// check if patch adds something to contents
 		if( contents & patch->contents ) {
