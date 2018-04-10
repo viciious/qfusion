@@ -31,12 +31,10 @@ static int64_t shadowedForClientAt[MAX_CLIENTS - 1][MAX_EDICTS];
 
 // Mark entity for shadowing
 static inline void SNAP_Shadow( const client_snapshot_t *frame, int entNum ) {
-	// TODO: Use POVnum?
 	shadowedForClientAt[frame->ps->playerNum][entNum] = frame->sentTimeStamp;
 }
 
 static inline bool SNAP_IsShadowed( const client_snapshot_t *frame, int entNum ) {
-	// TODO: Use POVnum?
 	return shadowedForClientAt[frame->ps->playerNum][entNum] == frame->sentTimeStamp;
 }
 
@@ -879,6 +877,11 @@ static bool SNAP_SnapCullEntity( cmodel_state_t *cms, edict_t *ent,
 
 	// send all entities
 	if( frame->allentities ) {
+		return false;
+	}
+
+	// we have decided to transmit (almost) everything for spectators
+	if( clent->r.client->ps.stats[STAT_REALTEAM] == TEAM_SPECTATOR ) {
 		return false;
 	}
 
