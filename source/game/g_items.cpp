@@ -1073,8 +1073,7 @@ void G_PrecacheItems( void ) {
 		trap_ConfigString( CS_ITEMS + i, item->name );
 
 		if( item->type & IT_WEAPON && GS_GetWeaponDef( item->tag ) ) {
-			G_PrecacheWeapondef( i, &GS_GetWeaponDef( item->tag )->firedef );
-			G_PrecacheWeapondef( i, &GS_GetWeaponDef( item->tag )->firedef_weak );
+			G_PrecacheWeapondef( i );
 		}
 	}
 

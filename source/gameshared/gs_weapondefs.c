@@ -1300,6 +1300,17 @@ gs_weapon_definition_t *GS_GetWeaponDef( int weapon ) {
 }
 
 /*
+* GS_GetWeaponDefExt
+*/
+gs_weapon_definition_t *GS_GetWeaponDefExt( int weapon, bool race ) {
+	if( race && gs_raceWeaponDefs[weapon].name != NULL ) {
+		return &gs_raceWeaponDefs[weapon];
+	} else {
+		return &gs_weaponDefs[weapon];
+	}
+}
+
+/*
 * GS_InitWeapons
 */
 void GS_InitWeapons( void ) {

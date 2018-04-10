@@ -1129,6 +1129,7 @@ typedef struct {
 } gs_weapon_definition_t;
 
 gs_weapon_definition_t *GS_GetWeaponDef( int weapon );
+gs_weapon_definition_t *GS_GetWeaponDefExt( int weapon, bool race );
 void GS_InitWeapons( void );
 int GS_SelectBestWeapon( player_state_t *playerState );
 bool GS_CheckAmmoInWeapon( player_state_t *playerState, int checkweapon );

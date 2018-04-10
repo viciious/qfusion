@@ -689,7 +689,7 @@ void G_AnnouncerSound( edict_t *targ, int soundindex, int team, bool queued, edi
 edict_t *G_PlayerForText( const char *text );
 
 void G_LoadFiredefsFromDisk( void );
-void G_PrecacheWeapondef( int weapon, firedef_t *firedef );
+void G_PrecacheWeapondef( int weapon );
 
 void G_MapLocations_Init( void );
 int G_RegisterMapLocationName( const char *name );

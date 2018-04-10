@@ -1988,30 +1988,36 @@ void G_PureModel( const char *model ) {
 /*
 * G_PrecacheWeapondef
 */
-void G_PrecacheWeapondef( int weapon, firedef_t *firedef ) {
-	char cstring[MAX_CONFIGSTRING_CHARS];
+void G_PrecacheWeapondef( int weapon ) {	
+	assert( weapon < ( MAX_WEAPONDEFS / 4 ) );
 
-	if( !firedef ) {
-		return;
-	}
+	bool race, strong;
+	for( int index = weapon; index < MAX_WEAPONDEFS; index += MAX_WEAPONDEFS / 4 )
+	{
+		// see CG_OverrideWeapondef, uses same operations
+		weapon = index % ( MAX_WEAPONDEFS / 4 );
+		race = index > ( MAX_WEAPONDEFS / 2 );
+		strong = ( index % ( MAX_WEAPONDEFS / 2 ) ) > ( MAX_WEAPONDEFS / 4 );
 
-	Q_snprintfz( cstring, sizeof( cstring ), "%i %i %u %u %u %u %u %i %i %i",
-				 firedef->usage_count,
-				 firedef->projectile_count,
-				 firedef->weaponup_time,
-				 firedef->weapondown_time,
-				 firedef->reload_time,
-				 firedef->cooldown_time,
-				 firedef->timeout,
-				 firedef->speed,
-				 firedef->spread,
-				 firedef->v_spread
-				 );
+		const auto *weaponDef = GS_GetWeaponDefExt( weapon, race );
+		const auto *firedef = strong ? &weaponDef->firedef : &weaponDef->firedef_weak;
+		
+		char cstring[MAX_CONFIGSTRING_CHARS];
 
-	if( firedef->fire_mode == FIRE_MODE_WEAK ) {
-		trap_ConfigString( CS_WEAPONDEFS + weapon, cstring );
-	} else {
-		trap_ConfigString( CS_WEAPONDEFS + ( MAX_WEAPONDEFS / 2 ) + weapon, cstring );
+		Q_snprintfz( cstring, sizeof( cstring ), "%i %i %u %u %u %u %u %i %i %i",
+					 firedef->usage_count,
+					 firedef->projectile_count,
+					 firedef->weaponup_time,
+					 firedef->weapondown_time,
+					 firedef->reload_time,
+					 firedef->cooldown_time,
+					 firedef->timeout,
+					 firedef->speed,
+					 firedef->spread,
+					 firedef->v_spread
+					 );
+
+		trap_ConfigString( CS_WEAPONDEFS + index, cstring );
 	}
 }
 
