@@ -127,7 +127,7 @@ bool SF_Init( void *hwnd, int maxEntities, bool verbose ) {
 	s_volume = trap_Cvar_Get( "s_volume", "0.8", CVAR_ARCHIVE );
 	s_musicvolume = trap_Cvar_Get( "s_musicvolume", "0.05", CVAR_ARCHIVE );
 	s_doppler = trap_Cvar_Get( "s_doppler", "1.0", CVAR_ARCHIVE );
-	s_sound_velocity = trap_Cvar_Get( "s_sound_velocity", "10976", CVAR_DEVELOPER );
+	s_sound_velocity = trap_Cvar_Get( "s_sound_velocity", "8500", CVAR_DEVELOPER );
 	s_stereo2mono = trap_Cvar_Get( "s_stereo2mono", "0", CVAR_ARCHIVE );
 	s_globalfocus = trap_Cvar_Get( "s_globalfocus", "0", CVAR_ARCHIVE );
 
