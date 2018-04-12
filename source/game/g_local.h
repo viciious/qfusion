@@ -376,7 +376,6 @@ extern cvar_t *g_asGC_stats;
 extern cvar_t *g_asGC_interval;
 
 extern cvar_t *g_skillRating;
-extern cvar_t *g_bot_evolution;
 
 edict_t **G_Teams_ChallengersQueue( void );
 void G_Teams_Join_Cmd( edict_t *ent );

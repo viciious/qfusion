@@ -98,6 +98,8 @@ class BotItemsSelector
 
 	void UpdateInternalItemAndGoalWeights();
 
+	const edict_t *GetSpotEntityAndWeight( float *weight ) const;
+
 	struct ItemAndGoalWeights {
 		float itemWeight;
 		float goalWeight;
@@ -120,6 +122,7 @@ class BotItemsSelector
 		va_end( va );
 	}
 
+	bool IsShortRangeReachable( const NavEntity *navEntity, const int *fromAreaNums, int numFromAreas ) const;
 public:
 	inline BotItemsSelector( edict_t *self_ ) : self( self_ ) {
 		// We zero only this array as its content does not get cleared in SuggestGoalEntity() calls

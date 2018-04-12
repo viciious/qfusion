@@ -1,7 +1,7 @@
 #ifndef QFUSION_AI_OBJECTIVE_BASED_TEAM_BRAIN_H
 #define QFUSION_AI_OBJECTIVE_BASED_TEAM_BRAIN_H
 
-#include "ai_squad_based_team_brain.h"
+#include "ai_squad_based_team.h"
 
 // Visible for script
 struct AiDefenceSpot {
@@ -23,7 +23,7 @@ struct AiOffenseSpot {
 	unsigned maxAttackers;
 };
 
-class AiObjectiveBasedTeamBrain : public AiSquadBasedTeamBrain
+class AiObjectiveBasedTeam : public AiSquadBasedTeam
 {
 	static constexpr unsigned MAX_SPOT_ATTACKERS = 16;
 	static constexpr unsigned MAX_SPOT_DEFENDERS = 16;
@@ -83,17 +83,12 @@ class AiObjectiveBasedTeamBrain : public AiSquadBasedTeamBrain
 	inline int RemoveItem( const char *name, Container &c, int id, OnRemoved onRemoved );
 
 	inline void OnDefenceSpotRemoved( DefenceSpot *defenceSpot ) {
-		ClearExternalEntityWeights( defenceSpot->entity );
 		if( defenceSpot->usesAutoAlert ) {
 			DisableDefenceSpotAutoAlert( defenceSpot );
 		}
 	}
 
-	inline void OnOffenseSpotRemoved( OffenseSpot *offenseSpot ) {
-		ClearExternalEntityWeights( offenseSpot->entity );
-	}
-
-	void ClearExternalEntityWeights( const edict_t *ent );
+	inline void OnOffenseSpotRemoved( OffenseSpot *offenseSpot ) {}
 
 	struct BotAndScore {
 		edict_t *bot;
@@ -120,8 +115,6 @@ class AiObjectiveBasedTeamBrain : public AiSquadBasedTeamBrain
 
 	void UpdateDefendersStatus( unsigned defenceSpotNum );
 	void UpdateAttackersStatus( unsigned offenceSpotNum );
-	const edict_t *FindCarrier() const;
-	void SetSupportCarrierOrders( const edict_t *carrier, Candidates &candidates );
 
 	void EnableDefenceSpotAutoAlert( DefenceSpot *defenceSpot );
 	void DisableDefenceSpotAutoAlert( DefenceSpot *defenceSpot );
@@ -130,9 +123,11 @@ class AiObjectiveBasedTeamBrain : public AiSquadBasedTeamBrain
 
 	void OnAlertReported( Bot *bot, int id, float alertLevel );
 
+	template<typename Container >
+	const edict_t *GetUnderlyingEntity( const Container &container, int spotId ) const;
 public:
-	AiObjectiveBasedTeamBrain( int team_ ) : AiSquadBasedTeamBrain( team_ ) {}
-	virtual ~AiObjectiveBasedTeamBrain() override {}
+	AiObjectiveBasedTeam( int team_ ) : AiSquadBasedTeam( team_ ) {}
+	virtual ~AiObjectiveBasedTeam() override {}
 
 	void AddDefenceSpot( const AiDefenceSpot &spot );
 	void RemoveDefenceSpot( int id );
@@ -141,6 +136,10 @@ public:
 
 	void AddOffenseSpot( const AiOffenseSpot &spot );
 	void RemoveOffenseSpot( int id );
+
+	// Returns null if there is no such spot / the spot is no longer valid
+	// Note: this signature is actually user friendly contrary to the first impression and typed alternatives.
+	const edict_t *GetSpotUnderlyingEntity( int spotId, bool isDefenceSpot ) const;
 
 	virtual void OnBotAdded( Bot *bot ) override;
 	virtual void OnBotRemoved( Bot *bot ) override;

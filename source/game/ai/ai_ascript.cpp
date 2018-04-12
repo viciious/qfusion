@@ -1,7 +1,7 @@
 #include "ai_local.h"
 #include "ai.h"
 #include "ai_aas_route_cache.h"
-#include "ai_objective_based_team_brain.h"
+#include "ai_objective_based_team.h"
 #include "bot.h"
 #include "tactical_spots_registry.h"
 #include "../g_as_local.h"
@@ -1263,12 +1263,12 @@ void objectBot_overrideEntityWeight(ai_handle_t *ai, edict_t *ent, float weight)
 
 int objectBot_get_defenceSpotId(const ai_handle_t *ai)
 {
-    return CHECK_BOT_HANDLE(ai)->botRef->DefenceSpotId();
+    return CHECK_BOT_HANDLE(ai)->botRef->GetObjectiveSpot().DefenceSpotId();
 }
 
 int objectBot_get_offenseSpotId(const ai_handle_t *ai)
 {
-    return CHECK_BOT_HANDLE(ai)->botRef->OffenseSpotId();
+    return CHECK_BOT_HANDLE(ai)->botRef->GetObjectiveSpot().OffenseSpotId();
 }
 
 void objectBot_setNavTarget(const ai_handle_t *ai, const asvec3_t *navTargetOrigin, float reachRadius)
@@ -1429,58 +1429,41 @@ const asClassDescriptor_t *asAIClassesDescriptors[] =
     NULL
 };
 
-static inline AiObjectiveBasedTeamBrain *GetObjectiveBasedTeamBrain(const char *caller, int team)
+static inline AiObjectiveBasedTeam *GetObjectiveBasedTeam(const char *caller, int team)
 {
     CHECK_ARG(caller);
-    // Make sure that AiBaseTeamBrain::GetBrainForTeam() will not crash for illegal team
+    // Make sure that AiBaseTeam::GetTeamForNum() will not crash for illegal team
     if (team != TEAM_ALPHA && team != TEAM_BETA)
         API_ERRORV("%s: illegal team %d\n", caller, team);
 
-    AiBaseTeamBrain *baseTeamBrain = AiBaseTeamBrain::GetBrainForTeam(team);
-    if (auto *objectiveBasedTeamBrain = dynamic_cast<AiObjectiveBasedTeamBrain*>(baseTeamBrain))
-        return objectiveBasedTeamBrain;
-
-    API_ERRORV("%s: can't be used in not objective based gametype\n", caller);
+    // We are not allowed to fail anymore, force switching to objective-based AI team if needed
+    AiBaseTeam *baseTeam = AiBaseTeam::GetTeamForNum(team, typeid(AiObjectiveBasedTeam));
+    return dynamic_cast<AiObjectiveBasedTeam*>(baseTeam);
 }
 
 void asFunc_AddDefenceSpot( int team, const AiDefenceSpot *spot )
 {
-    if (auto *objectiveBasedTeamBrain = GetObjectiveBasedTeamBrain(__FUNCTION__, team))
-        objectiveBasedTeamBrain->AddDefenceSpot(*spot);
-    else
-        API_ERROR("Defence/offense spots are not supported for this gametype\n");
+    GetObjectiveBasedTeam(__FUNCTION__, team)->AddDefenceSpot(*spot);
 }
 
 void asFunc_RemoveDefenceSpot( int team, int id )
 {
-    if (auto *objectiveBasedTeamBrain = GetObjectiveBasedTeamBrain(__FUNCTION__, team))
-        objectiveBasedTeamBrain->RemoveDefenceSpot(id);
-    else
-        API_ERROR("Defence/offense spots are not supported for this gametype\n");
+    GetObjectiveBasedTeam(__FUNCTION__, team)->RemoveDefenceSpot(id);
 }
 
 void asFunc_DefenceSpotAlert( int team, int id, float alertLevel, unsigned timeoutPeriod )
 {
-    if (auto *objectiveBasedTeamBrain = GetObjectiveBasedTeamBrain(__FUNCTION__, team))
-        objectiveBasedTeamBrain->SetDefenceSpotAlert(id, alertLevel, timeoutPeriod);
-    else
-        API_ERROR("Defence/offense spots are not supported for this gametype\n");
+    GetObjectiveBasedTeam(__FUNCTION__, team)->SetDefenceSpotAlert(id, alertLevel, timeoutPeriod);
 }
 
 void asFunc_AddOffenseSpot( int team, const AiOffenseSpot *spot )
 {
-    if (auto *objectiveBasedTeamBrain = GetObjectiveBasedTeamBrain(__FUNCTION__, team))
-        objectiveBasedTeamBrain->AddOffenseSpot(*spot);
-    else
-        API_ERROR("Defence/offense spots are not supported for this gametype\n");
+    GetObjectiveBasedTeam(__FUNCTION__, team)->AddOffenseSpot(*spot);
 }
 
 void asFunc_RemoveOffenseSpot( int team, int id )
 {
-    if (auto *objectiveBasedTeamBrain = GetObjectiveBasedTeamBrain(__FUNCTION__, team))
-        objectiveBasedTeamBrain->RemoveOffenseSpot(id);
-    else
-        API_ERROR("Defence/offense spots are not supported for this gametype\n");
+    GetObjectiveBasedTeam(__FUNCTION__, team)->RemoveOffenseSpot(id);
 }
 
 static int SuggestDefencePlantingSpots(const edict_t *defendedEntity, float searchRadius, vec3_t *spots, int maxSpots)

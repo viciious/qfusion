@@ -2,8 +2,11 @@
 #include "ai_shutdown_hooks_holder.h"
 #include "ai_manager.h"
 #include "ai_nav_mesh_manager.h"
-#include "ai_objective_based_team_brain.h"
+#include "ai_objective_based_team.h"
 #include "tactical_spots_registry.h"
+
+const cvar_t *ai_evolution;
+const cvar_t *ai_debug_output;
 
 ai_weapon_aim_type BuiltinWeaponAimType( int builtinWeapon, int fireMode ) {
 	assert( fireMode == FIRE_MODE_STRONG || fireMode == FIRE_MODE_WEAK );
@@ -45,6 +48,26 @@ int BuiltinWeaponTier( int builtinWeapon ) {
 	}
 }
 
+int FindBestWeaponTier( const gclient_t *client ) {
+	const auto *inventory = client->ps.inventory;
+	constexpr int ammoShift = AMMO_GUNBLADE - WEAP_GUNBLADE;
+	constexpr int weakAmmoShift = AMMO_WEAK_GUNBLADE - WEAP_GUNBLADE;
+
+	int maxTier = 0;
+	for( int weapon = WEAP_GUNBLADE; weapon < WEAP_TOTAL; ++weapon ) {
+		if( !inventory[weapon] || ( !inventory[weapon + ammoShift] && !inventory[weapon + weakAmmoShift] ) ) {
+			continue;
+		}
+		int tier = BuiltinWeaponTier( weapon );
+		if( tier <= maxTier ) {
+			continue;
+		}
+		maxTier = tier;
+	}
+
+	return maxTier;
+}
+
 static void EscapePercent( const char *string, char *buffer, int bufferLen ) {
 	int j = 0;
 	for( const char *s = string; *s && j < bufferLen - 1; ++s ) {
@@ -77,11 +100,21 @@ void AI_Debug( const char *nick, const char *format, ... ) {
 }
 
 void AI_Debugv( const char *nick, const char *format, va_list va ) {
-#ifndef PUBLIC_BUILD
+	if( !ai_debug_output->integer ) {
+		return;
+	}
+
+// Allow bot debug output in public build but require "developer" mode too.
+// Do not control debug output only by "developer" mode though.
+#ifdef PUBLIC_BUILD
+	if( !developer->integer ) {
+		return;
+	}
+#endif
+
 	char outputBuffer[2048];
 	AI_PrintToBufferv( outputBuffer, 2048, nick, format, va );
 	G_Printf( "%s", outputBuffer );
-#endif
 }
 
 void AI_FailWith( const char *tag, const char *format, ... ) {
@@ -154,12 +187,14 @@ static StaticVector<int, 16> hubAreas;
 // Inits Map local parameters
 //==========================================
 void AI_InitLevel( void ) {
+	ai_evolution = trap_Cvar_Get( "ai_evolution", "0", CVAR_ARCHIVE );
+	ai_debug_output = trap_Cvar_Get( "ai_debug_output", "0", CVAR_ARCHIVE );
+
 	AiAasWorld::Init( level.mapname );
 	AiAasRouteCache::Init( *AiAasWorld::Instance() );
 	AiNavMeshManager::Init( level.mapname );
 	TacticalSpotsRegistry::Init( level.mapname );
 
-	AiBaseTeamBrain::OnGametypeChanged( g_gametype->string );
 	AiManager::Init( g_gametype->string, level.mapname );
 
 	NavEntitiesRegistry::Instance()->Init();

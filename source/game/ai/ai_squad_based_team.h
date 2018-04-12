@@ -1,7 +1,7 @@
 #ifndef QFUSION_AI_SQUAD_BASED_TEAM_BRAIN_H
 #define QFUSION_AI_SQUAD_BASED_TEAM_BRAIN_H
 
-#include "ai_base_team_brain.h"
+#include "ai_base_team.h"
 #include "ai_base_enemy_pool.h"
 #include "ai_aas_route_cache.h"
 #include "ai_aas_world.h"
@@ -27,7 +27,7 @@ public:
 
 class AiSquad : public AiFrameAwareUpdatable
 {
-	friend class AiSquadBasedTeamBrain;
+	friend class AiSquadBasedTeam;
 
 public:
 	static constexpr unsigned MAX_SIZE = 3;
@@ -181,9 +181,9 @@ public:
 	virtual void Think() override;
 };
 
-class AiSquadBasedTeamBrain : public AiBaseTeamBrain
+class AiSquadBasedTeam : public AiBaseTeam
 {
-	friend class AiBaseTeamBrain;
+	friend class AiBaseTeam;
 	StaticVector<AiSquad, MAX_CLIENTS> squads;
 	StaticVector<Bot*, MAX_CLIENTS> orphanBots;
 
@@ -198,11 +198,11 @@ protected:
 	virtual void SetupSquads();
 	unsigned GetFreeSquadSlot();
 
-	static AiSquadBasedTeamBrain *InstantiateTeamBrain( int team, const char *gametype );
-
+	static AiSquadBasedTeam *InstantiateTeam( int team );
+	static AiSquadBasedTeam *InstantiateTeam( int teamNum, const std::type_info &desiredType );
 public:
-	AiSquadBasedTeamBrain( int team_ ) : AiBaseTeamBrain( team_ ) {}
-	virtual ~AiSquadBasedTeamBrain() override {};
+	AiSquadBasedTeam( int team_ ) : AiBaseTeam( team_ ) {}
+	virtual ~AiSquadBasedTeam() override {};
 
 	virtual void Frame() override;
 	virtual void Think() override;

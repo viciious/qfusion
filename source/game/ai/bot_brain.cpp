@@ -1,6 +1,6 @@
 #include "bot.h"
 #include "ai_ground_trace_cache.h"
-#include "ai_squad_based_team_brain.h"
+#include "ai_squad_based_team.h"
 #include "bot_brain.h"
 #include "tactical_spots_registry.h"
 #include <algorithm>
@@ -158,7 +158,7 @@ void BotBrain::Think() {
 	// It is important to do all these actions before AiBaseBrain::Think() to trigger a plan update if needed
 
 	if( selectedEnemies.AreValid() ) {
-		if( level.time - selectedEnemies.LastSeenAt() >= reactionTime ) {
+		if( level.time - selectedEnemies.LastSeenAt() > std::min( 64u, reactionTime ) ) {
 			selectedEnemies.Invalidate();
 			UpdateSelectedEnemies();
 			UpdateBlockedAreasStatus();
@@ -258,27 +258,8 @@ struct DisableBlockedByEnemyZoneRequest final: public AiAasRouteCache::DisableZo
 	int FillRequestedAreasBuffer( int *areasBuffer, int bufferCapacity ) override;
 };
 
-static int FindBestWeaponTier( const gclient_t *client ) {
-	const auto *inventory = client->ps.inventory;
-	constexpr int ammoShift = AMMO_GUNBLADE - WEAP_GUNBLADE;
-	constexpr int weakAmmoShift = AMMO_WEAK_GUNBLADE - WEAP_GUNBLADE;
-
-	int maxTier = 0;
-	for( int weapon = WEAP_GUNBLADE; weapon < WEAP_TOTAL; ++weapon ) {
-		if( !inventory[weapon] || ( !inventory[weapon + ammoShift] && !inventory[weapon + weakAmmoShift] ) ) {
-			continue;
-		}
-		int tier = BuiltinWeaponTier( weapon );
-		if( tier <= maxTier ) {
-			continue;
-		}
-		maxTier = tier;
-	}
-
-	return maxTier;
-}
-
 void BotBrain::UpdateBlockedAreasStatus() {
+#if 0
 	if( self->ai->botRef->ShouldRushHeadless() ) {
 		self->ai->botRef->routeCache->ClearDisabledZones();
 		return;
@@ -337,50 +318,7 @@ void BotBrain::UpdateBlockedAreasStatus() {
 	} else {
 		self->ai->botRef->routeCache->ClearDisabledZones();
 	}
-}
-
-float BotBrain::ComputeEnemyAreasBlockingFactor( const Enemy *enemy, float damageToKillBot, int botBestWeaponTier ) {
-	int enemyWeaponTier;
-	if( const auto *client = enemy->ent->r.client ) {
-		enemyWeaponTier = FindBestWeaponTier( client );
-		if( enemyWeaponTier < 1 && !HasPowerups( enemy->ent ) ) {
-			return 0.0f;
-		}
-	} else {
-		// Try guessing...
-		enemyWeaponTier = (int)( 1.0f + BoundedFraction( enemy->ent->aiIntrinsicEnemyWeight, 3.0f ) );
-	}
-
-	float damageToKillEnemy = DamageToKill( enemy->ent, g_armor_protection->value, g_armor_degradation->value );
-
-	if( HasShell( enemy->ent ) ) {
-		damageToKillEnemy *= 4.0f;
-	}
-
-	// We modify "damage to kill" in order to take quad bearing into account
-	if( HasQuad( enemy->ent ) && damageToKillEnemy > 50 ) {
-		damageToKillEnemy *= 2.0f;
-	}
-
-	if( damageToKillBot < 50 && damageToKillEnemy < 50 ) {
-		// Just check weapons. Note: GB has 0 tier, GL has 1 tier, the rest of weapons have a greater tier
-		return std::min( 1, enemyWeaponTier ) / (float)std::min( 1, botBestWeaponTier );
-	}
-
-	float ratioThreshold = 1.25f;
-	if( selectedEnemies.AreValid() && selectedEnemies.AreThreatening() && selectedEnemies.Contain( enemy ) ) {
-		// If the bot is outnumbered
-		if( selectedEnemies.end() - selectedEnemies.begin() > 1 ) {
-			ratioThreshold *= 1.25f;
-		}
-    }
-
-	ratioThreshold -= ( botBestWeaponTier - enemyWeaponTier ) * 0.25f;
-	if( damageToKillEnemy / damageToKillBot < ratioThreshold ) {
-		return 0.0f;
-	}
-
-	return damageToKillEnemy / damageToKillBot;
+#endif
 }
 
 int DisableBlockedByEnemyZoneRequest::FillRequestedAreasBuffer( int *areasBuffer, int bufferCapacity ) {
