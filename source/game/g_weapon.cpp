@@ -1571,6 +1571,9 @@ static edict_t *_FindOrSpawnLaser( edict_t *owner, int entType, bool *newLaser )
 		laser->r.solid = SOLID_NOT;
 		laser->s.modelindex = 255; // needs to have some value so it isn't filtered by the server culling
 		laser->r.svflags &= ~SVF_NOCLIENT;
+		// The only real utility of this flag is to prevent aggressive entity culling by anticheat.
+		// The netcode/entity system needs an overhaul, use this hack as a temporary workaround.
+		laser->r.svflags |= SVF_TRANSMITORIGIN2;
 	}
 
 	return laser;

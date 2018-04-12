@@ -41,6 +41,7 @@ typedef struct {
 	int ping;
 	int health;
 	int frags;
+	int snapHintFlags;
 } client_shared_t;
 
 typedef struct {

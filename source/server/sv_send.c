@@ -369,7 +369,7 @@ void SV_WriteFrameSnapToClient( client_t *client, msg_t *msg ) {
 /*
 * SV_BuildClientFrameSnap
 */
-void SV_BuildClientFrameSnap( client_t *client ) {
+void SV_BuildClientFrameSnap( client_t *client, int snapHintFlags ) {
 	vec_t *skyorg = NULL, origin[3];
 
 	if( sv.configstrings[CS_SKYBOX][0] != '\0' ) {
@@ -387,7 +387,7 @@ void SV_BuildClientFrameSnap( client_t *client ) {
 	SNAP_BuildClientFrameSnap( svs.cms, &sv.gi, sv.framenum, svs.gametime,
 							   &svs.fatvis, client, ge->GetGameState(),
 							   &svs.client_entities,
-							   false, sv_mempool );
+							   false, sv_mempool, snapHintFlags );
 	svs.fatvis.skyorg = NULL;
 }
 
@@ -403,9 +403,25 @@ static bool SV_SendClientDatagram( client_t *client ) {
 
 	SV_AddReliableCommandsToMessage( client, &tmpMessage );
 
+	// Set snap hint flags to client-specific flags set by the game module
+	int snapHintFlags = client->edict->r.client->r.snapHintFlags;
+	// Add server global snap hint flags
+	if( sv_snap_aggressive_sound_culling->integer ) {
+		snapHintFlags |= SNAP_HINT_CULL_SOUND_WITH_PVS;
+	}
+	if( sv_snap_raycast_players_culling->integer ) {
+		snapHintFlags |= SNAP_HINT_USE_RAYCAST_CULLING;
+	}
+	if( sv_snap_aggressive_fov_culling->integer ) {
+		snapHintFlags |= SNAP_HINT_USE_VIEW_DIR_CULLING;
+	}
+	if( sv_snap_shadow_events_data->integer ) {
+		snapHintFlags |= SNAP_HINT_SHADOW_EVENTS_DATA;
+	}
+
 	// send over all the relevant entity_state_t
 	// and the player_state_t
-	SV_BuildClientFrameSnap( client );
+	SV_BuildClientFrameSnap( client, snapHintFlags );
 
 	SV_WriteFrameSnapToClient( client, &tmpMessage );
 

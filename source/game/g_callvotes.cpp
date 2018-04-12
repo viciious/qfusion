@@ -20,6 +20,7 @@ Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
 */
 
 #include "g_local.h"
+#include "../qcommon/snap.h"
 
 //===================================================================
 
@@ -64,7 +65,6 @@ typedef struct callvotetype_s
 	char *argument_format;
 	char *help;
 	char *argument_type;
-	bool need_auth;
 	struct callvotetype_s *next;
 } callvotetype_t;
 
@@ -894,15 +894,23 @@ static bool G_VoteRemoveValidate( callvotedata_t *vote, bool first ) {
 	}
 }
 
-static void G_VoteRemovePassed( callvotedata_t *vote ) {
+static edict_t *G_Vote_GetValidDeferredVoteTarget( callvotedata_t *vote ) {
 	int who;
-	edict_t *ent;
-
 	memcpy( &who, vote->data, sizeof( int ) );
-	ent = &game.edicts[who + 1];
+
+	edict_t *ent = game.edicts + who + 1;
+	if( !ent->r.inuse || !ent->r.client ) {
+		return nullptr;
+	}
+
+	return ent;
+}
+
+static void G_VoteRemovePassed( callvotedata_t *vote ) {
+	edict_t *ent = G_Vote_GetValidDeferredVoteTarget( vote );
 
 	// may have disconnect along the callvote time
-	if( !ent->r.inuse || !ent->r.client || ent->s.team == TEAM_SPECTATOR ) {
+	if( !ent || ent->s.team == TEAM_SPECTATOR ) {
 		return;
 	}
 
@@ -918,7 +926,7 @@ static void G_VoteRemovePassed( callvotedata_t *vote ) {
 * kick
 */
 
-static void G_VoteKickExtraHelp( edict_t *ent ) {
+static void G_VoteHelp_ShowPlayersList( edict_t *ent ) {
 	int i;
 	edict_t *e;
 	char msg[1024];
@@ -931,18 +939,16 @@ static void G_VoteKickExtraHelp( edict_t *ent ) {
 			continue;
 		}
 
-		Q_strncatz( msg, va( "%3i: %s\n", PLAYERNUM( e ), e->r.client->netname ), sizeof( msg ) );
+		Q_strncatz( msg, va( "%2d: %s\n", PLAYERNUM( e ), e->r.client->netname ), sizeof( msg ) );
 	}
 
 	G_PrintMsg( ent, "%s", msg );
 }
 
-static bool G_VoteKickValidate( callvotedata_t *vote, bool first ) {
+static bool G_SetOrValidateKickLikeCmdTarget( callvotedata_t *vote, bool first ) {
 	int who = -1;
-
 	if( first ) {
 		edict_t *tokick = G_PlayerForText( vote->argv[0] );
-
 		if( tokick ) {
 			who = PLAYERNUM( tokick );
 		} else {
@@ -961,26 +967,29 @@ static bool G_VoteKickValidate( callvotedata_t *vote, bool first ) {
 			vote->data = G_Malloc( sizeof( int ) );
 			memcpy( vote->data, &who, sizeof( int ) );
 		} else {
-			G_PrintMsg( vote->caller, "%sNo such player\n", S_COLOR_RED );
+			G_PrintMsg( vote->caller, S_COLOR_RED "%s: No such player\n", vote->argv[0] );
 			return false;
 		}
 	} else {
 		memcpy( &who, vote->data, sizeof( int ) );
 	}
 
-	if( !game.edicts[who + 1].r.inuse ) {
-		return false;
-	} else {
-		if( !vote->string || Q_stricmp( vote->string, game.edicts[who + 1].r.client->netname ) ) {
+	edict_t *ent = game.edicts + who + 1;
+	if( ent->r.inuse && ent->r.client ) {
+		if( !vote->string || Q_stricmp( vote->string, ent->r.client->netname ) ) {
 			if( vote->string ) {
 				G_Free( vote->string );
 			}
-
-			vote->string = G_CopyString( game.edicts[who + 1].r.client->netname );
+			vote->string = G_CopyString( ent->r.client->netname );
 		}
-
 		return true;
 	}
+
+	return false;
+}
+
+static bool G_VoteKickValidate( callvotedata_t *vote, bool first ) {
+	return G_SetOrValidateKickLikeCmdTarget( vote, first );
 }
 
 const char *G_GetClientHostForFilter( const edict_t *ent ) {
@@ -1010,297 +1019,315 @@ const char *G_GetClientHostForFilter( const edict_t *ent ) {
 }
 
 static void G_VoteKickPassed( callvotedata_t *vote ) {
-	int who;
-	edict_t *ent;
-
-	memcpy( &who, vote->data, sizeof( int ) );
-	ent = &game.edicts[who + 1];
-	if( !ent->r.inuse || !ent->r.client ) { // may have disconnected along the callvote time
-		return;
-	}
-
-	// If the address can be supplied for the filter
-	if( const char *host = G_GetClientHostForFilter( ent ) ) {
-		// Ban the player for 1 minute to prevent an instant reconnect
-		trap_Cmd_ExecuteText( EXEC_APPEND, va( "addip %s 1", host ) );
-	}
-
-	trap_DropClient( ent, DROP_TYPE_NORECONNECT, "Kicked" );
-}
-
-
-/*
-* kickban
-*/
-
-static void G_VoteKickBanExtraHelp( edict_t *ent ) {
-	int i;
-	edict_t *e;
-	char msg[1024];
-
-	msg[0] = 0;
-	Q_strncatz( msg, "- List of current players:\n", sizeof( msg ) );
-
-	for( i = 0, e = game.edicts + 1; i < gs.maxclients; i++, e++ ) {
-		if( !e->r.inuse ) {
-			continue;
+	if( edict_t *ent = G_Vote_GetValidDeferredVoteTarget( vote ) ) {
+		// If the address can be supplied for the filter
+		if( const char *host = G_GetClientHostForFilter( ent ) ) {
+			// Ban the player for 1 minute to prevent an instant reconnect
+			trap_Cmd_ExecuteText( EXEC_APPEND, va( "addip %s 1", host ) );
 		}
-
-		Q_strncatz( msg, va( "%3i: %s\n", PLAYERNUM( e ), e->r.client->netname ), sizeof( msg ) );
+		trap_DropClient( ent, DROP_TYPE_NORECONNECT, "Kicked" );
 	}
-
-	G_PrintMsg( ent, "%s", msg );
 }
+
 
 static bool G_VoteKickBanValidate( callvotedata_t *vote, bool first ) {
-	int who = -1;
-
 	if( !filterban->integer ) {
 		G_PrintMsg( vote->caller, "%sFilterban is disabled on this server\n", S_COLOR_RED );
 		return false;
 	}
 
-	if( first ) {
-		edict_t *tokick = G_PlayerForText( vote->argv[0] );
-
-		if( tokick ) {
-			who = PLAYERNUM( tokick );
-		} else {
-			who = -1;
-		}
-
-		if( who != -1 ) {
-			if( game.edicts[who + 1].r.client->isoperator ) {
-				G_PrintMsg( vote->caller, S_COLOR_RED "%s is a game operator.\n", game.edicts[who + 1].r.client->netname );
-				return false;
-			}
-
-			// we save the player id to be kicked, so we don't later get
-			// confused by new ids or players changing names
-
-			vote->data = G_Malloc( sizeof( int ) );
-			memcpy( vote->data, &who, sizeof( int ) );
-		} else {
-			G_PrintMsg( vote->caller, "%sNo such player\n", S_COLOR_RED );
-			return false;
-		}
-	} else {
-		memcpy( &who, vote->data, sizeof( int ) );
-	}
-
-	if( !game.edicts[who + 1].r.inuse ) {
-		return false;
-	} else {
-		if( !vote->string || Q_stricmp( vote->string, game.edicts[who + 1].r.client->netname ) ) {
-			if( vote->string ) {
-				G_Free( vote->string );
-			}
-
-			vote->string = G_CopyString( game.edicts[who + 1].r.client->netname );
-		}
-
-		return true;
-	}
+	return G_SetOrValidateKickLikeCmdTarget( vote, first );
 }
 
 static void G_VoteKickBanPassed( callvotedata_t *vote ) {
-	int who;
-	edict_t *ent;
-
-	memcpy( &who, vote->data, sizeof( int ) );
-	ent = &game.edicts[who + 1];
-	if( !ent->r.inuse || !ent->r.client ) { // may have disconnected along the callvote time
-		return;
-	}
-
-	// If the address can be supplied for the filter
-	if( const char *host = G_GetClientHostForFilter( ent ) ) {
-		trap_Cmd_ExecuteText( EXEC_APPEND, va( "addip %s 15\n", host ) );
-	}
-
-	trap_DropClient( ent, DROP_TYPE_NORECONNECT, "Kicked" );
-}
-
-/*
-* mute
-*/
-
-static void G_VoteMuteExtraHelp( edict_t *ent ) {
-	int i;
-	edict_t *e;
-	char msg[1024];
-
-	msg[0] = 0;
-	Q_strncatz( msg, "- List of current players:\n", sizeof( msg ) );
-
-	for( i = 0, e = game.edicts + 1; i < gs.maxclients; i++, e++ ) {
-		if( !e->r.inuse ) {
-			continue;
+	if( edict_t *ent = G_Vote_GetValidDeferredVoteTarget( vote ) ) {
+		// If the address can be supplied for the filter
+		if( const char *host = G_GetClientHostForFilter( ent ) ) {
+			trap_Cmd_ExecuteText( EXEC_APPEND, va( "addip %s 15\n", host ) );
 		}
-
-		Q_strncatz( msg, va( "%3i: %s\n", PLAYERNUM( e ), e->r.client->netname ), sizeof( msg ) );
+		trap_DropClient( ent, DROP_TYPE_NORECONNECT, "Kicked" );
 	}
-
-	G_PrintMsg( ent, "%s", msg );
 }
 
 static bool G_VoteMuteValidate( callvotedata_t *vote, bool first ) {
-	int who = -1;
-
-	if( first ) {
-		edict_t *tomute = G_PlayerForText( vote->argv[0] );
-
-		if( tomute ) {
-			who = PLAYERNUM( tomute );
-		} else {
-			who = -1;
-		}
-
-		if( who != -1 ) {
-			// we save the player id to be kicked, so we don't later get confused by new ids or players changing names
-			vote->data = G_Malloc( sizeof( int ) );
-			memcpy( vote->data, &who, sizeof( int ) );
-		} else {
-			G_PrintMsg( vote->caller, "%sNo such player\n", S_COLOR_RED );
-			return false;
-		}
-	} else {
-		memcpy( &who, vote->data, sizeof( int ) );
-	}
-
-	if( !game.edicts[who + 1].r.inuse ) {
-		return false;
-	} else {
-		if( !vote->string || Q_stricmp( vote->string, game.edicts[who + 1].r.client->netname ) ) {
-			if( vote->string ) {
-				G_Free( vote->string );
-			}
-			vote->string = G_CopyString( game.edicts[who + 1].r.client->netname );
-		}
-
-		return true;
-	}
+	return G_SetOrValidateKickLikeCmdTarget( vote, first );
 }
 
 // chat mute
 static void G_VoteMutePassed( callvotedata_t *vote ) {
-	int who;
-	edict_t *ent;
-
-	memcpy( &who, vote->data, sizeof( int ) );
-	ent = &game.edicts[who + 1];
-	if( !ent->r.inuse || !ent->r.client ) { // may have disconnect along the callvote time
-		return;
+	if( edict_t *ent = G_Vote_GetValidDeferredVoteTarget( vote ) ) {
+		ent->r.client->muted |= 1;
+		ent->r.client->level.stats.muted_count++;
 	}
-
-	ent->r.client->muted |= 1;
-	ent->r.client->level.stats.muted_count++;
 }
 
 // vsay mute
 static void G_VoteVMutePassed( callvotedata_t *vote ) {
-	int who;
-	edict_t *ent;
-
-	memcpy( &who, vote->data, sizeof( int ) );
-	ent = &game.edicts[who + 1];
-	if( !ent->r.inuse || !ent->r.client ) { // may have disconnect along the callvote time
-		return;
+	// TODO: Can be generalized but does not make sense since vsays should be removed anyway
+	if( edict_t *ent = G_Vote_GetValidDeferredVoteTarget( vote ) ) {
+		ent->r.client->muted |= 2;
+		ent->r.client->level.stats.muted_count++;
 	}
-
-	ent->r.client->muted |= 2;
-	ent->r.client->level.stats.muted_count++;
 }
 
-/*
-* unmute
-*/
+static bool G_VoteUnmuteValidate( callvotedata_t *vote, bool first ) {
+	return G_SetOrValidateKickLikeCmdTarget( vote, first );
+}
 
-static void G_VoteUnmuteExtraHelp( edict_t *ent ) {
+// chat unmute
+static void G_VoteUnmutePassed( callvotedata_t *vote ) {
+	if( edict_t *ent = G_Vote_GetValidDeferredVoteTarget( vote ) ) {
+		ent->r.client->muted &= ~1;
+	}
+}
+
+// vsay unmute
+static void G_VoteVUnmutePassed( callvotedata_t *vote ) {
+	if( edict_t *ent = G_Vote_GetValidDeferredVoteTarget( vote ) ) {
+		ent->r.client->muted &= ~2;
+	}
+}
+
+static constexpr auto SNAP_ANTIWALLHACK_FLAGS =
+	SNAP_HINT_CULL_SOUND_WITH_PVS | SNAP_HINT_USE_RAYCAST_CULLING | SNAP_HINT_SHADOW_EVENTS_DATA;
+static constexpr auto SNAP_ANTIRADAR_FLAGS = SNAP_HINT_USE_VIEW_DIR_CULLING;
+static constexpr auto SNAP_ANTICHEAT_FLAGS = SNAP_ANTIWALLHACK_FLAGS | SNAP_ANTIRADAR_FLAGS;
+
+static const char *G_VoteEnableGlobalAntiWallhackCurrent();
+static const char *G_VoteEnableGlobalAntiRadarCurrent();
+
+static void G_VoteHelp_ShowPlayersListWithSnapFlags( edict_t *ent ) {
 	int i;
 	edict_t *e;
 	char msg[1024];
 
 	msg[0] = 0;
-	Q_strncatz( msg, "- List of current players:\n", sizeof( msg ) );
+	const char *globalAntiWH = G_VoteEnableGlobalAntiWallhackCurrent();
+	const char *globalAntiRD = G_VoteEnableGlobalAntiRadarCurrent();
+	Q_strncatz( msg, va( "Global antiwallhack: %s, antiradar: %s\n", globalAntiWH, globalAntiRD ), sizeof( msg ) );
+	Q_strncatz( msg, " # | -WH | -RD | nickname\n", sizeof( msg ) );
+	Q_strncatz( msg, "-------------------------\n", sizeof( msg ) );
 
 	for( i = 0, e = game.edicts + 1; i < gs.maxclients; i++, e++ ) {
 		if( !e->r.inuse ) {
 			continue;
 		}
 
-		Q_strncatz( msg, va( "%3i: %s\n", PLAYERNUM( e ), e->r.client->netname ), sizeof( msg ) );
+		int clientSnapFlags = e->r.client->r.snapHintFlags;
+		const char *noWH = ( clientSnapFlags & SNAP_ANTIWALLHACK_FLAGS ) == SNAP_ANTIWALLHACK_FLAGS ? "x" : " ";
+		const char *noRD = ( clientSnapFlags & SNAP_ANTIRADAR_FLAGS ) == SNAP_ANTIRADAR_FLAGS ? "x" : " ";
+		Q_strncatz( msg, va( "%2d |  %s  |  %s  | %s\n", PLAYERNUM( e ), noWH, noRD, e->r.client->netname ), sizeof( msg ) );
 	}
 
 	G_PrintMsg( ent, "%s", msg );
 }
 
-static bool G_VoteUnmuteValidate( callvotedata_t *vote, bool first ) {
-	int who = -1;
 
-	if( first ) {
-		edict_t *tomute = G_PlayerForText( vote->argv[0] );
 
-		if( tomute ) {
-			who = PLAYERNUM( tomute );
-		} else {
-			who = -1;
-		}
+static bool G_VoteSetAntiWallhackValidate( callvotedata_t *vote, bool first ) {
+	return G_SetOrValidateKickLikeCmdTarget( vote, first );
+}
 
-		if( who != -1 ) {
-			// we save the player id to be kicked, so we don't later get confused by new ids or players changing names
-			vote->data = G_Malloc( sizeof( int ) );
-			memcpy( vote->data, &who, sizeof( int ) );
-		} else {
-			G_PrintMsg( vote->caller, "%sNo such player\n", S_COLOR_RED );
-			return false;
-		}
-	} else {
-		memcpy( &who, vote->data, sizeof( int ) );
+static void G_VoteSetAntiWallhackPassed( callvotedata_t *vote ) {
+	if( edict_t *ent = G_Vote_GetValidDeferredVoteTarget( vote ) ) {
+		ent->r.client->r.snapHintFlags |= SNAP_ANTIWALLHACK_FLAGS;
 	}
+}
 
-	if( !game.edicts[who + 1].r.inuse ) {
+static bool G_VoteResetAntiWallhackValidate( callvotedata_t *vote, bool first ) {
+	return G_SetOrValidateKickLikeCmdTarget( vote, first );
+}
+
+static void G_VoteResetAntiWallhackPassed( callvotedata_t *vote ) {
+	if( edict_t *ent = G_Vote_GetValidDeferredVoteTarget( vote ) ) {
+		ent->r.client->r.snapHintFlags &= ~SNAP_ANTIWALLHACK_FLAGS;
+	}
+}
+
+static bool G_VoteSetAntiRadarValidate( callvotedata_t *vote, bool first ) {
+	return G_SetOrValidateKickLikeCmdTarget( vote, first );
+}
+
+static void G_VoteSetAntiRadarPassed( callvotedata_t *vote ) {
+	if( edict_t *ent = G_Vote_GetValidDeferredVoteTarget( vote ) ) {
+		ent->r.client->r.snapHintFlags |= SNAP_ANTIRADAR_FLAGS;
+	}
+}
+
+static bool G_VoteResetAntiRadarValidate( callvotedata_t *vote, bool first ) {
+	return G_SetOrValidateKickLikeCmdTarget( vote, first );
+}
+
+static void G_VoteResetAntiRadarPassed( callvotedata_t *vote ) {
+	if( edict_t *ent = G_Vote_GetValidDeferredVoteTarget( vote ) ) {
+		ent->r.client->r.snapHintFlags &= ~SNAP_ANTIRADAR_FLAGS;
+	}
+}
+
+static bool G_VoteSetAntiCheatValidate( callvotedata_t *vote, bool first ) {
+	return G_SetOrValidateKickLikeCmdTarget( vote, first );
+}
+
+static void G_VoteSetAntiCheatPassed( callvotedata_t *vote ) {
+	if( edict_t *ent = G_Vote_GetValidDeferredVoteTarget( vote ) ) {
+		ent->r.client->r.snapHintFlags |= SNAP_ANTICHEAT_FLAGS;
+	}
+}
+
+static bool G_VoteResetAntiCheatValidate( callvotedata_t *vote, bool first ) {
+	return G_SetOrValidateKickLikeCmdTarget( vote, first );
+}
+
+static void G_VoteResetAntiCheatPassed( callvotedata_t *vote ) {
+	if( edict_t *ent = G_Vote_GetValidDeferredVoteTarget( vote ) ) {
+		ent->r.client->r.snapHintFlags &= ~SNAP_ANTICHEAT_FLAGS;
+	}
+}
+
+// We have preferred to access the vars by name without specifying a storage class
+
+static const char *ANTIWALLHACK_VAR_NAMES[] = {
+	SNAP_VAR_CULL_SOUND_WITH_PVS, SNAP_VAR_SHADOW_EVENTS_DATA, nullptr
+};
+
+static const char *ANTIRADAR_VAR_NAMES[] = {
+	SNAP_VAR_USE_VIEWDIR_CULLING, nullptr
+};
+
+static const char *ANTICHEAT_VAR_NAMES[] = {
+	SNAP_VAR_CULL_SOUND_WITH_PVS, SNAP_VAR_SHADOW_EVENTS_DATA, SNAP_VAR_USE_VIEWDIR_CULLING, nullptr
+};
+
+static const int G_Vote_CurrentFromVars( const char **varNames ) {
+	while( *varNames != nullptr ) {
+		if( !trap_Cvar_Value( *varNames ) ) {
+			return 0;
+		}
+		varNames++;
+	}
+	return 1;
+}
+
+static bool G_ValidateBooleanSwitchVote( int presentValue, const char *desc, callvotedata_t *vote, bool first );
+
+static bool G_ValidateBooleanSwitchVote( const cvar_t *var, const char *desc, callvotedata_t *vote, bool first ) {
+	return G_ValidateBooleanSwitchVote( var->integer, desc, vote, first );
+}
+
+static bool G_ValidateBooleanSwitchVote( int presentValue, const char *desc, callvotedata_t *vote, bool first ) {
+	int value = atoi( vote->argv[0] );
+	if( value != 0 && value != 1 ) {
 		return false;
-	} else {
-		if( !vote->string || Q_stricmp( vote->string, game.edicts[who + 1].r.client->netname ) ) {
-			if( vote->string ) {
-				G_Free( vote->string );
-			}
-			vote->string = G_CopyString( game.edicts[who + 1].r.client->netname );
+	}
+
+	if( value && presentValue ) {
+		if( first ) {
+			G_PrintMsg( vote->caller, S_COLOR_RED "%s is already allowed\n", desc );
 		}
+		return false;
+	}
 
-		return true;
+	if( !value && !presentValue ) {
+		if( first ) {
+			G_PrintMsg( vote->caller, S_COLOR_RED "%s is already disabled\n", desc );
+		}
+		return false;
+	}
+
+	return true;
+}
+
+static const char *G_VoteEnableGlobalAntiWallhackCurrent() {
+	return G_Vote_CurrentFromVars( ANTIWALLHACK_VAR_NAMES ) ? "1" : "0";
+}
+
+static bool G_VoteEnableGlobalAntiWallhackValidate( callvotedata_t *vote, bool first ) {
+	int presentValue = G_Vote_CurrentFromVars( ANTIWALLHACK_VAR_NAMES );
+	return G_ValidateBooleanSwitchVote( presentValue, "Global antiwallhack", vote, first );
+}
+
+
+static void G_ResetClientSnapFlags( int flagsToReset ) {
+	for( int i = 1; i <= gs.maxclients; ++i ) {
+		const edict_t *ent = game.edicts + i;
+		if( !ent->r.client ) {
+			continue;
+		}
+		ent->r.client->r.snapHintFlags &= ~flagsToReset;
 	}
 }
 
-// chat unmute
-static void G_VoteUnmutePassed( callvotedata_t *vote ) {
-	int who;
-	edict_t *ent;
-
-	memcpy( &who, vote->data, sizeof( int ) );
-	ent = &game.edicts[who + 1];
-	if( !ent->r.inuse || !ent->r.client ) { // may have disconnect along the callvote time
-		return;
+static void G_VoteEnableGlobalAntiWallhackPassed( callvotedata_t *vote ) {
+	const char *valueToSet = atoi( vote->argv[0] ) ? "1" : "0";
+	for( const char *name: ANTIWALLHACK_VAR_NAMES ) {
+		if( name ) {
+			trap_Cvar_ForceSet( name, valueToSet );
+		}
 	}
 
-	ent->r.client->muted &= ~1;
+	// Always keep this var set, its very efficient at hacks mitigation and should not break gameplay.
+	// Using other anti WH settings without this one makes little sense.
+	// If we turn it off as all other vars in case of vote failure,
+	// server settings would be compromised since this var is set by default.
+	trap_Cvar_ForceSet( SNAP_VAR_USE_RAYCAST_CULLING, "1" );
+
+	if( valueToSet[0] == '0' ) {
+		// Reset client-specific flags as well
+		// (they're override global ones and it's confusing if they would remain set)
+		G_ResetClientSnapFlags( SNAP_ANTIWALLHACK_FLAGS );
+	}
 }
 
-// vsay unmute
-static void G_VoteVUnmutePassed( callvotedata_t *vote ) {
-	int who;
-	edict_t *ent;
+static const char *G_VoteEnableGlobalAntiRadarCurrent() {
+	return G_Vote_CurrentFromVars( ANTIRADAR_VAR_NAMES ) ? "1" : "0";
+}
 
-	memcpy( &who, vote->data, sizeof( int ) );
-	ent = &game.edicts[who + 1];
-	if( !ent->r.inuse || !ent->r.client ) { // may have disconnect along the callvote time
-		return;
+static bool G_VoteEnableGlobalAntiRadarValidate( callvotedata_t *vote, bool first ) {
+	int presentValue = G_Vote_CurrentFromVars( ANTIRADAR_VAR_NAMES );
+	return G_ValidateBooleanSwitchVote( presentValue, "Global antiradar", vote, first );
+}
+
+static void G_VoteEnableGlobalAntiRadarPassed( callvotedata_t *vote ) {
+	const char *valueToSet = atoi( vote->argv[0] ) ? "1" : "0";
+	for( const char *name: ANTIRADAR_VAR_NAMES ) {
+		if( name ) {
+			trap_Cvar_ForceSet( name, valueToSet );
+		}
 	}
 
-	ent->r.client->muted &= ~2;
+	if( valueToSet[0] == '0' ) {
+		// Reset client-specific flags as well
+		// (they're override global ones and it's confusing if they would remain set)
+		G_ResetClientSnapFlags( SNAP_ANTIRADAR_FLAGS );
+	}
 }
 
+static const char *G_VoteEnableGlobalAntiCheatCurrent() {
+	return G_Vote_CurrentFromVars( ANTICHEAT_VAR_NAMES ) ? "1" : "0";
+}
+
+static bool G_VoteEnableGlobalAntiCheatValidate( callvotedata_t *vote, bool first ) {
+	int presentValue = G_Vote_CurrentFromVars( ANTICHEAT_VAR_NAMES );
+	return G_ValidateBooleanSwitchVote( presentValue, "Global anticheat", vote, first );
+}
+
+static void G_VoteEnableGlobalAntiCheatPassed( callvotedata_t *vote ) {
+	const char *valueToSet = atoi( vote->argv[0] ) ? "1" : "0";
+	for( const char *name: ANTICHEAT_VAR_NAMES ) {
+		if( name ) {
+			trap_Cvar_ForceSet( name, valueToSet );
+		}
+	}
+
+	// See G_VoteEnableGlobalAntiWallhackPassed() for explanation
+	trap_Cvar_ForceSet( SNAP_VAR_USE_RAYCAST_CULLING, "1" );
+
+	if( valueToSet[0] == '0' ) {
+		// Reset client-specific flags as well
+		// (they're override global ones and it's confusing if they would remain set)
+		G_ResetClientSnapFlags( SNAP_ANTICHEAT_FLAGS );
+	}
+}
 /*
 * addbots
 */
@@ -1346,27 +1373,7 @@ static const char *G_VoteNumBotsCurrent( void ) {
 */
 
 static bool G_VoteAllowTeamDamageValidate( callvotedata_t *vote, bool first ) {
-	int teamdamage = atoi( vote->argv[0] );
-
-	if( teamdamage != 0 && teamdamage != 1 ) {
-		return false;
-	}
-
-	if( teamdamage && g_allow_teamdamage->integer ) {
-		if( first ) {
-			G_PrintMsg( vote->caller, "%sTeam damage is already allowed\n", S_COLOR_RED );
-		}
-		return false;
-	}
-
-	if( !teamdamage && !g_allow_teamdamage->integer ) {
-		if( first ) {
-			G_PrintMsg( vote->caller, "%sTeam damage is already disabled\n", S_COLOR_RED );
-		}
-		return false;
-	}
-
-	return true;
+	return G_ValidateBooleanSwitchVote( g_allow_teamdamage, "Team damage", vote, first );
 }
 
 static void G_VoteAllowTeamDamagePassed( callvotedata_t *vote ) {
@@ -1386,27 +1393,7 @@ static const char *G_VoteAllowTeamDamageCurrent( void ) {
 */
 
 static bool G_VoteAllowInstajumpValidate( callvotedata_t *vote, bool first ) {
-	int instajump = atoi( vote->argv[0] );
-
-	if( instajump != 0 && instajump != 1 ) {
-		return false;
-	}
-
-	if( instajump && g_instajump->integer ) {
-		if( first ) {
-			G_PrintMsg( vote->caller, "%sInstajump is already allowed\n", S_COLOR_RED );
-		}
-		return false;
-	}
-
-	if( !instajump && !g_instajump->integer ) {
-		if( first ) {
-			G_PrintMsg( vote->caller, "%sInstajump is already disabled\n", S_COLOR_RED );
-		}
-		return false;
-	}
-
-	return true;
+	return G_ValidateBooleanSwitchVote( g_instajump, "Instajump", vote, first );
 }
 
 static void G_VoteAllowInstajumpPassed( callvotedata_t *vote ) {
@@ -1426,27 +1413,7 @@ static const char *G_VoteAllowInstajumpCurrent( void ) {
 */
 
 static bool G_VoteAllowInstashieldValidate( callvotedata_t *vote, bool first ) {
-	int instashield = atoi( vote->argv[0] );
-
-	if( instashield != 0 && instashield != 1 ) {
-		return false;
-	}
-
-	if( instashield && g_instashield->integer ) {
-		if( first ) {
-			G_PrintMsg( vote->caller, "%sInstashield is already allowed\n", S_COLOR_RED );
-		}
-		return false;
-	}
-
-	if( !instashield && !g_instashield->integer ) {
-		if( first ) {
-			G_PrintMsg( vote->caller, "%sInstashield is already disabled\n", S_COLOR_RED );
-		}
-		return false;
-	}
-
-	return true;
+	return G_ValidateBooleanSwitchVote( g_instashield, "Instashield", vote, first );
 }
 
 static void G_VoteAllowInstashieldPassed( callvotedata_t *vote ) {
@@ -1479,27 +1446,7 @@ static const char *G_VoteAllowInstashieldCurrent( void ) {
 */
 
 static bool G_VoteAllowFallDamageValidate( callvotedata_t *vote, bool first ) {
-	int falldamage = atoi( vote->argv[0] );
-
-	if( falldamage != 0 && falldamage != 1 ) {
-		return false;
-	}
-
-	if( falldamage && GS_FallDamage() ) {
-		if( first ) {
-			G_PrintMsg( vote->caller, "%sFall damage is already allowed\n", S_COLOR_RED );
-		}
-		return false;
-	}
-
-	if( !falldamage && !GS_FallDamage() ) {
-		if( first ) {
-			G_PrintMsg( vote->caller, "%sFall damage is already disabled\n", S_COLOR_RED );
-		}
-		return false;
-	}
-
-	return true;
+	return G_ValidateBooleanSwitchVote( (int)GS_FallDamage(), "Fall damage", vote, first );
 }
 
 static void G_VoteAllowFallDamagePassed( callvotedata_t *vote ) {
@@ -1519,27 +1466,7 @@ static const char *G_VoteAllowFallDamageCurrent( void ) {
 */
 
 static bool G_VoteAllowSelfDamageValidate( callvotedata_t *vote, bool first ) {
-	int selfdamage = atoi( vote->argv[0] );
-
-	if( selfdamage != 0 && selfdamage != 1 ) {
-		return false;
-	}
-
-	if( selfdamage && GS_SelfDamage() ) {
-		if( first ) {
-			G_PrintMsg( vote->caller, "%sSelf damage is already allowed\n", S_COLOR_RED );
-		}
-		return false;
-	}
-
-	if( !selfdamage && !GS_SelfDamage() ) {
-		if( first ) {
-			G_PrintMsg( vote->caller, "%sSelf damage is already disabled\n", S_COLOR_RED );
-		}
-		return false;
-	}
-
-	return true;
+	return G_ValidateBooleanSwitchVote( (int)GS_SelfDamage(), "Self damage", vote, first );
 }
 
 static void G_VoteAllowSelfDamagePassed( callvotedata_t *vote ) {
@@ -2002,12 +1929,6 @@ static void G_CallVotes_CheckState( void ) {
 			continue;
 		}
 
-		if( callvoteState.vote.callvote->need_auth && sv_mm_enable->integer ) {
-			if( client->mm_session <= 0 ) {
-				continue;
-			}
-		}
-
 		voters++;
 		if( clientVoted[PLAYERNUM( ent )] == VOTED_YES ) {
 			yeses++;
@@ -2065,11 +1986,6 @@ void G_CallVotes_CmdVote( edict_t *ent ) {
 
 	if( !callvoteState.vote.callvote ) {
 		G_PrintMsg( ent, "%sThere's no vote in progress\n", S_COLOR_RED );
-		return;
-	}
-
-	if( callvoteState.vote.callvote->need_auth && sv_mm_enable->integer && ent->r.client->mm_session <= 0 ) {
-		G_PrintMsg( ent, "%sThe ongoing vote requires authentication\n", S_COLOR_RED );
 		return;
 	}
 
@@ -2225,11 +2141,6 @@ static void G_CallVote( edict_t *ent, bool isopcall ) {
 	// allow a second cvar specific for opcall
 	if( isopcall && trap_Cvar_Value( va( "g_disable_opcall_%s", callvote->name ) ) ) {
 		G_PrintMsg( ent, "%sOpcall %s is disabled on this server\n", S_COLOR_RED, callvote->name );
-		return;
-	}
-
-	if( !isopcall && callvote->need_auth && sv_mm_enable->integer && ent->r.client->mm_session <= 0 ) {
-		G_PrintMsg( ent, "%sCallvote %s requires authentication\n", S_COLOR_RED, callvote->name );
 		return;
 	}
 
@@ -2611,7 +2522,6 @@ void G_CallVotes_Init( void ) {
 	callvote->argument_format = G_LevelCopyString( "<player>" );
 	callvote->argument_type = G_LevelCopyString( "option" );
 	callvote->webRequest = G_PlayerlistWebRequest;
-	callvote->need_auth = true;
 	callvote->help = G_LevelCopyString( "Forces player back to spectator mode" );
 
 	callvote = G_RegisterCallvote( "kick" );
@@ -2619,11 +2529,10 @@ void G_CallVotes_Init( void ) {
 	callvote->validate = G_VoteKickValidate;
 	callvote->execute = G_VoteKickPassed;
 	callvote->current = NULL;
-	callvote->extraHelp = G_VoteKickExtraHelp;
+	callvote->extraHelp = G_VoteHelp_ShowPlayersList;
 	callvote->argument_format = G_LevelCopyString( "<player>" );
 	callvote->argument_type = G_LevelCopyString( "option" );
 	callvote->webRequest = G_PlayerlistWebRequest;
-	callvote->need_auth = true;
 	callvote->help = G_LevelCopyString( "Removes player from the server" );
 
 	callvote = G_RegisterCallvote( "kickban" );
@@ -2631,11 +2540,10 @@ void G_CallVotes_Init( void ) {
 	callvote->validate = G_VoteKickBanValidate;
 	callvote->execute = G_VoteKickBanPassed;
 	callvote->current = NULL;
-	callvote->extraHelp = G_VoteKickBanExtraHelp;
+	callvote->extraHelp = G_VoteHelp_ShowPlayersList;
 	callvote->argument_format = G_LevelCopyString( "<player>" );
 	callvote->argument_type = G_LevelCopyString( "option" );
 	callvote->webRequest = G_PlayerlistWebRequest;
-	callvote->need_auth = true;
 	callvote->help = G_LevelCopyString( "Removes player from the server and bans his IP-address for 15 minutes" );
 
 	callvote = G_RegisterCallvote( "mute" );
@@ -2643,11 +2551,10 @@ void G_CallVotes_Init( void ) {
 	callvote->validate = G_VoteMuteValidate;
 	callvote->execute = G_VoteMutePassed;
 	callvote->current = NULL;
-	callvote->extraHelp = G_VoteMuteExtraHelp;
+	callvote->extraHelp = G_VoteHelp_ShowPlayersList;
 	callvote->argument_format = G_LevelCopyString( "<player>" );
 	callvote->argument_type = G_LevelCopyString( "option" );
 	callvote->webRequest = G_PlayerlistWebRequest;
-	callvote->need_auth = true;
 	callvote->help = G_LevelCopyString( "Disallows chat messages from the muted player" );
 
 	callvote = G_RegisterCallvote( "vmute" );
@@ -2655,11 +2562,10 @@ void G_CallVotes_Init( void ) {
 	callvote->validate = G_VoteMuteValidate;
 	callvote->execute = G_VoteVMutePassed;
 	callvote->current = NULL;
-	callvote->extraHelp = G_VoteMuteExtraHelp;
+	callvote->extraHelp = G_VoteHelp_ShowPlayersList;
 	callvote->argument_format = G_LevelCopyString( "<player>" );
 	callvote->argument_type = G_LevelCopyString( "option" );
 	callvote->webRequest = G_PlayerlistWebRequest;
-	callvote->need_auth = true;
 	callvote->help = G_LevelCopyString( "Disallows voice chat messages from the muted player" );
 
 	callvote = G_RegisterCallvote( "unmute" );
@@ -2667,11 +2573,10 @@ void G_CallVotes_Init( void ) {
 	callvote->validate = G_VoteUnmuteValidate;
 	callvote->execute = G_VoteUnmutePassed;
 	callvote->current = NULL;
-	callvote->extraHelp = G_VoteUnmuteExtraHelp;
+	callvote->extraHelp = G_VoteHelp_ShowPlayersList;
 	callvote->argument_format = G_LevelCopyString( "<player>" );
 	callvote->argument_type = G_LevelCopyString( "option" );
 	callvote->webRequest = G_PlayerlistWebRequest;
-	callvote->need_auth = true;
 	callvote->help = G_LevelCopyString( "Reallows chat messages from the unmuted player" );
 
 	callvote = G_RegisterCallvote( "vunmute" );
@@ -2679,12 +2584,114 @@ void G_CallVotes_Init( void ) {
 	callvote->validate = G_VoteUnmuteValidate;
 	callvote->execute = G_VoteVUnmutePassed;
 	callvote->current = NULL;
-	callvote->extraHelp = G_VoteUnmuteExtraHelp;
+	callvote->extraHelp = G_VoteHelp_ShowPlayersList;
 	callvote->argument_format = G_LevelCopyString( "<player>" );
 	callvote->argument_type = G_LevelCopyString( "option" );
 	callvote->webRequest = G_PlayerlistWebRequest;
-	callvote->need_auth = true;
 	callvote->help = G_LevelCopyString( "Reallows voice chat messages from the unmuted player" );
+
+	callvote = G_RegisterCallvote( "set_antiwallhack_for" );
+	callvote->expectedargs = 1;
+	callvote->validate = G_VoteSetAntiWallhackValidate;
+	callvote->execute = G_VoteSetAntiWallhackPassed;
+	callvote->current = NULL;
+	callvote->extraHelp = G_VoteHelp_ShowPlayersListWithSnapFlags;
+	callvote->argument_format = G_LevelCopyString( "<player>" );
+	callvote->argument_type = G_LevelCopyString( "option" );
+	callvote->webRequest = G_PlayerlistWebRequest;
+	callvote->help = G_LevelCopyString( "Sends less information that can be used for a wall hack "
+										"(but might be important for gameplay) to the player" );
+
+	callvote = G_RegisterCallvote( "reset_antiwallhack_for" );
+	callvote->expectedargs = 1;
+	callvote->validate = G_VoteResetAntiWallhackValidate;
+	callvote->execute = G_VoteResetAntiWallhackPassed;
+	callvote->current = NULL;
+	callvote->extraHelp = G_VoteHelp_ShowPlayersListWithSnapFlags;
+	callvote->argument_format = G_LevelCopyString( "<player>" );
+	callvote->argument_type = G_LevelCopyString( "option" );
+	callvote->webRequest = G_PlayerlistWebRequest;
+	callvote->help = G_LevelCopyString( "Restores default wallhack-prone information sent to a player" );
+
+	callvote = G_RegisterCallvote( "set_antiradar_for" );
+	callvote->expectedargs = 1;
+	callvote->validate = G_VoteSetAntiRadarValidate;
+	callvote->execute = G_VoteSetAntiRadarPassed;
+	callvote->current = NULL;
+	callvote->extraHelp = G_VoteHelp_ShowPlayersListWithSnapFlags;
+	callvote->argument_format = G_LevelCopyString( "<player>" );
+	callvote->argument_type = G_LevelCopyString( "option" );
+	callvote->webRequest = G_PlayerlistWebRequest;
+	callvote->help = G_LevelCopyString( "Sends less information that can be used for a radar hack "
+										"(but might be important for gameplay) to the player" );
+
+	callvote = G_RegisterCallvote( "reset_antiradar_for" );
+	callvote->expectedargs = 1;
+	callvote->validate = G_VoteResetAntiRadarValidate;
+	callvote->execute = G_VoteResetAntiRadarPassed;
+	callvote->current = NULL;
+	callvote->extraHelp = G_VoteHelp_ShowPlayersListWithSnapFlags;
+	callvote->argument_format = G_LevelCopyString( "<player>" );
+	callvote->argument_type = G_LevelCopyString( "option" );
+	callvote->webRequest = G_PlayerlistWebRequest;
+	callvote->help = G_LevelCopyString( "Restores default radar-prone information sent to a player" );
+
+	callvote = G_RegisterCallvote( "set_anticheat_for" );
+	callvote->expectedargs = 1;
+	callvote->validate = G_VoteSetAntiCheatValidate;
+	callvote->execute = G_VoteSetAntiCheatPassed;
+	callvote->current = NULL;
+	callvote->extraHelp = G_VoteHelp_ShowPlayersListWithSnapFlags;
+	callvote->argument_format = G_LevelCopyString( "<player>" );
+	callvote->argument_type = G_LevelCopyString( "option" );
+	callvote->webRequest = G_PlayerlistWebRequest;
+	callvote->help = G_LevelCopyString( "Turns ON all currently implemented anticheat methods "
+										"(that might affect gameplay) for a player" );
+
+	callvote = G_RegisterCallvote( "reset_anticheat_for" );
+	callvote->expectedargs = 1;
+	callvote->validate = G_VoteResetAntiCheatValidate;
+	callvote->execute = G_VoteResetAntiCheatPassed;
+	callvote->current = NULL;
+	callvote->extraHelp = G_VoteHelp_ShowPlayersListWithSnapFlags;
+	callvote->argument_format = G_LevelCopyString( "<player>" );
+	callvote->argument_type = G_LevelCopyString( "option" );
+	callvote->webRequest = G_PlayerlistWebRequest;
+	callvote->help = G_LevelCopyString( "Turns OFF all currently implemented anticheat methods "
+										"(that might affect gameplay) for a player" );
+
+	callvote = G_RegisterCallvote( "enable_global_antiwallhack" );
+	callvote->expectedargs = 1;
+	callvote->validate = G_VoteEnableGlobalAntiWallhackValidate;
+	callvote->execute = G_VoteEnableGlobalAntiWallhackPassed;
+	callvote->current = G_VoteEnableGlobalAntiWallhackCurrent;
+	callvote->extraHelp = NULL;
+	callvote->argument_format = G_LevelCopyString( "<number>" );
+	callvote->argument_type = G_LevelCopyString( "integer" );
+	callvote->help = G_LevelCopyString( "Toggles sending less information that can be used for a wall hack "
+										"(but might be important for gameplay) for every player" );
+
+	callvote = G_RegisterCallvote( "enable_global_antiradar" );
+	callvote->expectedargs = 1;
+	callvote->validate = G_VoteEnableGlobalAntiRadarValidate;
+	callvote->execute = G_VoteEnableGlobalAntiRadarPassed;
+	callvote->current = G_VoteEnableGlobalAntiRadarCurrent;
+	callvote->extraHelp = NULL;
+	callvote->argument_format = G_LevelCopyString( "<number>" );
+	callvote->argument_type = G_LevelCopyString( "integer " );
+	callvote->help = G_LevelCopyString( "Toggles sending less information that can be used for a radar hack "
+										"(but might be important for gameplay) for every player" );
+
+	callvote = G_RegisterCallvote( "enable_global_anticheat" );
+	callvote->expectedargs = 1;
+	callvote->validate = G_VoteEnableGlobalAntiCheatValidate;
+	callvote->execute = G_VoteEnableGlobalAntiCheatPassed;
+	callvote->current = G_VoteEnableGlobalAntiCheatCurrent;
+	callvote->extraHelp = NULL;
+	callvote->argument_format = G_LevelCopyString( "<number>" );
+	callvote->argument_type = G_LevelCopyString( "integer " );
+	callvote->help = G_LevelCopyString( "Toggles using all implemented anticheat methods "
+										"(that might affect gameplay) for every player" );
 
 	callvote = G_RegisterCallvote( "numbots" );
 	callvote->expectedargs = 1;
@@ -2694,7 +2701,6 @@ void G_CallVotes_Init( void ) {
 	callvote->extraHelp = NULL;
 	callvote->argument_format = G_LevelCopyString( "<number>" );
 	callvote->argument_type = G_LevelCopyString( "integer" );
-	callvote->need_auth = true;
 	callvote->help = G_LevelCopyString( "Sets the number of bots to play on the server" );
 
 	callvote = G_RegisterCallvote( "allow_teamdamage" );
@@ -2705,7 +2711,6 @@ void G_CallVotes_Init( void ) {
 	callvote->extraHelp = NULL;
 	callvote->argument_format = G_LevelCopyString( "<1 or 0>" );
 	callvote->argument_type = G_LevelCopyString( "bool" );
-	callvote->need_auth = true;
 	callvote->help = G_LevelCopyString( "Toggles whether shooting teammates will do damage to them" );
 
 	callvote = G_RegisterCallvote( "instajump" );
@@ -2776,7 +2781,6 @@ void G_CallVotes_Init( void ) {
 	callvote->extraHelp = NULL;
 	callvote->argument_format = G_LevelCopyString( "<1 or 0>" );
 	callvote->argument_type = G_LevelCopyString( "bool" );
-	callvote->need_auth = true;
 
 	callvote = G_RegisterCallvote( "shuffle" );
 	callvote->expectedargs = 0;

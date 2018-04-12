@@ -869,11 +869,6 @@ void CG_DrawTeamMates( void ) {
 			continue;
 		}
 
-		// players might be SVF_FORCETEAM'ed for teammates, prevent ugly flickering for specs
-		if( cg.predictedPlayerState.stats[STAT_REALTEAM] == TEAM_SPECTATOR && !trap_CM_InPVS( cg.view.origin, cent->ent.origin ) ) {
-			continue;
-		}
-
 		// find the 3d point in 2d screen
 		trap_R_TransformVectorToScreen( &cg.view.refdef, drawOrigin, coords );
 		if( ( coords[0] < 0 || coords[0] > cgs.vidWidth ) || ( coords[1] < 0 || coords[1] > cgs.vidHeight ) ) {
