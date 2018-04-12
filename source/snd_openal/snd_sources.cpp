@@ -706,31 +706,101 @@ static void S_ProcessZombieSources( src_t **zombieSources, int numZombieSources,
 		return;
 	}
 
-	auto cmp = [=]( const src_t *lhs, const src_t *rhs ) {
+	auto zombieSourceComparator = [=]( const src_t *lhs, const src_t *rhs ) {
 		// Let sounds that have a lower quality hint be evicted first from the max heap
 		// (The natural comparison order uses the opposite sign).
 		return lhs->sfx->qualityHint > rhs->sfx->qualityHint;
 	};
 
-	std::make_heap( zombieSources, zombieSources + numZombieSources, cmp );
+	std::make_heap( zombieSources, zombieSources + numZombieSources, zombieSourceComparator );
+
+	// Cache results of Effect::ShouldKeepLingering() calls
+	bool keepEffectLingering[MAX_SRC];
+	memset( keepEffectLingering, 0, sizeof( keepEffectLingering ) );
+
+	// Prefer copying globals to locals if they're accessed in loop
+	// (an access to globals is indirect and is performed via "global relocation table")
+	src_t *const srcBegin = srclist;
 
 	for(;; ) {
 		if( numActiveEffects <= effectsNumberThreshold ) {
-			break;
+			return;
 		}
 		if( numZombieSources <= 0 ) {
 			break;
 		}
 
-		std::pop_heap( zombieSources, zombieSources + numZombieSources, cmp );
+		std::pop_heap( zombieSources, zombieSources + numZombieSources, zombieSourceComparator );
 		src_t *const src = zombieSources[numZombieSources - 1];
 		numZombieSources--;
 
 		if( src->envUpdateState.effect->ShouldKeepLingering( src->sfx->qualityHint, millisNow ) ) {
+			keepEffectLingering[src - srcBegin] = true;
 			continue;
 		}
 
 		source_kill( src );
+		numActiveEffects--;
+	}
+
+	// Start disabling effects completely.
+	// This is fairly slow path but having excessive active effects count is much worse.
+	// Note that effects status might have been changed.
+
+	vec3_t listenerOrigin;
+	qalGetListener3f( AL_POSITION, listenerOrigin + 0, listenerOrigin + 1, listenerOrigin + 2 );
+
+	src_t *disableEffectCandidates[MAX_SRC];
+	float sourceScores[MAX_SRC];
+	int numDisableEffectCandidates = 0;
+
+	for( src_t *src = srcBegin; src != srcBegin + MAX_SRC; ++src ) {
+		if( !src->isActive ) {
+			continue;
+		}
+		if( !src->envUpdateState.effect ) {
+			continue;
+		}
+		// If it was considered to keep effect lingering, do not touch the effect even if we want to disable some
+		if( keepEffectLingering[src - srcBegin] ) {
+			continue;
+		}
+
+		float squareDistance = DistanceSquared( listenerOrigin, src->origin );
+		if( squareDistance < 72 * 72 ) {
+			continue;
+		}
+
+		disableEffectCandidates[numDisableEffectCandidates++] = src;
+		float evictionScore = sqrtf( squareDistance );
+		evictionScore *= 1.0f / ( 0.5f + src->sfx->qualityHint );
+		// Give looping sources higher priority, otherwise it might sound weird
+		// if most of sources become inactive but the looping sound does not have an effect.
+		evictionScore *= src->isLooping ? 0.5f : 1.0f;
+		sourceScores[src - srcBegin] = evictionScore;
+	}
+
+	// Use capture by reference, MSVC tries to capture an array by value and consequently fails
+	auto disableEffectComparator = [&]( const src_t *lhs, const src_t *rhs ) {
+		// Keep the natural order, a value with greater eviction score should be evicted first
+		return sourceScores[lhs - srcBegin] > sourceScores[rhs - srcBegin];
+	};
+
+	std::make_heap( disableEffectCandidates, disableEffectCandidates + numDisableEffectCandidates, disableEffectComparator );
+
+	for(;; ) {
+		if( numActiveEffects <= effectsNumberThreshold ) {
+			break;
+		}
+		if( numDisableEffectCandidates < 0 ) {
+			break;
+		}
+
+		std::pop_heap( disableEffectCandidates, disableEffectCandidates + numDisableEffectCandidates, disableEffectComparator );
+		src_t *src = disableEffectCandidates[numDisableEffectCandidates - 1];
+		numDisableEffectCandidates--;
+
+		ENV_UnregisterSource( src );
 		numActiveEffects--;
 	}
 }
