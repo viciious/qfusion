@@ -302,4 +302,7 @@ public:
 	}
 };
 
+extern const cvar_t *ai_evolution;
+extern const cvar_t *ai_debug_output;
+
 #endif

@@ -333,7 +333,7 @@ void AiManager::SetupClientBot( edict_t *ent ) {
 	float skillLevel;
 
 	// Always use the same skill for bots that are subject of evolution
-	if( g_bot_evolution->integer ) {
+	if( ai_evolution->integer ) {
 		skillLevel = 0.75f;
 	} else {
 		skillLevel = MakeRandomBotSkillByServerSkillLevel();
