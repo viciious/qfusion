@@ -496,6 +496,7 @@ public:
 		BlockHeader *next;
 	};
 
+	static_assert( !( sizeof( BlockHeader ) % 8 ), "BlockHeader size is assumed to be a multiple of 8" );
 private:
 	// Freelist head
 	BlockHeader headBlock;
@@ -538,7 +539,6 @@ class AreaAndPortalCacheBin
 	// Sets the reference in the chunk to its owner so the block can destruct self
 	inline void *SetSelfAsTag( void *block ) {
 		// Check the block alignment
-		assert( !( (uintptr_t)block % 8 ) );
 		// We have to always return 8-byte aligned blocks to follow the malloc contract
 		// regardless of address size, so 8 bytes are wasted anyway
 		uint64_t *u = (uint64_t *)block;
@@ -614,11 +614,14 @@ FreelistPool::FreelistPool( void *buffer_, size_t bufferSize, size_t blockSize_ 
 	if( ( (uintptr_t)buffer ) & 7 ) {
 		AI_FailWith( "FreelistPool::FreelistPool()", "Illegal buffer pointer (should be at least 8-byte-aligned)\n" );
 	}
+	if( blockSize & 7 ) {
+		AI_FailWith( "FreelistPool::FreelistPool()", "Illegal block size (must be a multiple of 8)\n" );
+	}
 #endif
 
 	freeBlock = nullptr;
 	if( maxBlocks ) {
-		// We can't use array access on BlockHeader * pointer since real chunk size is not a sizeof(Chunk).
+		// We can't use array access on BlockHeader * pointer since real chunk size is not a sizeof(BlockHeader).
 		// Next chunk has this offset in bytes from previous one:
 		size_t stride = blockSize + sizeof( BlockHeader );
 		uint8_t *nextBlockPtr = this->buffer + stride;
@@ -684,6 +687,7 @@ void *AreaAndPortalCacheBin::Alloc( int size ) {
 	}
 #endif
 	constexpr auto TAG_SIZE = 8;
+	static_assert( !( TAG_SIZE % 8 ), "TAG_SIZE must be a multiple of 8" );
 
 	// Once the freelist pool for many chunks has been initialized, it handles all allocation requests.
 	if( freelistPool ) {
@@ -713,19 +717,25 @@ void *AreaAndPortalCacheBin::Alloc( int size ) {
 	// Too many blocks is going to be used.
 	// Allocate a freelist pool in a single continuous memory block, and use it for further allocations.
 
-	// Each block needs some space for the header and 8 extra bytes for the block tag
-	size_t bufferSize = ( blockSize + sizeof( FreelistPool::BlockHeader ) + TAG_SIZE ) * numBlocks;
-	size_t alignmentBytes = 0;
-	if( sizeof( FreelistPool ) % 8 ) {
-		alignmentBytes = 8 - sizeof( FreelistPool ) % 8;
+	// The block size must be aligned itself, that is a FreelistPool() contract
+	size_t alignedBlockSize = blockSize;
+	if( alignedBlockSize % 8 ) {
+		alignedBlockSize += 8 - blockSize % 8;
 	}
 
-	size_t memSize = sizeof( FreelistPool ) + alignmentBytes + bufferSize;
+	// Each block needs some space for the header and 8 extra bytes for the block tag
+	size_t bufferSize = ( alignedBlockSize + sizeof( FreelistPool::BlockHeader ) + TAG_SIZE ) * numBlocks;
+	size_t bufferAlignmentBytes = 0;
+	if( sizeof( FreelistPool ) % 8 ) {
+		bufferAlignmentBytes = 8 - sizeof( FreelistPool ) % 8;
+	}
+
+	size_t memSize = sizeof( FreelistPool ) + bufferAlignmentBytes + bufferSize;
 	uint8_t *memBlock = (uint8_t *)G_Malloc( memSize );
 	memset( memBlock, 0, memSize );
-	uint8_t *poolBuffer = memBlock + sizeof( FreelistPool ) + alignmentBytes;
+	uint8_t *poolBuffer = memBlock + sizeof( FreelistPool ) + bufferAlignmentBytes;
 	// Note: It is important to tell the pool about the extra space occupied by block tags
-	freelistPool = new( memBlock )FreelistPool( poolBuffer, bufferSize, blockSize + TAG_SIZE );
+	freelistPool = new( memBlock )FreelistPool( poolBuffer, bufferSize, alignedBlockSize + TAG_SIZE );
 	return SetSelfAsTag( freelistPool->Alloc( size + TAG_SIZE ) );
 }
 
