@@ -25,6 +25,8 @@ Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
 #include <snd_cmdque.h>
 #include "snd_env_sampler.h"
 
+#include <algorithm>
+
 src_t srclist[MAX_SRC];
 int src_count = 0;
 static bool src_inited = false;
@@ -37,6 +39,19 @@ typedef struct sentity_s {
 } sentity_t;
 static sentity_t *entlist = NULL; //[MAX_EDICTS];
 static int max_ents;
+
+static void S_AdjustGain( src_t *src ) {
+	if( auto *effect = src->envUpdateState.effect ) {
+		effect->AdjustGain( src );
+		return;
+	}
+
+	if( src->volumeVar ) {
+		qalSourcef( src->source, AL_GAIN, src->fvol * src->volumeVar->value );
+	} else {
+		qalSourcef( src->source, AL_GAIN, src->fvol * s_volume->value );
+	}
+}
 
 /*
 * source_setup
@@ -63,6 +78,7 @@ static void source_setup( src_t *src, sfx_t *sfx, int priority, int entNum, int 
 	src->isLocked = false;
 	src->isLooping = false;
 	src->isTracking = false;
+	src->isLingering = false;
 	src->volumeVar = s_volume;
 	VectorClear( src->origin );
 	VectorClear( src->velocity );
@@ -122,6 +138,9 @@ static void source_kill( src_t *src ) {
 	src->isLooping = false;
 	src->isTracking = false;
 
+	src->isLingering = false;
+	src->lingeringTimeoutAt = 0;
+
 	ENV_UnregisterSource( src );
 }
 
@@ -152,9 +171,17 @@ void Effect::IntiallySetupEffect( src_t *src ) {
 	qalEffecti( src->effect, AL_EFFECT_TYPE, this->type );
 }
 
+float Effect::GetMasterGain( src_s *src ) const {
+	return src->fvol * src->volumeVar->value;
+}
+
+void Effect::AdjustGain( src_t *src ) const {
+	qalSourcef( src->source, AL_GAIN, GetMasterGain( src ) );
+}
+
 void Effect::AttachEffect( src_t *src ) {
 	// Set gain in any case (useful if the "attenuate on obstruction" flag has been turned off).
-	qalSourcef( src->source, AL_GAIN, GetMasterGain( src ) );
+	AdjustGain( src );
 
 	// Attach the effect to the slot
 	qalAuxiliaryEffectSloti( src->effectSlot, AL_EFFECTSLOT_EFFECT, src->effect );
@@ -169,19 +196,21 @@ void UnderwaterFlangerEffect::IntiallySetupEffect( src_t *src ) {
 	qalEffectf( src->effect, AL_FLANGER_FEEDBACK, -0.4f );
 }
 
-float UnderwaterFlangerEffect::GetMasterGain( src_t *src ) {
-	float gain = src->fvol * s_volume->value;
+float UnderwaterFlangerEffect::GetMasterGain( src_t *src ) const {
+	float gain = src->fvol * src->volumeVar->value;
+	// Lower gain significantly if there is a medium transition
+	// (if the listener is not in liquid and the source is, and vice versa)
+	if( hasMediumTransition ) {
+		gain *= 0.25f;
+	}
+
 	if( !s_attenuate_on_obstruction->integer ) {
 		return gain;
 	}
 
 	// Modify the gain by the direct obstruction factor
 	// Lowering the gain by 1/3 on full obstruction is fairly sufficient (its not linearly perceived)
-	float obstructionFactor = 0.33f * directObstruction;
-	// Modulate by the environment effects scale
-	float attenuationFactor = 1.0f - obstructionFactor * s_environment_effects_scale->value;
-	gain *= attenuationFactor;
-
+	gain *= 1.0f - 0.33f * directObstruction;
 	assert( gain >= 0.0f && gain <= 1.0f );
 	return gain;
 }
@@ -194,21 +223,17 @@ void UnderwaterFlangerEffect::BindOrUpdate( src_t *src ) {
 	AttachEffect( src );
 }
 
-float ReverbEffect::GetMasterGain( src_t *src ) {
-	float gain = src->fvol * s_volume->value;
+float ReverbEffect::GetMasterGain( src_t *src ) const {
+	float gain = src->fvol * src->volumeVar->value;
 	if( !s_attenuate_on_obstruction->integer ) {
-		return false;
+		return gain;
 	}
 
-	// Direct obstruction = 1 means the direct path to the listener is fully obstructed.
-	// GainHf close to 0 means the secondary reflections path is almost fully obstructed too.
-	// Thus, obstruction factor is within [0, 0.3..) range.
-	// Lowering the gain by 1/3 on full obstruction is fairly sufficient (its not linearly perceived)
-	float obstructionFactor = 0.33f * ( this->directObstruction + ( 1.0f - this->gainHf ) );
-	// Modulate by the environment effects scale
-	float attenuationFactor = 1.0f - obstructionFactor * s_environment_effects_scale->value;
-	gain *= attenuationFactor;
-
+	// Both partial obstruction factors are within [0, 1] range, so we multiply by 0.5
+	float obstructionFactor = 0.5f * ( this->directObstruction + this->secondaryRaysObstruction );
+	assert( obstructionFactor >= 0.0f && obstructionFactor <= 1.0f );
+	// Lowering the gain by 1/3 is enough
+	gain *= 1.0f - 0.33f * obstructionFactor;
 	assert( gain >= 0.0f && gain <= 1.0f );
 	return gain;
 }
@@ -226,6 +251,47 @@ void ReverbEffect::BindOrUpdate( src_t *src ) {
 	qalEffectf( src->effect, AL_REVERB_LATE_REVERB_DELAY, this->lateReverbDelay );
 
 	qalFilterf( src->directFilter, AL_LOWPASS_GAINHF, 1.0f - directObstruction );
+
+	AttachEffect( src );
+}
+
+void ChorusEffect::BindOrUpdate( struct src_s *src ) {
+	CheckCurrentlyBoundEffect( src );
+
+	qalEffecti( src->effect, AL_CHORUS_PHASE, phase );
+	qalEffecti( src->effect, AL_CHORUS_WAVEFORM, waveform );
+
+	qalEffectf( src->effect, AL_CHORUS_DELAY, delay );
+	qalEffectf( src->effect, AL_CHORUS_DEPTH, depth );
+	qalEffectf( src->effect, AL_CHORUS_RATE, rate );
+	qalEffectf( src->effect, AL_CHORUS_FEEDBACK, feedback );
+
+	qalFilterf( src->directFilter, AL_LOWPASS_GAINHF, 1.0f );
+
+	AttachEffect( src );
+}
+
+void DistortionEffect::BindOrUpdate( struct src_s *src ) {
+	CheckCurrentlyBoundEffect( src );
+
+	qalEffectf( src->effect, AL_DISTORTION_EDGE, edge );
+	qalEffectf( src->effect, AL_DISTORTION_EDGE, gain );
+
+	qalFilterf( src->directFilter, AL_LOWPASS_GAINHF, 1.0f );
+
+	AttachEffect( src );
+}
+
+void EchoEffect::BindOrUpdate( struct src_s *src ) {
+	CheckCurrentlyBoundEffect( src );
+
+	qalEffectf( src->effect, AL_ECHO_DELAY, delay );
+	qalEffectf( src->effect, AL_ECHO_LRDELAY, lrDelay );
+	qalEffectf( src->effect, AL_ECHO_DAMPING, damping );
+	qalEffectf( src->effect, AL_ECHO_FEEDBACK, feedback );
+	qalEffectf( src->effect, AL_ECHO_SPREAD, spread );
+
+	qalFilterf( src->directFilter, AL_LOWPASS_GAINHF, 1.0f );
 
 	AttachEffect( src );
 }
@@ -291,7 +357,7 @@ static void source_loop( int priority, sfx_t *sfx, int entNum, float fvol, float
 		entlist[entNum].src = src;
 	}
 
-	qalSourcef( src->source, AL_GAIN, src->fvol * src->volumeVar->value );
+	S_AdjustGain( src );
 
 	qalSourcef( src->source, AL_REFERENCE_DISTANCE, s_attenuation_refdistance );
 	qalSourcef( src->source, AL_MAX_DISTANCE, s_attenuation_maxdistance );
@@ -517,6 +583,11 @@ void S_SetEntitySpatialization( int entnum, const vec3_t origin, const vec3_t ve
 	VectorCopy( velocity, sent->velocity );
 }
 
+/**
+* A zombie is a source that still has an "active" flag but AL reports that it is stopped (is completed).
+*/
+static void S_ProcessZombieSources( src_t **zombieSources, int numZombieSources, int numActiveEffects, int64_t millisNow );
+
 /*
 * S_UpdateSources
 */
@@ -524,43 +595,216 @@ void S_UpdateSources( void ) {
 	int i, entNum;
 	ALint state;
 
+	const int64_t millisNow = trap_Milliseconds();
+
+	src_t *zombieSources[MAX_SRC];
+	int numZombieSources = 0;
+	int numActiveEffects = 0;
+
 	for( i = 0; i < src_count; i++ ) {
-		if( !srclist[i].isActive ) {
+		src_t *src = &srclist[i];
+		if( !src->isActive ) {
 			continue;
 		}
-		if( srclist[i].isLocked ) {
+
+		if( src->envUpdateState.effect ) {
+			numActiveEffects++;
+		}
+
+		if( src->isLocked ) {
 			continue;
 		}
 
-		if( srclist[i].volumeVar->modified ) {
-			qalSourcef( srclist[i].source, AL_GAIN, srclist[i].fvol * srclist[i].volumeVar->value );
+		if( src->volumeVar->modified ) {
+			S_AdjustGain( &srclist[i] );
 		}
 
-		entNum = srclist[i].entNum;
+		entNum = src->entNum;
 
-		// Check if it's done, and flag it
-		qalGetSourcei( srclist[i].source, AL_SOURCE_STATE, &state );
+		qalGetSourcei( src->source, AL_SOURCE_STATE, &state );
 		if( state == AL_STOPPED ) {
-			source_kill( &srclist[i] );
+			// If there is no effect attached, kill the source immediately.
+			// Do not even bother adding this source to a list of zombie sources.
+			if( !src->envUpdateState.effect ) {
+				source_kill( src );
+			} else {
+				zombieSources[numZombieSources++] = src;
+			}
 			if( entNum >= 0 && entNum < max_ents ) {
 				entlist[entNum].src = NULL;
 			}
+			src->entNum = -1;
 			continue;
 		}
 
-		if( srclist[i].isLooping ) {
+		if( src->isLooping ) {
 			// If a looping effect hasn't been touched this frame, kill it
+			// Note: lingering produces bad results in this case
 			if( !entlist[entNum].touched ) {
+				// Don't even bother adding this source to a list of zombie sources...
 				source_kill( &srclist[i] );
+				// Do not misinform zombies processing logic
+				if( src->envUpdateState.effect ) {
+					numActiveEffects--;
+				}
 				entlist[entNum].src = NULL;
 			} else {
 				entlist[entNum].touched = false;
 			}
 		}
 
-		source_spatialize( &srclist[i] );
+		source_spatialize( src );
+	}
+
+	S_ProcessZombieSources( zombieSources, numZombieSources, numActiveEffects, millisNow );
+}
+
+/**
+* A zombie is a source that still has an "active" flag but AL reports that it is stopped (is completed).
+*/
+static void S_ProcessZombieSources( src_t **zombieSources, int numZombieSources, int numActiveEffects, int64_t millisNow ) {
+	// First, kill all sources with expired lingering timeout
+	for( int i = 0; i < numZombieSources; ) {
+		src_t *const src = zombieSources[i];
+		// Adding a source to "zombies" list makes sense only for sources with attached effects
+		assert( src->envUpdateState.effect );
+
+		// If the source is not lingering, set the lingering state
+		if( !src->isLingering ) {
+			src->isLingering = true;
+			src->lingeringTimeoutAt = millisNow + src->envUpdateState.effect->GetLingeringTimeout();
+			i++;
+			continue;
+		}
+
+		// If the source lingering timeout has not expired
+		if( src->lingeringTimeoutAt > millisNow ) {
+			i++;
+			continue;
+		}
+
+		source_kill( src );
+		// Replace the current array cell by the last one, and repeat testing this cell next iteration
+		zombieSources[i] = zombieSources[numZombieSources - 1];
+		numZombieSources--;
+		numActiveEffects--;
+	}
+
+	// Now we know an actual number of zombie sources and active effects left.
+	// Aside from that, all zombie sources left in list are lingering.
+
+	int effectsNumberThreshold = s_effects_number_threshold->integer;
+	if( effectsNumberThreshold < 8 ) {
+		effectsNumberThreshold = 8;
+		trap_Cvar_ForceSet( s_effects_number_threshold->name, "8" );
+	} else if( effectsNumberThreshold > 32 ) {
+		effectsNumberThreshold = 32;
+		trap_Cvar_ForceSet( s_effects_number_threshold->name, "32" );
+	}
+
+	if( numActiveEffects <= effectsNumberThreshold ) {
+		return;
+	}
+
+	auto zombieSourceComparator = [=]( const src_t *lhs, const src_t *rhs ) {
+		// Let sounds that have a lower quality hint be evicted first from the max heap
+		// (The natural comparison order uses the opposite sign).
+		return lhs->sfx->qualityHint > rhs->sfx->qualityHint;
+	};
+
+	std::make_heap( zombieSources, zombieSources + numZombieSources, zombieSourceComparator );
+
+	// Cache results of Effect::ShouldKeepLingering() calls
+	bool keepEffectLingering[MAX_SRC];
+	memset( keepEffectLingering, 0, sizeof( keepEffectLingering ) );
+
+	// Prefer copying globals to locals if they're accessed in loop
+	// (an access to globals is indirect and is performed via "global relocation table")
+	src_t *const srcBegin = srclist;
+
+	for(;; ) {
+		if( numActiveEffects <= effectsNumberThreshold ) {
+			return;
+		}
+		if( numZombieSources <= 0 ) {
+			break;
+		}
+
+		std::pop_heap( zombieSources, zombieSources + numZombieSources, zombieSourceComparator );
+		src_t *const src = zombieSources[numZombieSources - 1];
+		numZombieSources--;
+
+		if( src->envUpdateState.effect->ShouldKeepLingering( src->sfx->qualityHint, millisNow ) ) {
+			keepEffectLingering[src - srcBegin] = true;
+			continue;
+		}
+
+		source_kill( src );
+		numActiveEffects--;
+	}
+
+	// Start disabling effects completely.
+	// This is fairly slow path but having excessive active effects count is much worse.
+	// Note that effects status might have been changed.
+
+	vec3_t listenerOrigin;
+	qalGetListener3f( AL_POSITION, listenerOrigin + 0, listenerOrigin + 1, listenerOrigin + 2 );
+
+	src_t *disableEffectCandidates[MAX_SRC];
+	float sourceScores[MAX_SRC];
+	int numDisableEffectCandidates = 0;
+
+	for( src_t *src = srcBegin; src != srcBegin + MAX_SRC; ++src ) {
+		if( !src->isActive ) {
+			continue;
+		}
+		if( !src->envUpdateState.effect ) {
+			continue;
+		}
+		// If it was considered to keep effect lingering, do not touch the effect even if we want to disable some
+		if( keepEffectLingering[src - srcBegin] ) {
+			continue;
+		}
+
+		float squareDistance = DistanceSquared( listenerOrigin, src->origin );
+		if( squareDistance < 72 * 72 ) {
+			continue;
+		}
+
+		disableEffectCandidates[numDisableEffectCandidates++] = src;
+		float evictionScore = sqrtf( squareDistance );
+		evictionScore *= 1.0f / ( 0.5f + src->sfx->qualityHint );
+		// Give looping sources higher priority, otherwise it might sound weird
+		// if most of sources become inactive but the looping sound does not have an effect.
+		evictionScore *= src->isLooping ? 0.5f : 1.0f;
+		sourceScores[src - srcBegin] = evictionScore;
+	}
+
+	// Use capture by reference, MSVC tries to capture an array by value and consequently fails
+	auto disableEffectComparator = [&]( const src_t *lhs, const src_t *rhs ) {
+		// Keep the natural order, a value with greater eviction score should be evicted first
+		return sourceScores[lhs - srcBegin] > sourceScores[rhs - srcBegin];
+	};
+
+	std::make_heap( disableEffectCandidates, disableEffectCandidates + numDisableEffectCandidates, disableEffectComparator );
+
+	for(;; ) {
+		if( numActiveEffects <= effectsNumberThreshold ) {
+			break;
+		}
+		if( numDisableEffectCandidates < 0 ) {
+			break;
+		}
+
+		std::pop_heap( disableEffectCandidates, disableEffectCandidates + numDisableEffectCandidates, disableEffectComparator );
+		src_t *src = disableEffectCandidates[numDisableEffectCandidates - 1];
+		numDisableEffectCandidates--;
+
+		ENV_UnregisterSource( src );
+		numActiveEffects--;
 	}
 }
+
 
 /*
 * S_AllocSource
@@ -738,7 +982,7 @@ src_t *S_AllocRawSource( int entNum, float fvol, float attenuation, cvar_t *volu
 	}
 
 	src->volumeVar = volumeVar;
-	qalSourcef( src->source, AL_GAIN, src->fvol * src->volumeVar->value );
+	S_AdjustGain( src );
 
 	source_spatialize( src );
 	return src;

@@ -40,7 +40,7 @@ cvar_t *s_doppler;
 cvar_t *s_sound_velocity;
 cvar_t *s_environment_effects;
 cvar_t *s_environment_sampling_quality;
-cvar_t *s_environment_effects_scale;
+cvar_t *s_effects_number_threshold;
 cvar_t *s_hrtf;
 cvar_t *s_attenuate_on_obstruction;
 cvar_t *s_stereo2mono;
@@ -127,7 +127,7 @@ bool SF_Init( void *hwnd, int maxEntities, bool verbose ) {
 	s_volume = trap_Cvar_Get( "s_volume", "0.8", CVAR_ARCHIVE );
 	s_musicvolume = trap_Cvar_Get( "s_musicvolume", "0.05", CVAR_ARCHIVE );
 	s_doppler = trap_Cvar_Get( "s_doppler", "1.0", CVAR_ARCHIVE );
-	s_sound_velocity = trap_Cvar_Get( "s_sound_velocity", "10976", CVAR_DEVELOPER );
+	s_sound_velocity = trap_Cvar_Get( "s_sound_velocity", "8500", CVAR_DEVELOPER );
 	s_stereo2mono = trap_Cvar_Get( "s_stereo2mono", "0", CVAR_ARCHIVE );
 	s_globalfocus = trap_Cvar_Get( "s_globalfocus", "0", CVAR_ARCHIVE );
 
@@ -136,10 +136,7 @@ bool SF_Init( void *hwnd, int maxEntities, bool verbose ) {
 	if ( s_environment_sampling_quality->value < 0 || s_environment_sampling_quality->value > 1.0f ) {
 		trap_Cvar_ForceSet( s_environment_sampling_quality->name, "0.5" );
 	}
-	s_environment_effects_scale = trap_Cvar_Get( "s_environment_effects_scale", "0.5", CVAR_ARCHIVE );
-	if( s_environment_effects_scale->value < 0 || s_environment_effects_scale->value > 1.0f ) {
-		trap_Cvar_ForceSet( s_environment_effects_scale->name, "0.5" );
-	}
+	s_effects_number_threshold = trap_Cvar_Get( "s_effects_number_threshold", "15", CVAR_ARCHIVE );
 	s_hrtf = trap_Cvar_Get( "s_hrtf", "1", CVAR_ARCHIVE | CVAR_LATCH_SOUND );
 	s_attenuate_on_obstruction = trap_Cvar_Get( "s_attenuate_on_obstruction", "1", CVAR_ARCHIVE );
 

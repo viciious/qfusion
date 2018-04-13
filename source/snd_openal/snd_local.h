@@ -66,6 +66,13 @@ extern struct mempool_s *soundpool;
 #define S_Malloc( size ) S_MemAlloc( soundpool, size )
 #define S_Free( data ) S_MemFree( data )
 
+#ifdef min
+#undef min
+#endif
+#ifdef max
+#undef max
+#endif
+
 typedef struct sfx_s {
 	int id;
 	char filename[MAX_QPATH];
@@ -74,6 +81,13 @@ typedef struct sfx_s {
 	bool inMemory;
 	bool isLocked;
 	int used;           // Time last used
+	float qualityHint;  // Assumed to be in [0, 1] range for majority of sounds
+						// (but values exceeding this range are allowed),
+						// spammy sounds like ricochets, plasma explosions,
+						// laser impact sounds should have importance close to zero.
+						// Should not be treated as generic gameplay importance of the sound,
+						// but as a hint allowing lowering quality of sound processing for saving performance
+						// (the sound will remain playing but in low quality, without effects, etc).
 } sfx_t;
 
 extern cvar_t *s_volume;
@@ -85,7 +99,7 @@ extern cvar_t *s_doppler;
 extern cvar_t *s_sound_velocity;
 extern cvar_t *s_environment_effects;
 extern cvar_t *s_environment_sampling_quality;
-extern cvar_t *s_environment_effects_scale;
+extern cvar_t *s_effects_number_threshold;
 extern cvar_t *s_hrtf;
 // Has effect only if environment effects are turned on
 extern cvar_t *s_attenuate_on_obstruction;
@@ -176,16 +190,33 @@ struct src_s;
 class Effect {
 public:
 	virtual void BindOrUpdate( src_s *src ) = 0;
-	virtual void InterpolateProps( const Effect *oldOne, int timeDelta ) = 0;
+
+	virtual void InterpolateProps( const Effect *oldOne, int timeDelta ) {};
+
+	virtual unsigned GetLingeringTimeout() const {
+		return 500;
+	};
+
+	virtual bool ShouldKeepLingering( float sourceQualityHint, int64_t millisNow ) const {
+		return sourceQualityHint > 0;
+	};
+
 	virtual ~Effect() {}
 
 	template <typename T> static const T Cast( const Effect *effect ) {
 		// We might think of optimizing it in future, that's why the method is favourable over the direct cast
 		return dynamic_cast<T>( const_cast<Effect *>( effect ) );
 	}
+
+	void AdjustGain( src_s *src ) const;
+
+	// A timestamp of last props update
+	int64_t lastUpdateAt;
+	// An distance between emitter and listener at last props update
+	float distanceAtLastUpdate;
 protected:
 	ALint type;
-	Effect( ALint type_ ): type( type_ ) {}
+	Effect( ALint type_ ): lastUpdateAt( 0 ), distanceAtLastUpdate( 0.0f ), type( type_ ) {}
 
 	class Interpolator {
 		float newWeight, oldWeight;
@@ -211,24 +242,41 @@ protected:
 
 	void CheckCurrentlyBoundEffect( src_s *src );
 	virtual void IntiallySetupEffect( src_s *src );
-	virtual float GetMasterGain( src_s *src ) = 0;
+
+	virtual float GetMasterGain( src_s *src ) const;
+
 	void AttachEffect( src_s *src );
 };
 
 class UnderwaterFlangerEffect final: public Effect {
 	void IntiallySetupEffect( src_s *src ) override;
-	float GetMasterGain( src_s *src ) override;
+	float GetMasterGain( src_s *src ) const override;
 public:
-	float directObstruction;
 	UnderwaterFlangerEffect(): Effect( AL_EFFECT_FLANGER ) {}
+
+	float directObstruction;
+	bool hasMediumTransition;
+
 	void BindOrUpdate( src_s *src ) override;
 	void InterpolateProps( const Effect *oldOne, int timeDelta ) override;
+
+	unsigned GetLingeringTimeout() const override {
+		return 500;
+	}
+
+	bool ShouldKeepLingering( float sourceQualityHint, int64_t millisNow ) const override {
+		return sourceQualityHint > 0;
+	}
 };
 
 class ReverbEffect final: public Effect {
-	float GetMasterGain( struct src_s *src ) override;
+	float GetMasterGain( struct src_s *src ) const override;
 public:
+	ReverbEffect(): Effect( AL_EFFECT_REVERB ) {}
+
+	// A regular direct obstruction (same as for the flanger effect)
 	float directObstruction;
+
 	float density;              // [0.0 ... 1.0]    default 1.0
 	float diffusion;            // [0.0 ... 1.0]    default 1.0
 	float gain;                 // [0.0 ... 1.0]    default 0.32
@@ -238,7 +286,9 @@ public:
 	float reflectionsDelay;     // [0.0 ... 0.3]    default 0.007
 	float lateReverbDelay;      // [0.0 ... 0.1]    default 0.011
 
-	ReverbEffect(): Effect( AL_EFFECT_REVERB ) {}
+	// An intermediate of the reverb sampling algorithm, useful for gain adjustment
+	float secondaryRaysObstruction;
+
 	void BindOrUpdate( struct src_s *src ) override;
 	void InterpolateProps( const Effect *oldOne, int timeDelta ) override;
 
@@ -252,7 +302,68 @@ public:
 		reflectionsGain = that->reflectionsGain;
 		reflectionsDelay = that->reflectionsDelay;
 		lateReverbDelay = that->lateReverbDelay;
+		secondaryRaysObstruction = that->secondaryRaysObstruction;
 	}
+
+	unsigned GetLingeringTimeout() const override {
+		return (unsigned)( decayTime * 1000 + 50 );
+	}
+
+	bool ShouldKeepLingering( float sourceQualityHint, int64_t millisNow ) const override {
+		if( sourceQualityHint <= 0 ) {
+			return false;
+		}
+		if( millisNow - lastUpdateAt > 200 ) {
+			return false;
+		}
+		clamp_high( sourceQualityHint, 1.0f );
+		float factor = 0.5f * sourceQualityHint;
+		factor += 0.25f * ( ( 1.0f - directObstruction ) + ( 1.0f - secondaryRaysObstruction ) );
+		assert( factor >= 0.0f && factor <= 1.0f );
+		return distanceAtLastUpdate < 192.0f + 768.0f * factor;
+	}
+};
+
+class ChorusEffect final: public Effect {
+public:
+	ChorusEffect(): Effect( AL_EFFECT_CHORUS ) {}
+
+	enum Waveform {
+		SIN = 0,
+		TRIANGLE = 1
+	};
+
+	Waveform waveform;
+	int phase;        // [-180 ... 180]     default 90
+	float rate;       // [0.0  ... 10.0]    default 1.1
+	float depth;      // [0.0  ... 1.0]     default 0.1
+	float feedback;   // [-1.0 ... 1.0]     default 0.25
+	float delay;      // [0.0  ... 0.016]   default 0.016
+
+	void BindOrUpdate( struct src_s *src ) override;
+};
+
+class DistortionEffect final: public Effect {
+public:
+	DistortionEffect(): Effect( AL_EFFECT_DISTORTION ) {}
+
+	float edge;   // [0.0  ... 1.0]  default 0.2
+	float gain;   // [0.01 ... 1.0]  default 0.05
+
+	void BindOrUpdate( struct src_s *src ) override;
+};
+
+class EchoEffect final: public Effect {
+public:
+	EchoEffect(): Effect( AL_EFFECT_ECHO ) {}
+
+	float delay;      // [0.0  ... 0.207]  default 0.1
+	float lrDelay;    // [0.0  ... 0.404]  default 0.1
+	float damping;    // [0.0  ... 0.99]   default 0.5
+	float feedback;   // [0.0  ... 1.0]    default 0.5
+	float spread;     // [-1.0 ... 1.0]    default -1.0
+
+	void BindOrUpdate( struct src_s *src ) override;
 };
 
 typedef struct {
@@ -271,7 +382,6 @@ typedef struct envUpdateState_s {
 	Effect *effect;
 
 	samplingProps_t directObstructionSamplingProps;
-	samplingProps_t reverbPrimaryRaysSamplingProps;
 
 	vec3_t lastUpdateOrigin;
 	vec3_t lastUpdateVelocity;
@@ -281,7 +391,8 @@ typedef struct envUpdateState_s {
 
 	float priorityInQueue;
 
-	bool wasInLiquid;
+	bool isInLiquid;
+	bool needsInterpolation;
 } envUpdateState_t;
 
 /*
@@ -311,6 +422,9 @@ typedef struct src_s {
 	bool isLooping;
 	bool isTracking;
 	bool keepAlive;
+	bool isLingering;
+
+	int64_t lingeringTimeoutAt;
 
 	envUpdateState_t envUpdateState;
 

@@ -23,6 +23,9 @@ Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
 
 #include "snd_local.h"
 
+// Hack... set quality hint based on sound fx name
+#include "../gameshared/gs_qrespath.h"
+
 #define MAX_SFX 4096
 sfx_t knownSfx[MAX_SFX];
 static bool buffers_inited = false;
@@ -135,6 +138,49 @@ static bool buffer_evict() {
 	return false;
 }
 
+// Should be really supplied via a sound shader
+static void S_SetQualityHint( sfx_t *sfx ) {
+	sfx->qualityHint = 0.0f;
+
+	if( strstr( sfx->filename, S_WEAPON_PLASMAGUN_S_HIT ) ) {
+		return;
+	}
+
+	if( strstr( sfx->filename, "sounds/weapons/ric" ) ) {
+		return;
+	}
+
+	if( strstr( sfx->filename, S_WEAPON_LASERGUN_HIT_0 ) ||
+		strstr( sfx->filename, S_WEAPON_LASERGUN_HIT_1 ) ||
+		strstr( sfx->filename, S_WEAPON_LASERGUN_HIT_2 ) ) {
+		return;
+	}
+
+	if( strstr( sfx->filename, S_QUAD_FIRE ) || strstr( sfx->filename, S_SHELL_HIT ) ) {
+		return;
+	}
+
+	// These sounds have a fairly long decay, so its OK to cut off reverb immediately
+	if( strstr( sfx->filename, S_WEAPON_ELECTROBOLT_HIT ) || strstr( sfx->filename, S_WEAPON_ROCKET_S_HIT ) ) {
+		return;
+	}
+
+	sfx->qualityHint = 0.3f;
+
+	// Give all grenade and laser sounds left this quality hint
+	if( strstr( sfx->filename, "gren" ) || strstr( sfx->filename, "laser" ) ) {
+		return;
+	}
+
+	sfx->qualityHint = 0.5f;
+
+	if( strstr( sfx->filename, S_WEAPON_SWITCH ) ) {
+		return;
+	}
+
+	sfx->qualityHint = 1.0f;
+}
+
 bool S_LoadBuffer( sfx_t *sfx ) {
 	ALenum error;
 	void *data;
@@ -200,6 +246,10 @@ bool S_LoadBuffer( sfx_t *sfx ) {
 
 	S_Free( data );
 	sfx->inMemory = true;
+
+	if( s_environment_effects->integer ) {
+		S_SetQualityHint( sfx );
+	}
 
 	return true;
 }
