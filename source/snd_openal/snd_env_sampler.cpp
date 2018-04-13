@@ -579,6 +579,7 @@ class ReverbEffectSampler final: public ObstructedEffectSampler {
 	unsigned numPrimaryRays;
 	unsigned numRaysHitSky;
 	unsigned numRaysHitMetal;
+	unsigned numRaysHitWater;
 	unsigned numReflectionPoints;
 	float averageDistance;
 
@@ -592,6 +593,7 @@ class ReverbEffectSampler final: public ObstructedEffectSampler {
 		numPrimaryRays = 0;
 		numRaysHitSky = 0;
 		numRaysHitMetal = 0;
+		numRaysHitWater = 0;
 		numReflectionPoints = 0;
 		averageDistance = 0.0f;
 
@@ -834,10 +836,12 @@ void ReverbEffectSampler::SetupPrimaryRayDirs() {
 void ReverbEffectSampler::EmitPrimaryRays() {
 	const float primaryEmissionRadius = GetEmissionRadius();
 
-	averageDistance = 0.0f;
-	numRaysHitSky = 0;
-	numRaysHitMetal = 0;
-	numReflectionPoints = 0;
+	// These values must be reset at this stage
+	assert( !averageDistance );
+	assert( !numRaysHitSky );
+	assert( !numRaysHitMetal );
+	assert( !numRaysHitWater );
+	assert( !numReflectionPoints );
 
 	trace_t trace;
 	for( unsigned i = 0; i < numPrimaryRays; ++i ) {
@@ -847,10 +851,15 @@ void ReverbEffectSampler::EmitPrimaryRays() {
 		vec3_t testedRayPoint;
 		VectorScale( sampleDir, primaryEmissionRadius, testedRayPoint );
 		VectorAdd( testedRayPoint, src->origin, testedRayPoint );
-		trap_Trace( &trace, src->origin, testedRayPoint, vec3_origin, vec3_origin, MASK_SOLID );
+		trap_Trace( &trace, src->origin, testedRayPoint, vec3_origin, vec3_origin, MASK_SOLID | MASK_WATER );
 
 		if( trace.fraction == 1.0f || trace.startsolid ) {
 			continue;
+		}
+
+		// Check it before surf flags, otherwise a water gets cut off in almost all cases
+		if( trace.contents & CONTENTS_WATER ) {
+			numRaysHitWater++;
 		}
 
 		// Skip surfaces non-reflective for sounds
@@ -863,8 +872,7 @@ void ReverbEffectSampler::EmitPrimaryRays() {
 			continue;
 		}
 
-		// Hack... let glass contribute to "metal" feeling
-		if( ( surfFlags & SURF_METALSTEPS ) || ( trace.contents & CONTENTS_TRANSLUCENT ) ) {
+		if( surfFlags & SURF_METALSTEPS ) {
 			numRaysHitMetal++;
 		}
 
@@ -982,7 +990,13 @@ void ReverbEffectSampler::ProcessPrimaryEmissionResults() {
 	effect->decayTime = 0.75f + 3.0f * roomSizeFactor + skyFactor;
 
 	// Let it grow in small rooms but be absorbed by sky
-	effect->reflectionsGain = 0.05f + 0.75f * powf( 1.0f - roomSizeFactor, 4.0f ) * ( 1.0f - skyFactor );
+	const float smallRoomFactor = powf( 1.0f - roomSizeFactor, 3.0f );
+	assert( smallRoomFactor >= 0.0f && smallRoomFactor <= 1.0f );
+	effect->reflectionsGain = 0.05f + 0.5f * smallRoomFactor * ( 1.0f - skyFactor );
+	// Hack: try to detect sewers/caves
+	if( numRaysHitWater && !skyFactor ) {
+		effect->reflectionsGain += 2.0f * smallRoomFactor;
+	}
 
 	effect->reflectionsDelay = 0.007f + 0.100f * roomSizeFactor;
 	effect->lateReverbDelay = 0.011f + 0.055f * roomSizeFactor;
