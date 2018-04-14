@@ -138,9 +138,11 @@ typedef enum {
 typedef struct {
 	edict_t *edicts;        // [maxentities]
 	gclient_t *clients;     // [maxclients]
+
 	gclient_quit_t *quits;  // [dynamic] <-- MM
 	clientRating_t *ratings;    // list of ratings for current game and gametype <-- MM
 	linear_allocator_t *raceruns;   // raceRun_t <-- MM
+	bool discardMatchReport;
 
 	int protocol;
 	char demoExtension[MAX_QPATH];
@@ -1339,6 +1341,16 @@ struct gclient_quit_s {
 	int64_t timePlayed;
 	bool final;         // is true, player was there in the end
 	struct gclient_quit_s *next;
+
+	gclient_quit_s() {
+		netname[0] = '\0';
+		team = 0;
+		mm_session = Uuid_ZeroUuid();
+
+		timePlayed = 0;
+		final = false;
+		next = nullptr;
+	}
 };
 
 typedef struct snap_edict_s {
@@ -1530,6 +1542,9 @@ static inline edict_t *PLAYERENT( int x ) { return game.edicts + x + 1; }
 
 void G_AddPlayerReport( edict_t *ent, bool final );
 void G_Match_SendReport( void );
+
+void G_Match_AddAward( edict_t *ent, const char *awardMsg );
+void G_Match_AddFrag( edict_t *attacker, edict_t *victim, int mod );
 
 void G_TransferRatings( void );
 clientRating_t *G_AddDefaultRating( edict_t *ent, const char *gametype );

@@ -26,6 +26,26 @@ Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
 typedef struct stat_query_s stat_query_t;
 typedef /* struct stat_query_section_s */ void* stat_query_section_t;
 
+/**
+ * Names of requests form parameters.
+ * Usage of symbolic predefined names makes it easier
+ * to synchronize requests schema with the server-expected one.
+ * (most of these parameter names are used multiple times).
+ */
+#define MM_FORM_SERVER_SESSION "server_session"
+#define MM_FORM_CLIENT_SESSION "client_session"
+#define MM_FORM_TICKET "ticket"
+#define MM_FORM_HANDLE "handle"
+#define MM_FORM_LOGIN "login"
+#define MM_FORM_PASSWORD "password"
+#define MM_FORM_PORT "port"
+#define MM_FORM_AUTH_KEY "auth_key"
+#define MM_FORM_SERVER_NAME "server_name"
+#define MM_FORM_DEMOS_BASEURL "demos_baseurl"
+#define MM_FORM_SERVER_ADDRESS "server_address"
+#define MM_FORM_CLIENT_ADDRESS "client_address"
+#define MM_FORM_JSON_ATTACHMENT "json_attachment"
+
 typedef struct stat_query_api_s {
 	stat_query_t *( *CreateQuery )( const char *iface, const char *str, bool get );
 	// this is automatically called after calling users callback function so you rarely need to call this yourself
@@ -44,7 +64,9 @@ typedef struct stat_query_api_s {
 	// named sections/arrays and properties
 	stat_query_section_t *( *GetSection )( stat_query_section_t * parent, const char *name );
 	double ( *GetNumber )( stat_query_section_t *parent, const char *name );
+	double ( *GetNumberOrDefault )( stat_query_section_t *parent, const char *name, double defaultValue );
 	const char *( *GetString )( stat_query_section_t * parent, const char *name );
+	const char *( *GetStringOrDefault )( stat_query_section_t *parent, const char *name, const char *defaultValue );
 	// indexed sections and properties from array
 	int ( *GetArraySize )( stat_query_section_t *array );
 	stat_query_section_t *( *GetArraySection )( stat_query_section_t * parent, int idx );

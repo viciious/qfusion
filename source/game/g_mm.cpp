@@ -269,6 +269,7 @@ public:
 	}
 
 	QueryWriter &operator<<( const char *nameOrValue ) {
+		G_Printf("Writer: <<%s \n", nameOrValue);
 		TopOfStack() << nameOrValue;
 		return *this;
 	}
@@ -309,7 +310,7 @@ public:
 };
 
 // number of raceruns to send in one batch
-#define RACERUN_BATCH_SIZE  256
+#define RACERUN_BATCH_SIZE  16
 
 stat_query_api_t *sq_api;
 
@@ -743,16 +744,29 @@ void G_ListRaces_f( void ) {
 }
 
 //==========================================================
-
-// free the collected statistics memory
-void G_ClearStatistics( void ) {
-
-}
-
-//==========================================================
 //		MM Reporting
 //==========================================================
 
+static void G_FreeClientQuits() {
+	gclient_quit_t *qnext = nullptr;
+
+	for( gclient_quit_t *qcl = game.quits; qcl ; qcl = qnext ) {
+		qnext = qcl->next;
+
+		qcl->~gclient_quit_t();
+		G_Free( qcl );
+	}
+
+	game.quits = nullptr;
+}
+
+static void G_DiscardMatchReport( const char *reason ) {
+	G_Printf( S_COLOR_YELLOW "G_AddPlayerReport(): %s, discarding match report...\n", reason );
+	game.discardMatchReport = true;
+
+	// Do not hold no longer useful data
+	G_FreeClientQuits();
+}
 
 /*
 * G_AddPlayerReport
@@ -761,7 +775,6 @@ void G_AddPlayerReport( edict_t *ent, bool final ) {
 	gclient_t *cl;
 	gclient_quit_t *quit;
 	int i;
-	cvar_t *report_bots;
 	char uuid_buffer[UUID_BUFFER_SIZE];
 
 	// TODO: check if MM is enabled
@@ -772,8 +785,12 @@ void G_AddPlayerReport( edict_t *ent, bool final ) {
 		return;
 	}
 
-	// if( !g_isSupportedGametype( gs.gametypeName ) )
 	if( !GS_MMCompatible() ) {
+		return;
+	}
+
+	// Do not try to add player report if the match report has been discarded
+	if( game.discardMatchReport ) {
 		return;
 	}
 
@@ -783,9 +800,10 @@ void G_AddPlayerReport( edict_t *ent, bool final ) {
 		return;
 	}
 
-	report_bots = trap_Cvar_Get( "sv_mm_debug_reportbots", "0", CVAR_CHEAT );
-
-	if( ( ent->r.svflags & SVF_FAKECLIENT ) && !report_bots->integer ) {
+	if( ( ent->r.svflags & SVF_FAKECLIENT ) ) {
+		if( ent->r.client->level.stats.had_playtime ) {
+			G_DiscardMatchReport( "A bot had some playtime" );
+		}
 		return;
 	}
 
@@ -794,9 +812,10 @@ void G_AddPlayerReport( edict_t *ent, bool final ) {
 	}
 
 	mm_uuid_t mm_session = cl->mm_session;
-	if( mm_session.IsZero() ) {
-		const char *format = "G_AddPlayerReport: Client without session-id (%s" S_COLOR_WHITE ") %s\n\t(%s)\n";
-		G_Printf( format, cl->netname, mm_session.ToString( uuid_buffer ), cl->userinfo );
+	if( !mm_session.IsValidSessionId() ) {
+		if( ent->r.client->level.stats.had_playtime ) {
+			G_DiscardMatchReport( va( "A client %s @ %s without valid session id had some playtime", cl->netname, cl->ip ) );
+		}
 		return;
 	}
 
@@ -804,13 +823,6 @@ void G_AddPlayerReport( edict_t *ent, bool final ) {
 	for( quit = game.quits; quit; quit = quit->next ) {
 		if( quit->mm_session == mm_session ) {
 			break;
-		}
-
-		// ch : for unregistered players, merge stats by name
-		if( mm_session.IsFFFs() && quit->mm_session.IsFFFs() ) {
-			if( !strcmp( quit->netname, cl->netname ) ) {
-				break;
-			}
 		}
 	}
 
@@ -893,8 +905,8 @@ void G_AddPlayerReport( edict_t *ent, bool final ) {
 			cl->level.stats.fragAllocator = 0;
 		}
 	} else {
-		// create a new quit structure
-		quit = new( G_Malloc( sizeof( gclient_quit_t ) ) )gclient_quit_t;
+		// note: constructors must be called now
+		quit = new( G_Malloc( sizeof( *quit ) ) )gclient_quit_t;
 
 		// fill in the data
 		Q_strncpyz( quit->netname, cl->netname, sizeof( quit->netname ) );
@@ -910,6 +922,78 @@ void G_AddPlayerReport( edict_t *ent, bool final ) {
 		quit->next = game.quits;
 		game.quits = quit;
 	}
+}
+
+void G_Match_AddAward( edict_t *ent, const char *awardMsg ) {
+	if( game.discardMatchReport ) {
+		return;
+	}
+
+	if( GS_MatchState() != MATCH_STATE_PLAYTIME && GS_MatchState() != MATCH_STATE_POSTMATCH ) {
+		return;
+	}
+
+	auto *const stats = &ent->r.client->level.stats;
+	if( !stats->awardAllocator ) {
+		stats->awardAllocator = LinearAllocator( sizeof( gameaward_t ), 0, _G_LevelMalloc, _G_LevelFree );
+	}
+
+	// first check if we already have this one on the clients list
+	size_t size = LA_Size( stats->awardAllocator );
+	gameaward_t *ga = NULL;
+	int i;
+	for( i = 0; i < size; i++ ) {
+		ga = (gameaward_t *)LA_Pointer( stats->awardAllocator, i );
+		if( !strncmp( ga->name, awardMsg, sizeof( ga->name ) - 1 ) ) {
+			break;
+		}
+	}
+
+	if( i >= size ) {
+		ga = (gameaward_t *)LA_Alloc( stats->awardAllocator );
+		memset( ga, 0, sizeof( *ga ));
+		ga->name = G_RegisterLevelString( awardMsg );
+	}
+
+	if( ga ) {
+		ga->count++;
+	}
+}
+
+void G_Match_AddFrag( edict_t *attacker, edict_t *victim, int mod ) {
+	if( game.discardMatchReport ) {
+		return;
+	}
+
+	if( GS_MatchState() != MATCH_STATE_PLAYTIME ) {
+		return;
+	}
+
+	// ch : frag log
+	auto *const stats = &attacker->r.client->level.stats;
+	if( !stats->fragAllocator ) {
+		stats->fragAllocator = LinearAllocator( sizeof( loggedFrag_t ), 0, _G_LevelMalloc, _G_LevelFree );
+	}
+
+	auto *const lfrag = ( loggedFrag_t * )LA_Alloc( stats->fragAllocator );
+	lfrag->attacker = attacker->r.client->mm_session;
+	lfrag->victim = victim->r.client->mm_session;
+
+	// Currently frags made using weak and strong kinds of ammo
+	// share the same weapon index (thats what the stats server expect).
+	// Thus, for MOD's of weak ammo, write the corresponding strong ammo value.
+	static_assert( AMMO_GUNBLADE < AMMO_WEAK_GUNBLADE, "" );
+	int weaponIndex = G_ModToAmmo( mod );
+	if( weaponIndex >= AMMO_WEAK_GUNBLADE ) {
+		// Eliminate weak ammo values shift
+		weaponIndex -= AMMO_WEAK_GUNBLADE - AMMO_GUNBLADE;
+	}
+	// Shift weapon index so the first valid index correspond to Gunblade
+	// (no-weapon kills will have a negative weapon index, and the stats server is aware of it).
+	weaponIndex -= AMMO_GUNBLADE;
+	lfrag->weapon = weaponIndex;
+	// Changed to millis for the new stats server
+	lfrag->time = game.serverTime - GS_MatchStartTime();
 }
 
 // It is assumed that the writer points to the root object.
@@ -987,7 +1071,7 @@ static void G_Match_SendRegularReport( void ) {
 	// Note that redundant weapons (that were not used) are allowed to be present here
 	writer << "weapon_indices" << '{';
 	{
-		for( int j = 0; j < WEAP_TOTAL; ++j ) {
+		for( int j = 0; j < ( WEAP_TOTAL - WEAP_GUNBLADE ); ++j ) {
 			weapnames[j] = GS_FindItemByTag( WEAP_GUNBLADE + j )->shortname;
 			writer << weapnames[j] << j;
 		}
@@ -1151,8 +1235,6 @@ static void G_MatchReport_AddPlayerWeapons( QueryWriter &writer, gclient_quit_t 
 */
 void G_Match_SendReport( void ) {
 	edict_t *ent;
-	gclient_quit_t *qcl, *qnext;
-	int numPlayers;
 
 	// TODO: check if MM is enabled
 
@@ -1166,29 +1248,23 @@ void G_Match_SendReport( void ) {
 		return;
 	}
 
-	// if( g_isSupportedGametype( gs.gametypeName ) )
 	if( GS_MMCompatible() ) {
 		// merge game.clients with game.quits
-		for( ent = game.edicts + 1; PLAYERNUM( ent ) < gs.maxclients; ent++ )
+		for( ent = game.edicts + 1; PLAYERNUM( ent ) < gs.maxclients; ent++ ) {
 			G_AddPlayerReport( ent, true );
+		}
 
-		// check if we have enough players to report (at least 2)
-		numPlayers = 0;
-		for( qcl = game.quits; qcl ; qcl = qcl->next )
-			numPlayers++;
-
-		if( numPlayers > 1 ) {
-			G_Match_SendRegularReport();
+		if( game.discardMatchReport ) {
+			G_Printf( S_COLOR_YELLOW "G_Match_SendReport(): The match report has been discarded\n" );
+		} else {
+			// check if we have enough players to report (at least 2)
+			if( game.quits && game.quits->next ) {
+				G_Match_SendRegularReport();
+			}
 		}
 	}
 
-	// clear the quit-list
-	qnext = NULL;
-	for( qcl = game.quits; qcl ; qcl = qnext ) {
-		qnext = qcl->next;
-		G_Free( qcl );
-	}
-	game.quits = NULL;
+	G_FreeClientQuits();
 }
 
 /*

@@ -1243,7 +1243,6 @@ bool ClientConnect( edict_t *ent, char *userinfo, bool fakeClient, bool tvClient
 
 	assert( ent );
 	assert( userinfo && Info_Validate( userinfo ) );
-	assert( Info_ValueForKey( userinfo, "ip" ) && Info_ValueForKey( userinfo, "socket" ) );
 
 	// verify that server gave us valid data
 	if( !Info_Validate( userinfo ) ) {
@@ -1260,7 +1259,7 @@ bool ClientConnect( edict_t *ent, char *userinfo, bool fakeClient, bool tvClient
 		return false;
 	}
 
-	if( !Info_ValueForKey( userinfo, "ip" ) ) {
+	if( !Info_ValueForKey( userinfo, "socket" ) ) {
 		Info_SetValueForKey( userinfo, "rejtype", va( "%i", DROP_TYPE_GENERAL ) );
 		Info_SetValueForKey( userinfo, "rejflag", va( "%i", 0 ) );
 		Info_SetValueForKey( userinfo, "rejmsg", "Error: Server didn't provide client socket" );

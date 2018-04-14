@@ -85,7 +85,7 @@ inline mm_uuid_t Uuid_ZeroUuid() {
 	return result;
 }
 
-inline mm_uuid_t Uuid_AllBitsSetUuid() {
+inline mm_uuid_t Uuid_FFFsUuid() {
 	mm_uuid_t result = { (uint64_t)-1, (uint64_t)-1 };
 	return result;
 }

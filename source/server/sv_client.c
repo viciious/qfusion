@@ -73,6 +73,9 @@ bool SV_ClientConnect( const socket_t *socket, const netadr_t *address, client_t
 	edictnum = ( client - svs.clients ) + 1;
 	ent = EDICT_NUM( edictnum );
 
+	// make sure the client state is reset before an mm connection callback gets called
+	memset( client, 0, sizeof( *client ) );
+
 	// give mm a chance to reject if the server is locked ready for mm
 	// must be called before ge->ClientConnect
 	// ch : rly ignore fakeClient and tvClient here?
@@ -92,9 +95,7 @@ bool SV_ClientConnect( const socket_t *socket, const netadr_t *address, client_t
 		return false;
 	}
 
-
 	// the connection is accepted, set up the client slot
-	memset( client, 0, sizeof( *client ) );
 	client->edict = ent;
 	client->challenge = challenge; // save challenge for checksumming
 
@@ -141,8 +142,7 @@ bool SV_ClientConnect( const socket_t *socket, const netadr_t *address, client_t
 
 	if( fakeClient ) {
 		client->netchan.remoteAddress.type = NA_NOTRANSMIT; // fake-clients can't transmit
-		// TODO: if mm_debug_reportbots
-		Info_SetValueForKey( userinfo, "cl_mm_session", Uuid_ToString( uuid_buffer, client->mm_session ) );
+		Info_SetValueForKey( userinfo, "cl_mm_session", Uuid_ToString( uuid_buffer, Uuid_FFFsUuid() ) );
 	} else {
 		if( client->individual_socket ) {
 			Netchan_Setup( &client->netchan, &client->socket, address, game_port );

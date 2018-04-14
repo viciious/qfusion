@@ -27,11 +27,7 @@ Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
 #define GUNBLADE_TIMEOUT_FOR_COMBO  400
 
 void G_PlayerAward( edict_t *ent, const char *awardMsg ) {
-	edict_t *other;
 	char cmd[MAX_STRING_CHARS];
-	gameaward_t *ga;
-	int i, size;
-	score_stats_t *stats;
 
 	//asdasd
 	if( !awardMsg || !awardMsg[0] || !ent->r.client ) {
@@ -49,37 +45,10 @@ void G_PlayerAward( edict_t *ent, const char *awardMsg ) {
 	teamlist[ent->s.team].stats.awards++;
 	G_Gametype_ScoreEvent( ent->r.client, "award", awardMsg );
 
-	stats = &ent->r.client->level.stats;
-	if( !stats->awardAllocator ) {
-		stats->awardAllocator = LinearAllocator( sizeof( gameaward_t ), 0, _G_LevelMalloc, _G_LevelFree );
-	}
-
-	// ch : this doesnt work for race right?
-	if( GS_MatchState() == MATCH_STATE_PLAYTIME || GS_MatchState() == MATCH_STATE_POSTMATCH ) {
-		// ch : we store this locally to send to MM
-		// first check if we already have this one on the clients list
-		size = LA_Size( stats->awardAllocator );
-		ga = NULL;
-		for( i = 0; i < size; i++ ) {
-			ga = ( gameaward_t * )LA_Pointer( stats->awardAllocator, i );
-			if( !strncmp( ga->name, awardMsg, sizeof( ga->name ) - 1 ) ) {
-				break;
-			}
-		}
-
-		if( i >= size ) {
-			ga = ( gameaward_t * )LA_Alloc( stats->awardAllocator );
-			memset( ga, 0, sizeof( *ga ) );
-			ga->name = G_RegisterLevelString( awardMsg );
-		}
-
-		if( ga ) {
-			ga->count++;
-		}
-	}
+	G_Match_AddAward( ent, awardMsg );
 
 	// add it to every player who's chasing this player
-	for( other = game.edicts + 1; PLAYERNUM( other ) < gs.maxclients; other++ ) {
+	for( edict_t *other = game.edicts + 1; PLAYERNUM( other ) < gs.maxclients; other++ ) {
 		if( !other->r.client || !other->r.inuse || !other->r.client->resp.chase.active ) {
 			continue;
 		}
@@ -91,10 +60,6 @@ void G_PlayerAward( edict_t *ent, const char *awardMsg ) {
 }
 
 void G_PlayerMetaAward( edict_t *ent, const char *awardMsg ) {
-	int i, size;
-	gameaward_t *ga;
-	score_stats_t *stats;
-
 	/*
 	* ch : meta-award is an award that isn't announced but
 	* it is sent to MM
@@ -104,33 +69,9 @@ void G_PlayerMetaAward( edict_t *ent, const char *awardMsg ) {
 		return;
 	}
 
-	stats = &ent->r.client->level.stats;
-	if( !stats->awardAllocator ) {
-		stats->awardAllocator = LinearAllocator( sizeof( gameaward_t ), 0, _G_LevelMalloc, _G_LevelFree );
-	}
-
 	// ch : this doesnt work for race right?
 	if( GS_MatchState() == MATCH_STATE_PLAYTIME ) {
-		// ch : we store this locally to send to MM
-		// first check if we already have this one on the clients list
-		size = LA_Size( stats->awardAllocator );
-		ga = NULL;
-		for( i = 0; i < size; i++ ) {
-			ga = ( gameaward_t * )LA_Pointer( stats->awardAllocator, i );
-			if( !strncmp( ga->name, awardMsg, sizeof( ga->name ) - 1 ) ) {
-				break;
-			}
-		}
-
-		if( i >= size ) {
-			ga = ( gameaward_t * )LA_Alloc( stats->awardAllocator );
-			memset( ga, 0, sizeof( *ga ) );
-			ga->name = G_RegisterLevelString( awardMsg );
-		}
-
-		if( ga ) {
-			ga->count++;
-		}
+		G_Match_AddAward( ent, awardMsg );
 	}
 }
 
@@ -281,8 +222,6 @@ void G_AwardPlayerMissedLasergun( edict_t *self, int mod ) {
 
 void G_AwardPlayerKilled( edict_t *self, edict_t *inflictor, edict_t *attacker, int mod ) {
 	trace_t trace;
-	score_stats_t *stats;
-	loggedFrag_t *lfrag;
 
 	if( self->r.svflags & SVF_CORPSE ) {
 		return;
@@ -431,32 +370,7 @@ void G_AwardPlayerKilled( edict_t *self, edict_t *inflictor, edict_t *attacker, 
 		attacker->r.client->level.stats.accuracy_frags[G_ModToAmmo( mod ) - AMMO_GUNBLADE]++;
 	}
 
-	if( GS_MatchState() == MATCH_STATE_PLAYTIME /* && !strcmp( "duel", gs.gametypeName ) */ ) {
-		// ch : frag log
-		stats = &attacker->r.client->level.stats;
-		if( !stats->fragAllocator ) {
-			stats->fragAllocator = LinearAllocator( sizeof( loggedFrag_t ), 0, _G_LevelMalloc, _G_LevelFree );
-		}
-
-		lfrag = ( loggedFrag_t * )LA_Alloc( stats->fragAllocator );
-		lfrag->attacker = attacker->r.client->mm_session;
-		lfrag->victim = self->r.client->mm_session;
-		// Currently frags made using weak and strong kinds of ammo
-		// share the same weapon index (thats what the stats server expect).
-		// Thus, for MOD's of weak ammo, write the corresponding strong ammo value.
-		static_assert( AMMO_GUNBLADE < AMMO_WEAK_GUNBLADE, "" );
-		int weaponIndex = G_ModToAmmo( mod );
-		if( weaponIndex >= AMMO_WEAK_GUNBLADE ) {
-			// Eliminate weak ammo values shift
-			weaponIndex -= AMMO_WEAK_GUNBLADE - AMMO_GUNBLADE;
-		}
-		// Shift weapon index so the first valid index correspond to Gunblade
-		// (no-weapon kills will have a negative weapon index, and the stats server is aware of it).
-		weaponIndex -= AMMO_GUNBLADE;
-		lfrag->weapon = weaponIndex;
-		// Changed to millis for the new stats server
-		lfrag->time = game.serverTime - GS_MatchStartTime();
-	}
+	G_Match_AddFrag( attacker, self, mod );
 }
 
 void G_AwardPlayerPickup( edict_t *self, edict_t *item ) {
