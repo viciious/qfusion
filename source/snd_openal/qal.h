@@ -322,6 +322,31 @@ extern LPALGETAUXILIARYEFFECTSLOTFV qalGetAuxiliaryEffectSlotfv;
 
 /* Effect properties. */
 
+/* EAX Reverb effect parameters */
+#define AL_EAXREVERB_DENSITY                     0x0001
+#define AL_EAXREVERB_DIFFUSION                   0x0002
+#define AL_EAXREVERB_GAIN                        0x0003
+#define AL_EAXREVERB_GAINHF                      0x0004
+#define AL_EAXREVERB_GAINLF                      0x0005
+#define AL_EAXREVERB_DECAY_TIME                  0x0006
+#define AL_EAXREVERB_DECAY_HFRATIO               0x0007
+#define AL_EAXREVERB_DECAY_LFRATIO               0x0008
+#define AL_EAXREVERB_REFLECTIONS_GAIN            0x0009
+#define AL_EAXREVERB_REFLECTIONS_DELAY           0x000A
+#define AL_EAXREVERB_REFLECTIONS_PAN             0x000B
+#define AL_EAXREVERB_LATE_REVERB_GAIN            0x000C
+#define AL_EAXREVERB_LATE_REVERB_DELAY           0x000D
+#define AL_EAXREVERB_LATE_REVERB_PAN             0x000E
+#define AL_EAXREVERB_ECHO_TIME                   0x000F
+#define AL_EAXREVERB_ECHO_DEPTH                  0x0010
+#define AL_EAXREVERB_MODULATION_TIME             0x0011
+#define AL_EAXREVERB_MODULATION_DEPTH            0x0012
+#define AL_EAXREVERB_AIR_ABSORPTION_GAINHF       0x0013
+#define AL_EAXREVERB_HFREFERENCE                 0x0014
+#define AL_EAXREVERB_LFREFERENCE                 0x0015
+#define AL_EAXREVERB_ROOM_ROLLOFF_FACTOR         0x0016
+#define AL_EAXREVERB_DECAY_HFLIMIT               0x0017
+
 /* Reverb effect parameters */
 #define AL_REVERB_DENSITY                        0x0001
 #define AL_REVERB_DIFFUSION                      0x0002

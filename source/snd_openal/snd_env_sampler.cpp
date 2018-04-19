@@ -26,14 +26,19 @@ struct ListenerProps {
 
 static ListenerProps listenerProps;
 
+static bool isEaxReverbAvailable = false;
+
 class alignas( 8 )EffectsAllocator {
-	static_assert( sizeof( ReverbEffect ) >= sizeof( UnderwaterFlangerEffect ), "" );
-	static_assert( sizeof( ReverbEffect ) >= sizeof( ChorusEffect ), "" );
-	static_assert( sizeof( ReverbEffect ) >= sizeof( DistortionEffect ), "" );
-	static_assert( sizeof( ReverbEffect ) >= sizeof( EchoEffect ), "" );
+	static_assert( sizeof( EaxReverbEffect ) >= sizeof( StandardReverbEffect ), "" );
+	static_assert( sizeof( EaxReverbEffect ) >= sizeof( UnderwaterFlangerEffect ), "" );
+	static_assert( sizeof( EaxReverbEffect ) >= sizeof( ChorusEffect ), "" );
+	static_assert( sizeof( EaxReverbEffect ) >= sizeof( DistortionEffect ), "" );
+	static_assert( sizeof( EaxReverbEffect ) >= sizeof( EchoEffect ), "" );
+
+	static constexpr auto MAX_EFFECT_SIZE = sizeof( EaxReverbEffect );
 
 	static constexpr auto ENTRY_SIZE =
-		sizeof( ReverbEffect ) % 8 ? sizeof( ReverbEffect ) + ( 8 - ( sizeof( ReverbEffect ) % 8 ) ) : sizeof( ReverbEffect );
+		MAX_EFFECT_SIZE % 8 ? MAX_EFFECT_SIZE + ( 8 - MAX_EFFECT_SIZE % 8 ) : MAX_EFFECT_SIZE;
 
 	// For every source two effect storage cells are reserved (for current and old effect).
 	alignas( 8 ) uint8_t storage[2 * ENTRY_SIZE * MAX_SRC];
@@ -57,7 +62,10 @@ public:
 	}
 
 	ReverbEffect *NewReverbEffect( const src_t *src ) {
-		return new( AllocEntry( src, AL_EFFECT_REVERB ) )ReverbEffect();
+		if( ::isEaxReverbAvailable ) {
+			return new( AllocEntry( src, AL_EFFECT_EAXREVERB ) )EaxReverbEffect();
+		}
+		return new( AllocEntry( src, AL_EFFECT_REVERB ) )StandardReverbEffect();
 	}
 
 	ChorusEffect *NewChorusEffect( const src_t *src ) {
@@ -128,7 +136,7 @@ inline void EffectsAllocator::FreeEntry( const void *entry ) {
 	ALint *const effectTypeRef = &effectTypes[sourceIndex][interleavedSlotIndex];
 
 #ifndef PUBLIC_BUILD
-	if( *effectTypeRef <= AL_EFFECT_NULL || *effectTypeRef >= AL_EFFECT_EAXREVERB ) {
+	if( *effectTypeRef <= AL_EFFECT_NULL || *effectTypeRef > AL_EFFECT_EAXREVERB ) {
 		const char *format = "EffectsAllocator::FreeEntry(): An effect for source #%d and slot %d is not in use\n";
 		trap_Error( va( format, sourceIndex, interleavedSlotIndex ) );
 	}
@@ -140,6 +148,8 @@ inline void EffectsAllocator::FreeEntry( const void *entry ) {
 
 #define MAX_DIRECT_OBSTRUCTION_SAMPLES ( 8 )
 #define MAX_REVERB_PRIMARY_RAY_SAMPLES ( 48 )
+
+static_assert( PanningUpdateState::MAX_POINTS == MAX_REVERB_PRIMARY_RAY_SAMPLES, "" );
 
 static vec3_t randomDirectObstructionOffsets[(1 << 8)];
 
@@ -169,10 +179,14 @@ void ENV_Init() {
 	listenerProps.InvalidateCachedUpdateState();
 
 	ENV_InitRandomTables();
+
+	isEaxReverbAvailable = qalGetEnumValue( "AL_EFFECT_EAXREVERB" ) != 0;
 }
 
 void ENV_Shutdown() {
 	listenerProps.InvalidateCachedUpdateState();
+
+	isEaxReverbAvailable = false;
 }
 
 void ENV_RegisterSource( src_t *src ) {
@@ -417,7 +431,24 @@ void ENV_UpdateRelativeSoundsSpatialization( const vec3_t origin, const vec3_t v
 	}
 }
 
-void ENV_UpdateListener( const vec3_t origin, const vec3_t velocity ) {
+static void ENV_UpdatePanning( int64_t millisNow, const vec3_t origin, const mat3_t axes ) {
+	for( src_t *src = srclist, *end = srclist + src_count; src != end; ++src ) {
+		if( !src->isActive ) {
+			continue;
+		}
+		Effect *effect = src->envUpdateState.effect;
+		if( !effect ) {
+			continue;
+		}
+		if( src->panningUpdateState.timeoutAt > millisNow ) {
+			continue;
+		}
+		effect->UpdatePanning( src, origin, axes );
+		src->panningUpdateState.timeoutAt = millisNow + 66;
+	}
+}
+
+void ENV_UpdateListener( const vec3_t origin, const vec3_t velocity, const mat3_t axes ) {
 	vec3_t testedOrigin;
 	bool needsForcedUpdate = false;
 	bool isListenerInLiquid;
@@ -465,6 +496,9 @@ void ENV_UpdateListener( const vec3_t origin, const vec3_t velocity ) {
 	}
 
 	ENV_ProcessUpdatesPriorityQueue();
+
+	// Panning info is dependent of environment one, make sure it is executed last
+	ENV_UpdatePanning( trap_Milliseconds(), testedOrigin, axes );
 }
 
 void UnderwaterFlangerEffect::InterpolateProps( const Effect *oldOne, int timeDelta ) {
@@ -569,8 +603,9 @@ public:
 static UnderwaterFlangerEffectSampler underwaterFlangerEffectSampler;
 
 class ReverbEffectSampler final: public ObstructedEffectSampler {
+public:
 	static constexpr float REVERB_ENV_DISTANCE_THRESHOLD = 2048.0f;
-
+private:
 	vec3_t primaryRayDirs[MAX_REVERB_PRIMARY_RAY_SAMPLES];
 	vec3_t reflectionPoints[MAX_REVERB_PRIMARY_RAY_SAMPLES];
 	float primaryHitDistances[MAX_REVERB_PRIMARY_RAY_SAMPLES];
@@ -1015,18 +1050,37 @@ void ReverbEffectSampler::SetMinimalReverbProps() {
 void ReverbEffectSampler::EmitSecondaryRays() {
 	int listenerLeafNum = listenerProps->GetLeafNum();
 
+	auto *const eaxEffect = Effect::Cast<EaxReverbEffect *>( effect );
+	auto *const panningUpdateState = &src->panningUpdateState;
+
 	trace_t trace;
 
 	unsigned numPassedSecondaryRays = 0;
-	for( unsigned i = 0; i < numReflectionPoints; i++ ) {
-		// Cut off by PVS system early, we are not interested in actual ray hit points contrary to the primary emission.
-		if( !trap_LeafsInPVS( listenerLeafNum, trap_PointLeafNum( reflectionPoints[i] ) ) ) {
-			continue;
-		}
+	if( eaxEffect ) {
+		panningUpdateState->numReflectionPoints = 0;
+		for( unsigned i = 0; i < numReflectionPoints; i++ ) {
+			// Cut off by PVS system early, we are not interested in actual ray hit points contrary to the primary emission.
+			if( !trap_LeafsInPVS( listenerLeafNum, trap_PointLeafNum( reflectionPoints[i] ) ) ) {
+				continue;
+			}
 
-		trap_Trace( &trace, reflectionPoints[i], testedListenerOrigin, vec3_origin, vec3_origin, MASK_SOLID );
-		if( trace.fraction == 1.0f && !trace.startsolid ) {
-			numPassedSecondaryRays++;
+			trap_Trace( &trace, reflectionPoints[i], testedListenerOrigin, vec3_origin, vec3_origin, MASK_SOLID );
+			if( trace.fraction == 1.0f && !trace.startsolid ) {
+				numPassedSecondaryRays++;
+				float *savedPoint = panningUpdateState->reflectionPoints[panningUpdateState->numReflectionPoints++];
+				VectorCopy( reflectionPoints[i], savedPoint );
+			}
+		}
+	} else {
+		for( unsigned i = 0; i < numReflectionPoints; i++ ) {
+			if( !trap_LeafsInPVS( listenerLeafNum, trap_PointLeafNum( reflectionPoints[i] ) ) ) {
+				continue;
+			}
+
+			trap_Trace( &trace, reflectionPoints[i], testedListenerOrigin, vec3_origin, vec3_origin, MASK_SOLID );
+			if( trace.fraction == 1.0f && !trace.startsolid ) {
+				numPassedSecondaryRays++;
+			}
 		}
 	}
 
@@ -1047,4 +1101,41 @@ void ReverbEffectSampler::EmitSecondaryRays() {
 		effect->gainHf = 0.1f;
 		effect->gain *= 0.75f;
 	}
+}
+
+void EaxReverbEffect::UpdatePanning( src_s *src, const vec3_t listenerOrigin, const mat3_t listenerAxes ) {
+	const auto *updateState = &src->panningUpdateState;
+
+	vec3_t avgDir = { 0, 0, 0 };
+	unsigned numDirs = 0;
+	for( unsigned i = 0; i < updateState->numReflectionPoints; ++i ) {
+		vec3_t dir;
+		VectorSubtract( listenerOrigin, src->panningUpdateState.reflectionPoints[i], dir );
+		float squareDistance = VectorLengthSquared( dir );
+		// Do not even take into account directions that have very short segments
+		if( squareDistance < 72.0f * 72.0f ) {
+			continue;
+		}
+
+		numDirs++;
+		float distance = sqrtf( squareDistance );
+		VectorScale( dir, 1.0f / distance, dir );
+		VectorAdd( avgDir, dir, avgDir );
+	}
+
+	if( numDirs > 1 ) {
+		VectorScale( avgDir, 1.0f / numDirs, avgDir );
+	}
+
+	vec3_t pan;
+	// Convert to "speakers" coordinate system
+	pan[0] = -DotProduct( avgDir, &listenerAxes[AXIS_RIGHT] );
+	pan[1] = DotProduct( avgDir, &listenerAxes[AXIS_UP] );
+	pan[2] = -DotProduct( avgDir, &listenerAxes[AXIS_FORWARD] );
+
+	// Lower the vector magnitude, otherwise panning is way too strong and feels weird.
+	VectorScale( pan, 0.7f, pan );
+
+	qalEffectfv( src->effect, AL_EAXREVERB_REFLECTIONS_PAN, pan );
+	qalEffectfv( src->effect, AL_EAXREVERB_LATE_REVERB_PAN, pan );
 }

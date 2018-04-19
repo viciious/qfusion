@@ -361,7 +361,7 @@ static void S_SetListener( const vec3_t origin, const vec3_t velocity, const mat
 	qalListenerfv( AL_VELOCITY, velocity );
 	qalListenerfv( AL_ORIENTATION, orientation );
 
-	ENV_UpdateListener( origin, velocity );
+	ENV_UpdateListener( origin, velocity, axis );
 }
 
 /*

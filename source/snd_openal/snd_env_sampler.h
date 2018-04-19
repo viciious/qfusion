@@ -8,7 +8,7 @@ struct src_s;
 void ENV_Init();
 void ENV_Shutdown();
 
-void ENV_UpdateListener( const vec3_t origin, const vec3_t velocity );
+void ENV_UpdateListener( const vec3_t origin, const vec3_t velocity, const mat3_t axes );
 
 void ENV_RegisterSource( struct src_s *src );
 

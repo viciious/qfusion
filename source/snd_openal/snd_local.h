@@ -201,6 +201,8 @@ public:
 		return sourceQualityHint > 0;
 	};
 
+	virtual void UpdatePanning( src_s *src, const vec3_t listenerOrigin, const mat3_t listenerAxes ) {}
+
 	virtual ~Effect() {}
 
 	template <typename T> static const T Cast( const Effect *effect ) {
@@ -269,10 +271,10 @@ public:
 	}
 };
 
-class ReverbEffect final: public Effect {
-	float GetMasterGain( struct src_s *src ) const override;
+class ReverbEffect: public Effect {
+	float GetMasterGain( struct src_s *src ) const final;
 public:
-	ReverbEffect(): Effect( AL_EFFECT_REVERB ) {}
+	ReverbEffect( ALint type_ ): Effect( type_ ) {}
 
 	// A regular direct obstruction (same as for the flanger effect)
 	float directObstruction;
@@ -289,7 +291,6 @@ public:
 	// An intermediate of the reverb sampling algorithm, useful for gain adjustment
 	float secondaryRaysObstruction;
 
-	void BindOrUpdate( struct src_s *src ) override;
 	void InterpolateProps( const Effect *oldOne, int timeDelta ) override;
 
 	void CopyReverbProps( const ReverbEffect *that ) {
@@ -322,6 +323,24 @@ public:
 		assert( factor >= 0.0f && factor <= 1.0f );
 		return distanceAtLastUpdate < 192.0f + 768.0f * factor;
 	}
+};
+
+class StandardReverbEffect final: public ReverbEffect {
+	friend class ReverbEffectSampler;
+public:
+	StandardReverbEffect(): ReverbEffect( AL_EFFECT_REVERB ) {}
+
+	void BindOrUpdate( struct src_s *src ) override;
+};
+
+class EaxReverbEffect final: public ReverbEffect {
+	friend class ReverbEffectSampler;
+public:
+	EaxReverbEffect(): ReverbEffect( AL_EFFECT_EAXREVERB ) {}
+
+	void BindOrUpdate( struct src_s *src ) override;
+
+	virtual void UpdatePanning( src_s *src, const vec3_t listenerOrigin, const mat3_t listenerAxes ) override;
 };
 
 class ChorusEffect final: public Effect {
@@ -371,6 +390,13 @@ typedef struct {
 	unsigned numSamples;
 	uint16_t valueIndex;
 } samplingProps_t;
+
+struct PanningUpdateState {
+	static constexpr auto MAX_POINTS = 48;
+	int64_t timeoutAt;
+	vec3_t reflectionPoints[MAX_POINTS];
+	unsigned numReflectionPoints;
+};
 
 typedef struct envUpdateState_s {
 	sfx_t *parent;
@@ -427,6 +453,7 @@ typedef struct src_s {
 	int64_t lingeringTimeoutAt;
 
 	envUpdateState_t envUpdateState;
+	PanningUpdateState panningUpdateState;
 
 	vec3_t origin, velocity; // for local culling
 } src_t;

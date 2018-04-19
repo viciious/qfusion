@@ -238,7 +238,7 @@ float ReverbEffect::GetMasterGain( src_t *src ) const {
 	return gain;
 }
 
-void ReverbEffect::BindOrUpdate( src_t *src ) {
+void StandardReverbEffect::BindOrUpdate( src_t *src ) {
 	CheckCurrentlyBoundEffect( src );
 
 	qalEffectf( src->effect, AL_REVERB_DENSITY, this->density );
@@ -249,6 +249,23 @@ void ReverbEffect::BindOrUpdate( src_t *src ) {
 	qalEffectf( src->effect, AL_REVERB_REFLECTIONS_GAIN, this->reflectionsGain );
 	qalEffectf( src->effect, AL_REVERB_REFLECTIONS_DELAY, this->reflectionsDelay );
 	qalEffectf( src->effect, AL_REVERB_LATE_REVERB_DELAY, this->lateReverbDelay );
+
+	qalFilterf( src->directFilter, AL_LOWPASS_GAINHF, 1.0f - directObstruction );
+
+	AttachEffect( src );
+}
+
+void EaxReverbEffect::BindOrUpdate( src_t *src ) {
+	CheckCurrentlyBoundEffect( src );
+
+	qalEffectf( src->effect, AL_EAXREVERB_DENSITY, this->density );
+	qalEffectf( src->effect, AL_EAXREVERB_DIFFUSION, this->diffusion );
+	qalEffectf( src->effect, AL_EAXREVERB_GAIN, this->gain );
+	qalEffectf( src->effect, AL_EAXREVERB_GAINHF, this->gainHf );
+	qalEffectf( src->effect, AL_EAXREVERB_DECAY_TIME, this->decayTime );
+	qalEffectf( src->effect, AL_EAXREVERB_REFLECTIONS_GAIN, this->reflectionsGain );
+	qalEffectf( src->effect, AL_EAXREVERB_REFLECTIONS_DELAY, this->reflectionsDelay );
+	qalEffectf( src->effect, AL_EAXREVERB_LATE_REVERB_DELAY, this->lateReverbDelay );
 
 	qalFilterf( src->directFilter, AL_LOWPASS_GAINHF, 1.0f - directObstruction );
 
