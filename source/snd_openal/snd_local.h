@@ -273,6 +273,8 @@ public:
 
 class ReverbEffect: public Effect {
 	float GetMasterGain( struct src_s *src ) const final;
+protected:
+	void InterpolateCommonReverbProps( const Interpolator &interpolator, const ReverbEffect *that );
 public:
 	ReverbEffect( ALint type_ ): Effect( type_ ) {}
 
@@ -286,14 +288,13 @@ public:
 	float decayTime;            // [0.1 ... 20.0]   default 1.49
 	float reflectionsGain;      // [0.0 ... 3.16]   default 0.05
 	float reflectionsDelay;     // [0.0 ... 0.3]    default 0.007
+	float lateReverbGain;       // [0.0 ... 10.0]   default 1.26
 	float lateReverbDelay;      // [0.0 ... 0.1]    default 0.011
 
 	// An intermediate of the reverb sampling algorithm, useful for gain adjustment
 	float secondaryRaysObstruction;
 
-	void InterpolateProps( const Effect *oldOne, int timeDelta ) override;
-
-	void CopyReverbProps( const ReverbEffect *that ) {
+	virtual void CopyReverbProps( const ReverbEffect *that ) {
 		// Avoid memcpy... This is not a POD type
 		density = that->density;
 		diffusion = that->diffusion;
@@ -302,6 +303,7 @@ public:
 		decayTime = that->decayTime;
 		reflectionsGain = that->reflectionsGain;
 		reflectionsDelay = that->reflectionsDelay;
+		lateReverbGain = that->lateReverbGain;
 		lateReverbDelay = that->lateReverbDelay;
 		secondaryRaysObstruction = that->secondaryRaysObstruction;
 	}
@@ -331,6 +333,7 @@ public:
 	StandardReverbEffect(): ReverbEffect( AL_EFFECT_REVERB ) {}
 
 	void BindOrUpdate( struct src_s *src ) override;
+	void InterpolateProps( const Effect *oldOne, int timeDelta ) override;
 };
 
 class EaxReverbEffect final: public ReverbEffect {
@@ -338,7 +341,13 @@ class EaxReverbEffect final: public ReverbEffect {
 public:
 	EaxReverbEffect(): ReverbEffect( AL_EFFECT_EAXREVERB ) {}
 
+	float echoTime;   // [0.075 ... 0.25]  default 0.25
+	float echoDepth;  // [0.0   ... 1.0]   default 0.0
+
 	void BindOrUpdate( struct src_s *src ) override;
+	void InterpolateProps( const Effect *oldOne, int timeDelta ) override;
+
+	void CopyReverbProps( const ReverbEffect *that ) override;
 
 	virtual void UpdatePanning( src_s *src, const vec3_t listenerOrigin, const mat3_t listenerAxes ) override;
 };

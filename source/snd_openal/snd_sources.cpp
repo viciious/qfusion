@@ -248,6 +248,7 @@ void StandardReverbEffect::BindOrUpdate( src_t *src ) {
 	qalEffectf( src->effect, AL_REVERB_DECAY_TIME, this->decayTime );
 	qalEffectf( src->effect, AL_REVERB_REFLECTIONS_GAIN, this->reflectionsGain );
 	qalEffectf( src->effect, AL_REVERB_REFLECTIONS_DELAY, this->reflectionsDelay );
+	qalEffectf( src->effect, AL_REVERB_LATE_REVERB_GAIN, this->lateReverbGain );
 	qalEffectf( src->effect, AL_REVERB_LATE_REVERB_DELAY, this->lateReverbDelay );
 
 	qalFilterf( src->directFilter, AL_LOWPASS_GAINHF, 1.0f - directObstruction );
@@ -265,7 +266,11 @@ void EaxReverbEffect::BindOrUpdate( src_t *src ) {
 	qalEffectf( src->effect, AL_EAXREVERB_DECAY_TIME, this->decayTime );
 	qalEffectf( src->effect, AL_EAXREVERB_REFLECTIONS_GAIN, this->reflectionsGain );
 	qalEffectf( src->effect, AL_EAXREVERB_REFLECTIONS_DELAY, this->reflectionsDelay );
+	qalEffectf( src->effect, AL_EAXREVERB_LATE_REVERB_GAIN, this->lateReverbGain );
 	qalEffectf( src->effect, AL_EAXREVERB_LATE_REVERB_DELAY, this->lateReverbDelay );
+
+	qalEffectf( src->effect, AL_EAXREVERB_ECHO_TIME, this->echoTime );
+	qalEffectf( src->effect, AL_EAXREVERB_ECHO_DEPTH, this->echoDepth );
 
 	qalFilterf( src->directFilter, AL_LOWPASS_GAINHF, 1.0f - directObstruction );
 
@@ -809,7 +814,7 @@ static void S_ProcessZombieSources( src_t **zombieSources, int numZombieSources,
 		if( numActiveEffects <= effectsNumberThreshold ) {
 			break;
 		}
-		if( numDisableEffectCandidates < 0 ) {
+		if( numDisableEffectCandidates <= 0 ) {
 			break;
 		}
 

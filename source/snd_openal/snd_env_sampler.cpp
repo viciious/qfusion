@@ -511,13 +511,7 @@ void UnderwaterFlangerEffect::InterpolateProps( const Effect *oldOne, int timeDe
 	directObstruction = interpolator( directObstruction, that->directObstruction, 0.0f, 1.0f );
 }
 
-void ReverbEffect::InterpolateProps( const Effect *oldOne, int timeDelta ) {
-	const auto *that = Cast<ReverbEffect *>( oldOne );
-	if( !that ) {
-		return;
-	}
-
-	const Interpolator interpolator( timeDelta );
+void ReverbEffect::InterpolateCommonReverbProps( const Interpolator &interpolator, const ReverbEffect *that ) {
 	directObstruction = interpolator( directObstruction, that->directObstruction, 0.0f, 1.0f );
 	density = interpolator( density, that->density, 0.0f, 1.0f );
 	diffusion = interpolator( diffusion, that->diffusion, 0.0f, 1.0f );
@@ -526,8 +520,38 @@ void ReverbEffect::InterpolateProps( const Effect *oldOne, int timeDelta ) {
 	decayTime = interpolator( decayTime, that->decayTime, 0.1f, 20.0f );
 	reflectionsGain = interpolator( reflectionsGain, that->reflectionsGain, 0.0f, 3.16f );
 	reflectionsDelay = interpolator( reflectionsDelay, that->reflectionsDelay, 0.0f, 0.3f );
+	lateReverbGain = interpolator( lateReverbGain, that->lateReverbGain, 0.0f, 10.0f );
 	lateReverbDelay = interpolator( lateReverbDelay, that->lateReverbDelay, 0.0f, 0.1f );
 	secondaryRaysObstruction = interpolator( secondaryRaysObstruction, that->secondaryRaysObstruction, 0.0f, 1.0f );
+}
+
+void StandardReverbEffect::InterpolateProps( const Effect *oldOne, int timeDelta ) {
+	if( const auto *that = Cast<ReverbEffect *>( oldOne ) ) {
+		InterpolateCommonReverbProps( Interpolator( timeDelta ), that );
+	}
+}
+
+void EaxReverbEffect::InterpolateProps( const Effect *oldOne, int timeDelta ) {
+	const auto *that = Cast<EaxReverbEffect *>( oldOne );
+	if( !that ) {
+		return;
+	}
+
+	Interpolator interpolator( timeDelta );
+	InterpolateCommonReverbProps( interpolator, that );
+	echoTime = interpolator( echoTime, that->echoTime, 0.075f, 0.25f );
+	echoDepth = interpolator( echoDepth, that->echoDepth, 0.0f, 1.0f );
+}
+
+void EaxReverbEffect::CopyReverbProps( const ReverbEffect *effect ) {
+	ReverbEffect::CopyReverbProps( effect );
+	if( const auto *that = Cast<EaxReverbEffect *>( effect ) ) {
+		this->echoTime = that->echoTime;
+		this->echoDepth = that->echoDepth;
+	} else {
+		this->echoTime = 0.25f;
+		this->echoDepth = 0.0f;
+	}
 }
 
 static void ENV_InterpolateEnvironmentProps( src_t *src, int64_t millisNow ) {
@@ -1022,19 +1046,46 @@ void ReverbEffectSampler::ProcessPrimaryEmissionResults() {
 	// * room size
 	// * diffusion (that's an extra hack to hear long "colorated" echoes in open spaces)
 	// Since diffusion depends itself of the room size factor, add only sky factor component
-	effect->decayTime = 0.75f + 3.0f * roomSizeFactor + skyFactor;
+	effect->decayTime = 0.75f + 4.0f * roomSizeFactor + skyFactor;
 
-	// Let it grow in small rooms but be absorbed by sky
-	const float smallRoomFactor = powf( 1.0f - roomSizeFactor, 3.0f );
-	assert( smallRoomFactor >= 0.0f && smallRoomFactor <= 1.0f );
-	effect->reflectionsGain = 0.05f + 0.5f * smallRoomFactor * ( 1.0f - skyFactor );
-	// Hack: try to detect sewers/caves
-	if( numRaysHitWater && !skyFactor ) {
-		effect->reflectionsGain += 2.0f * smallRoomFactor;
+	// Compute "gain factors" that are dependent of room size
+	const float lateReverbGainFactor = ( 1.0f - roomSizeFactor ) * ( 1.0f - roomSizeFactor );
+	const float reflectionsGainFactor = lateReverbGainFactor * ( 1.0f - roomSizeFactor );
+	assert( lateReverbGainFactor >= 0.0f && lateReverbGainFactor <= 1.0f );
+	assert( reflectionsGainFactor >= 0.0f && reflectionsGainFactor <= 1.0f );
+
+	effect->reflectionsGain = 0.05f + 0.25f * reflectionsGainFactor * ( 1.0f - skyFactor );
+	effect->lateReverbGain = 0.15f + 0.5f * lateReverbGainFactor * ( 1.0f - skyFactor );
+
+	// Force effects strength "indoor"
+	if( !skyFactor ) {
+		effect->reflectionsGain += 0.25f * reflectionsGainFactor;
+		effect->lateReverbGain += 0.5f * lateReverbGainFactor;
+		// Hack: try to detect sewers/caves
+		if( numRaysHitWater ) {
+			effect->reflectionsGain += 0.5f * reflectionsGainFactor;
+			effect->lateReverbGain += 0.75f * lateReverbGainFactor;
+		}
 	}
 
 	effect->reflectionsDelay = 0.007f + 0.100f * roomSizeFactor;
 	effect->lateReverbDelay = 0.011f + 0.055f * roomSizeFactor;
+
+	if( auto *eaxEffect = Effect::Cast<EaxReverbEffect *>( effect ) ) {
+		if( skyFactor ) {
+			eaxEffect->echoTime = 0.075f + 0.125f * roomSizeFactor;
+			// Raise echo depth until sky factor reaches 0.5f, then lower it.
+			// So echo depth is within [0.25f, 0.5f] bounds and reaches its maximum at skyFactor = 0.5f
+			if( skyFactor < 0.5f ) {
+				eaxEffect->echoDepth = 0.25f + 0.5f * 2.0f * skyFactor;
+			} else {
+				eaxEffect->echoDepth = 0.75f - 0.3f * 2.0f * ( skyFactor - 0.5f );
+			}
+		} else {
+			eaxEffect->echoTime = 0.25f;
+			eaxEffect->echoDepth = 0.0f;
+		}
+	}
 }
 
 void ReverbEffectSampler::SetMinimalReverbProps() {
@@ -1045,6 +1096,10 @@ void ReverbEffectSampler::SetMinimalReverbProps() {
 	effect->reflectionsDelay = 0.007f;
 	effect->lateReverbDelay = 0.011f;
 	effect->gainHf = 0.1f;
+	if( auto *eaxEffect = Effect::Cast<EaxReverbEffect *>( effect ) ) {
+		eaxEffect->echoTime = 0.25f;
+		eaxEffect->echoDepth = 0.0f;
+	}
 }
 
 void ReverbEffectSampler::EmitSecondaryRays() {
