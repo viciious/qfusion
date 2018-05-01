@@ -81,7 +81,7 @@ public:
 		// Width is affected by slant angle
 		float width = fabsf( height * tangent );
 
-		Vector2i dimensions( (int)width, (int)height );
+		Vector2i dimensions( (int)( width + 0.5f ), (int)( height + 0.5f ) );
 		// Skip the degenerate case
 		if( !( dimensions.x * dimensions.y ) ) {
 			return (DecoratorDataHandle)0;
@@ -172,9 +172,9 @@ public:
 			vertices[3].position = topLeft;
 			vertices[3].position.y += bitmapElementData->bitmapDimensions.y;
 
-			Vector2f leftTranslation( side * ( -shift - side * 0.25f ), 0.0f );
+			Vector2f leftTranslation( int( -side * ( shift + 0.5f ) ), 0 );
 			renderer->RenderGeometry( vertices, 4, indices, 6, bitmapElementData->textureHandle, leftTranslation );
-			Vector2f rightTranslation( elementWidth - side * ( shift + side * 0.25f ), 0.0f );
+			Vector2f rightTranslation( elementWidth - int( side * ( shift + 0.5f ) ), 0 );
 			renderer->RenderGeometry( vertices, 4, indices, 6, bitmapElementData->textureHandle, rightTranslation );
 		}
 
@@ -231,60 +231,46 @@ inline uint64_t AntiAliasingBitmapCache::MakeKey( const Vector2i &dimensions, fl
 	return ( hiPart << 32 ) | loPart;
 }
 
-void AntiAliasingBitmapCache::FillTexture( Colourb *data, const Vector2i &dimensions ) {
-	// We are sure the allocated memory chunk size permits this
-	memset( data, 0, 2 * sizeof( Colourb ) * dimensions.x * dimensions.y );
+static inline void PlotVaryingX( Colourb *data, int rowShift, float x, int y ) {
+	int ix = (int)x;
+	uint8_t alpha = (uint8_t)( 255 * ( x - ix ) );
+	data[ix + y * rowShift] = Colourb( 255, 255, 255, 255 - alpha );
+	data[ix + 1 + y * rowShift] = Colourb( 255, 255, 255, alpha );
+}
 
-	// First draw a line using Wu algorithm, then apply an additional convolution filter
-	Colourb *const lineBuffer = data + dimensions.x * dimensions.y;
+static inline void PlotVaryingY( Colourb *data, int rowShift, int x, float y ) {
+	int iy = (int)y;
+	uint8_t alpha = (uint8_t)( 255 * ( y - iy ) );
+	data[x + iy * rowShift] = Colourb( 255, 255, 255 - alpha );
+	data[x + (iy + 1) * rowShift] = Colourb( 255, 255, 255, alpha );
+}
+
+void AntiAliasingBitmapCache::FillTexture( Colourb *data, const Vector2i &dimensions ) {
+	size_t numPixels = dimensions.x * dimensions.y;
+	memset( data, 0, sizeof( Colourb ) * numPixels );
 
 	float delta;
 	int rowShift = dimensions.x;
 	if( abs( dimensions.y ) > abs( dimensions.x ) ) {
 		delta = dimensions.x / (float)dimensions.y;
 		float x = delta;
+		PlotVaryingX( data, rowShift, x, 0 );
 		for( int y = 1; y < dimensions.y - 1; ++y ) {
-			int ix = (int)x;
-			uint8_t alpha = (uint8_t)( 255 * ( x - ix ) );
-			lineBuffer[ix + y * rowShift] = Colourb( 255, 255, 255, 255 - alpha );
-			lineBuffer[ix + 1 + y * rowShift] = Colourb( 255, 255, 255, alpha );
+			PlotVaryingX( data, rowShift, x, y );
 			x += delta;
 		}
+		PlotVaryingX( data, rowShift, x, dimensions.y - 1 );
+		data[dimensions.x * ( dimensions.y - 1 )] = Colourb( 0, 0, 0, 0 );
 	} else {
 		delta = dimensions.y / (float)dimensions.x;
-		float y = 1 * delta;
+		float y = delta;
+		PlotVaryingY( data, rowShift, 0, y );
 		for( int x = 1; x < dimensions.x - 1; ++x ) {
-			int iy = (int)y;
-			uint8_t alpha = (uint8_t)( 255 * ( y - iy ) );
-			lineBuffer[x + iy * rowShift] = Colourb( 255, 255, 255 - alpha );
-			lineBuffer[x + (iy + 1) * rowShift] = Colourb( 255, 255, 255, alpha );
+			PlotVaryingY( data, rowShift, x, y );
 			y += delta;
 		}
-	}
-
-	const float kernel[3][3] = {
-		{ 1/32.f, 1/8.f, 1/32.f },
-		{ 1/8.f, 1/4.f, 1/8.f },
-		{ 1/32.f, 1/8.f, 1/32.f }
-	};
-
-	// TODO: Do not apply convolution to every inner pixel
-
-	for( int x = 1; x < dimensions.x - 1; ++x ) {
-		for( int y = 1; y < dimensions.y - 1; ++y ) {
-			float alpha = 0.0f;
-			for( int i = -1; i <= 1; ++i ) {
-				for( int j = -1; j <= 1; ++j ) {
-					alpha += kernel[1 + i][1 + j] * lineBuffer[x + i + ( y + j ) * rowShift].alpha;
-				}
-			}
-
-			// Deliberately lower AA bitmap alpha value
-			alpha *= 0.8f;
-
-			data[x + y * rowShift] = lineBuffer[x + y * rowShift];
-			data[x + y * rowShift].alpha = (Rocket::Core::byte)alpha;
-		}
+		PlotVaryingY( data, rowShift, dimensions.x - 1, y );
+		data[dimensions.x] = Colourb( 0, 0, 0, 0 );
 	}
 }
 
@@ -313,9 +299,8 @@ TextureHandle AntiAliasingBitmapCache::GetTexture( const Vector2i &dimensions,
 
 	auto handle = (TextureHandle)0;
 
-	// Use malloc() and not new[] for more convenient out-of-memory checks.
-	// Note: We need 2x amount of memory for convolution buffer
-	auto *data = (Colourb *)malloc( 2 * sizeof( Colourb ) * dimensions.x * dimensions.y );
+	// Make sure we can legally access pixels that are +1 X/Y out of dimensions bounds
+	auto *data = (Colourb *)malloc( sizeof( Colourb ) * ( dimensions.x + 1 ) * ( dimensions.y + 1 ) );
 	// Data nullity depends of OS memory over-commit settings... we did our best
 	if( data ) {
 		FillTexture( data, dimensions );
