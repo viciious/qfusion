@@ -612,9 +612,8 @@ static void SVC_DirectConnect( const socket_t *socket, const netadr_t *address )
 	client_t *cl, *newcl;
 	int i, version, game_port, challenge;
 	int previousclients;
-	int session_id;
+	mm_uuid_t session_id, ticket_id;
 	char *session_id_str;
-	unsigned int ticket_id;
 	bool tv_client;
 	int64_t time;
 
@@ -662,16 +661,16 @@ static void SVC_DirectConnect( const socket_t *socket, const netadr_t *address )
 	if( Cmd_Argc() >= 7 ) {
 		// we have extended information, ticket-id and session-id
 		Com_Printf( "Extended information %s\n", Cmd_Argv( 6 ) );
-		ticket_id = (unsigned int)atoi( Cmd_Argv( 6 ) );
-		session_id_str = Info_ValueForKey( userinfo, "cl_mm_session" );
-		if( session_id_str != NULL ) {
-			session_id = atoi( session_id_str );
+		if( !Uuid_FromString( Cmd_Argv( 6 ), &ticket_id ) ) {
+			ticket_id = session_id = Uuid_ZeroUuid();
 		} else {
-			session_id = 0;
+			session_id_str = Info_ValueForKey( userinfo, "cl_mm_session" );
+			if( !Uuid_FromString( session_id_str, &session_id ) ) {
+				ticket_id = session_id = Uuid_ZeroUuid();
+			}
 		}
 	} else {
-		ticket_id = 0;
-		session_id = 0;
+		ticket_id = session_id = Uuid_ZeroUuid();
 	}
 
 #ifdef TCP_ALLOW_CONNECT
@@ -828,6 +827,7 @@ static void SVC_DirectConnect( const socket_t *socket, const netadr_t *address )
 * A connection request that came from the game module
 */
 int SVC_FakeConnect( char *fakeUserinfo, char *fakeSocketType, const char *fakeIP ) {
+	mm_uuid_t session_id, ticket_id;
 	int i;
 	char userinfo[MAX_INFO_STRING];
 	client_t *cl, *newcl;
@@ -870,7 +870,9 @@ int SVC_FakeConnect( char *fakeUserinfo, char *fakeSocketType, const char *fakeI
 
 	NET_InitAddress( &address, NA_NOTRANSMIT );
 	// get the game a chance to reject this connection or modify the userinfo
-	if( !SV_ClientConnect( NULL, &address, newcl, userinfo, -1, -1, true, false, 0, 0 ) ) {
+	session_id = Uuid_ZeroUuid();
+	ticket_id  = Uuid_ZeroUuid();
+	if( !SV_ClientConnect( NULL, &address, newcl, userinfo, -1, -1, true, false, session_id, ticket_id ) ) {
 		Com_DPrintf( "Game rejected a connection.\n" );
 		return -1;
 	}

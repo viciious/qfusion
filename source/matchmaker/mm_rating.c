@@ -18,8 +18,60 @@ Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
 
 */
 
+#include <errno.h>
+
 #include "../gameshared/q_math.h"
+#include "../qcommon/qcommon.h"
 #include "mm_rating.h"
+
+mm_uuid_t *Uuid_FromString( const char *buffer, mm_uuid_t *dest ) {
+	unsigned long long groups[5];
+	int expectedHyphenIndices[4] = { 8, 13, 18, 23 };
+	const char *currptr;
+	char *endptr = "";
+	int i;
+
+	if( !buffer ) {
+		return NULL;
+	}
+
+	currptr = buffer;
+	for( i = 0; i < 5; ++i ) {
+		groups[i] = strtoull( currptr, &endptr, 16 );
+		if( groups[i] == ULLONG_MAX && errno == ERANGE ) {
+			return NULL;
+		}
+		if( *endptr != '-' ) {
+			if( i != 4 && *endptr != '\0' ) {
+				return NULL;
+			}
+		} else if( endptr - buffer != expectedHyphenIndices[i] ) {
+			return NULL;
+		}
+		currptr = endptr + 1;
+	}
+
+	// If there are any trailing characters
+	if( *endptr != '\0' ) {
+		return NULL;
+	}
+
+	dest->hiPart = ( ( ( groups[0] << 16 ) | groups[1] ) << 16 ) | groups[2];
+	dest->loPart = ( groups[3] << 48 ) | groups[4];
+	return dest;
+}
+
+char *Uuid_ToString( char *buffer, const mm_uuid_t uuid ) {
+	const char *format = "%08" PRIx64 "-%04" PRIx64 "-%04" PRIx64 "-%04" PRIx64 "-%012" PRIx64;
+	uint64_t groups[5];
+	groups[0] = ( uuid.hiPart >> 32 ) & 0xFFFFFFFFul;
+	groups[1] = ( uuid.hiPart >> 16 ) & 0xFFFF;
+	groups[2] = ( uuid.hiPart >> 00 ) & 0xFFFF;
+	groups[3] = ( uuid.loPart >> 48 ) & 0xFFFF;
+	groups[4] = ( uuid.loPart >> 00 ) & ( ( 0xFFFFFFFFul << 16 ) | 0xFFFF );
+	Q_snprintfz( buffer, UUID_BUFFER_SIZE, format, groups[0], groups[1], groups[2], groups[3], groups[4] );
+	return buffer;
+}
 
 /*
  * ============================================================================
@@ -60,10 +112,10 @@ clientRating_t *Rating_Find( clientRating_t *ratings, const char *gametype ) {
 }
 
 // as above but find with an ID
-clientRating_t *Rating_FindId( clientRating_t *ratings, int id ) {
+clientRating_t *Rating_FindId( clientRating_t *ratings, mm_uuid_t id ) {
 	clientRating_t *cr = ratings;
 
-	while( cr != NULL && cr->uuid != id )
+	while( cr != NULL && !Uuid_Compare( cr->uuid, id ) )
 		cr = cr->next;
 
 	return cr;
@@ -97,10 +149,10 @@ clientRating_t *Rating_Detach( clientRating_t **list, const char *gametype ) {
 
 // detaches given rating from the list, returns the element and sets the ratings argument
 // to point to the new root. Returns NULL if gametype wasn't found
-clientRating_t *Rating_DetachId( clientRating_t **list, int id ) {
+clientRating_t *Rating_DetachId( clientRating_t **list, mm_uuid_t id ) {
 	clientRating_t *cr = *list, *prev = NULL;
 
-	while( cr != NULL && cr->uuid != id ) {
+	while( cr != NULL && !Uuid_Compare( cr->uuid, id ) ) {
 		prev = cr;
 		cr = cr->next;
 	}

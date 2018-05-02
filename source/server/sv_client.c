@@ -64,25 +64,30 @@ void SV_ClientCloseDownload( client_t *client ) {
 */
 bool SV_ClientConnect( const socket_t *socket, const netadr_t *address, client_t *client, char *userinfo,
 					   int game_port, int challenge, bool fakeClient, bool tvClient,
-					   unsigned int ticket_id, int session_id ) {
+					   mm_uuid_t ticket_id, mm_uuid_t session_id ) {
 	int i;
 	edict_t *ent;
 	int edictnum;
+	char uuid_buffer[UUID_BUFFER_SIZE];
 
 	edictnum = ( client - svs.clients ) + 1;
 	ent = EDICT_NUM( edictnum );
 
+	// make sure the client state is reset before an mm connection callback gets called
+	memset( client, 0, sizeof( *client ) );
+
 	// give mm a chance to reject if the server is locked ready for mm
 	// must be called before ge->ClientConnect
 	// ch : rly ignore fakeClient and tvClient here?
-	session_id = SV_MM_ClientConnect( address, userinfo, ticket_id, session_id );
-	if( !session_id ) {
+
+	session_id = SV_MM_ClientConnect( client, address, userinfo, ticket_id, session_id );
+	if( Uuid_IsZeroUuid( session_id ) ) {
 		return false;
 	}
 
 	// we need to set local sessions to userinfo ourselves
-	if( session_id < 0 ) {
-		Info_SetValueForKey( userinfo, "cl_mm_session", va( "%d", session_id ) );
+	if( Uuid_IsFFFsUuid( session_id ) ) {
+		Info_SetValueForKey( userinfo, "cl_mm_session", Uuid_ToString( uuid_buffer, session_id ) );
 	}
 
 	// get the game a chance to reject this connection or modify the userinfo
@@ -90,9 +95,7 @@ bool SV_ClientConnect( const socket_t *socket, const netadr_t *address, client_t
 		return false;
 	}
 
-
 	// the connection is accepted, set up the client slot
-	memset( client, 0, sizeof( *client ) );
 	client->edict = ent;
 	client->challenge = challenge; // save challenge for checksumming
 
@@ -139,8 +142,7 @@ bool SV_ClientConnect( const socket_t *socket, const netadr_t *address, client_t
 
 	if( fakeClient ) {
 		client->netchan.remoteAddress.type = NA_NOTRANSMIT; // fake-clients can't transmit
-		// TODO: if mm_debug_reportbots
-		Info_SetValueForKey( userinfo, "cl_mm_session", va( "%d", client->mm_session ) );
+		Info_SetValueForKey( userinfo, "cl_mm_session", Uuid_ToString( uuid_buffer, Uuid_FFFsUuid() ) );
 	} else {
 		if( client->individual_socket ) {
 			Netchan_Setup( &client->netchan, &client->socket, address, game_port );

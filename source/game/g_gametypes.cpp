@@ -18,7 +18,109 @@ Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
 
 */
 
-#include "g_local.h"
+// TODO: Lift useful stuff to main headers from Ai submodule
+#include "ai/ai_local.h"
+
+GVariousStats::~GVariousStats() {
+	Clear();
+	if( bins ) {
+		G_Free( bins );
+	}
+}
+
+void GVariousStats::Clear() {
+	Node *nextNode = nullptr;
+	for( Node *node = listHead; node; node = nextNode ) {
+		// Prevent use-after-free
+		nextNode = node->nextInList;
+		G_Free( node );
+	}
+
+	// If bins are initialized, clear all node references in bins, but keep the allocated references array
+	if( bins ) {
+		memset( bins, 0, sizeof( Node * ) * numHashBins );
+	}
+
+	listHead = nullptr;
+}
+
+const GVariousStats::Node *GVariousStats::GetNode( unsigned binIndex, const char *key, uint32_t hash, uint32_t length ) const {
+	// Initialize bins on first access.
+	// This method is called first in all public accessor methods, so this is an appropriate place to put the code.
+	if( !bins ) {
+		bins = (Node **)G_Malloc( sizeof( Node * ) * numHashBins );
+		memset( bins, 0, sizeof( Node * ) * numHashBins );
+		return nullptr;
+	}
+
+	uint64_t hashAndLength = ( (uint64_t)hash << 32 | length );
+	for( Node *node = bins[binIndex]; node; node = node->nextInBin ) {
+		if( ( ( (uint64_t)node->keyHash << 32 ) | node->keyLength ) == hashAndLength ) {
+			if( !Q_stricmp( node->key, key ) ) {
+				return node;
+			}
+		}
+	}
+
+	return nullptr;
+}
+
+void GVariousStats::LinkNewNode( unsigned binIndex, const char *key, uint32_t hash, uint32_t length, int64_t value ) {
+	uint8_t *mem = (uint8_t *)G_Malloc( sizeof( Node ) + length + 1 );
+	Node *node = (Node *)mem;
+	char *keyBuffer = (char *)( mem + sizeof( Node ) );
+	memcpy( keyBuffer, key, length );
+	keyBuffer[length] = '\0';
+
+	node->key = keyBuffer;
+	node->keyLength = length;
+	node->keyHash = hash;
+	node->value = value;
+
+	node->nextInBin = bins[binIndex];
+	bins[binIndex] = node;
+
+	node->nextInList = listHead;
+	listHead = node;
+}
+
+int64_t GVariousStats::GetEntry( const char *key, int64_t defaultValue ) const {
+	unsigned hash, length;
+	GetHashAndLength( key, &hash, &length );
+
+	unsigned binIndex = hash % numHashBins;
+	if( const Node *bin = GetNode( binIndex, key, hash, length ) ) {
+		return bin->value;
+	}
+
+	return defaultValue;
+}
+
+void GVariousStats::SetEntry( const char *key, int64_t value ) {
+	unsigned hash, length;
+	GetHashAndLength( key, &hash, &length );
+
+	unsigned binIndex = hash % numHashBins;
+	if( Node *node = const_cast<Node *>( GetNode( binIndex, key, hash, length ) ) ) {
+		node->value = value;
+		return;
+	}
+
+	LinkNewNode( binIndex, key, hash, length, value );
+}
+
+void GVariousStats::AddToEntry( const char *key, int64_t delta ) {
+	unsigned hash, length;
+	GetHashAndLength( key, &hash, &length );
+
+	unsigned binIndex = hash % numHashBins;
+	if( Node *node = const_cast<Node *>( GetNode( binIndex, key, hash, length ) ) ) {
+		node->value += delta;
+		return;
+	}
+
+	LinkNewNode( binIndex, key, hash, length, delta );
+}
 
 g_teamlist_t teamlist[GS_MAX_TEAMS];
 
@@ -100,7 +202,7 @@ void G_Gametype_GENERIC_SetUpMatch( void ) {
 	for( i = TEAM_PLAYERS; i < GS_MAX_TEAMS; i++ ) {
 		int j;
 		g_teamlist_t *team = &teamlist[i];
-		memset( &team->stats, 0, sizeof( team->stats ) );
+		team->stats.Clear();
 
 		// respawn all clients inside the playing teams
 		for( j = 0; j < team->numplayers; j++ ) {
@@ -214,7 +316,7 @@ void G_Gametype_GENERIC_ScoreboardMessage( void ) {
 			carrierIcon = 0;
 		}
 
-		Q_snprintfz( entry, sizeof( entry ), "&p %i %i %i %i %i ",
+		Q_snprintfz( entry, sizeof( entry ), "&p %i %d %i %i %i ",
 					 PLAYERNUM( e ),
 					 e->r.client->level.stats.score,
 					 e->r.client->r.ping > 999 ? 999 : e->r.client->r.ping,

@@ -18,6 +18,8 @@ Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
 
 */
 
+#include <new>
+
 #include "g_local.h"
 
 game_locals_t game;
@@ -342,6 +344,10 @@ void G_Init( unsigned int seed, unsigned int framemsec, int protocol, const char
 
 	// initialize all clients for this game
 	game.clients = ( gclient_t * )G_Malloc( gs.maxclients * sizeof( game.clients[0] ) );
+	// call clients constructors since this is no longer a POD type
+	for( int i = 0; i < gs.maxclients; ++i ) {
+		new( game.clients + i )gclient_s;
+	}
 
 	game.quits = NULL;
 
@@ -399,6 +405,10 @@ void G_Shutdown( void ) {
 	}
 
 	G_Free( game.edicts );
+
+	for( i = 0; i < gs.maxclients; ++i ) {
+		game.clients[i].~gclient_t();
+	}
 	G_Free( game.clients );
 }
 

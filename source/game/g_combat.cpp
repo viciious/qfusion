@@ -176,19 +176,19 @@ void G_Killed( edict_t *targ, edict_t *inflictor, edict_t *attacker, int damage,
 
 		// count stats
 		if( GS_MatchState() == MATCH_STATE_PLAYTIME ) {
-			targ->r.client->level.stats.deaths++;
-			teamlist[targ->s.team].stats.deaths++;
+			targ->r.client->level.stats.AddDeath();
+			teamlist[targ->s.team].stats.AddDeath();
 
 			if( !attacker || !attacker->r.client || attacker == targ || attacker == world ) {
-				targ->r.client->level.stats.suicides++;
-				teamlist[targ->s.team].stats.suicides++;
+				targ->r.client->level.stats.AddSuicide();
+				teamlist[targ->s.team].stats.AddSuicide();
 			} else {
 				if( GS_IsTeamDamage( &targ->s, &attacker->s ) ) {
-					attacker->r.client->level.stats.teamfrags++;
-					teamlist[attacker->s.team].stats.teamfrags++;
+					attacker->r.client->level.stats.AddTeamFrag();
+					teamlist[attacker->s.team].stats.AddTeamFrag();
 				} else {
-					attacker->r.client->level.stats.frags++;
-					teamlist[attacker->s.team].stats.frags++;
+					attacker->r.client->level.stats.AddFrag();
+					teamlist[attacker->s.team].stats.AddFrag();
 					G_AwardPlayerKilled( targ, inflictor, attacker, mod );
 				}
 			}
@@ -445,11 +445,11 @@ void G_Damage( edict_t *targ, edict_t *inflictor, edict_t *attacker, const vec3_
 
 	// adding damage given/received to stats
 	if( statDmg && attacker->r.client && !targ->deadflag && targ->movetype != MOVETYPE_PUSH && targ->s.type != ET_CORPSE ) {
-		attacker->r.client->level.stats.total_damage_given += take + asave;
-		teamlist[attacker->s.team].stats.total_damage_given += take + asave;
+		attacker->r.client->level.stats.AddDamageGiven( take + asave );
+		teamlist[attacker->s.team].stats.AddDamageGiven( take + asave );
 		if( GS_IsTeamDamage( &targ->s, &attacker->s ) ) {
-			attacker->r.client->level.stats.total_teamdamage_given += take + asave;
-			teamlist[attacker->s.team].stats.total_teamdamage_given += take + asave;
+			attacker->r.client->level.stats.AddTeamDamageGiven( take + asave );
+			teamlist[attacker->s.team].stats.AddTeamDamageGiven( take + asave );
 		}
 	}
 
@@ -459,11 +459,11 @@ void G_Damage( edict_t *targ, edict_t *inflictor, edict_t *attacker, const vec3_
 		AI_DamagedEntity( attacker, targ, (int)damage );
 
 	if( statDmg && client ) {
-		client->level.stats.total_damage_received += take + asave;
-		teamlist[targ->s.team].stats.total_damage_received += take + asave;
+		client->level.stats.AddDamageTaken( take + asave );
+		teamlist[targ->s.team].stats.AddDamageTaken( take + asave );
 		if( GS_IsTeamDamage( &targ->s, &attacker->s ) ) {
-			client->level.stats.total_teamdamage_received += take + asave;
-			teamlist[targ->s.team].stats.total_teamdamage_received += take + asave;
+			client->level.stats.AddTeamDamageTaken( take + asave );
+			teamlist[targ->s.team].stats.AddTeamDamageTaken( take + asave );
 		}
 	}
 

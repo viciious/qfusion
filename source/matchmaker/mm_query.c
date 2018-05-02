@@ -206,10 +206,13 @@ static const char *StatQuery_JsonTypeToString( int t ) {
 	return "";
 }
 
-static double StatQuery_JsonToNumber( cJSON *obj ) {
+static double StatQuery_JsonToNumber( cJSON *obj, const double *defaultValue ) {
 	if( !obj ) {
-		Com_Printf( S_COLOR_YELLOW "StatQuery_JsonToNumber: obj == null\n" );
-		return 0.0;
+		if( !defaultValue ) {
+			Com_Printf( S_COLOR_YELLOW "StatQuery_JsonToNumber: obj == null\n" );
+			return 0.0;
+		}
+		return *defaultValue;
 	}
 
 	switch( obj->type ) {
@@ -222,26 +225,35 @@ static double StatQuery_JsonToNumber( cJSON *obj ) {
 		case cJSON_False:
 			return (double)false;
 		default:
-			Com_Printf( "StatQuery: Couldnt cast JSON type %s to number (object name %s)\n",
-						StatQuery_JsonTypeToString( obj->type ), obj->string != 0 ? obj->string : "" );
-			return 0.0;
+			if( !defaultValue ) {
+				Com_Printf( "StatQuery: Couldnt cast JSON type %s to number (object name %s)\n",
+							StatQuery_JsonTypeToString( obj->type ), obj->string != 0 ? obj->string : "" );
+				return 0.0;
+			}
+			return *defaultValue;
 	}
 
-	return 0.0;
+	return defaultValue ? *defaultValue : 0.0;
 }
 
-static const char *StatQuery_JsonToString( cJSON *obj ) {
+static const char *StatQuery_JsonToString( cJSON *obj, const char **defaultValue ) {
 	static char buffer[128];
 
 	if( !obj ) {
-		Com_Printf( S_COLOR_YELLOW "StatQuery_JsonToString: obj == null\n" );
-		buffer[0] = '\0';
-		return buffer;
+		if( !defaultValue ) {
+			Com_Printf( S_COLOR_YELLOW "StatQuery_JsonToString: obj == null\n" );
+			return NULL;
+		}
+
+		return *defaultValue;
 	}
 
 	switch( obj->type ) {
 		case cJSON_String:
-			return obj->valuestring;
+			if( obj->valuestring ) {
+				return obj->valuestring;
+			}
+			return defaultValue ? *defaultValue : NULL;
 		case cJSON_Number:
 			Q_snprintfz( buffer, sizeof( buffer ), "%f", obj->valuedouble );
 			break;
@@ -250,12 +262,15 @@ static const char *StatQuery_JsonToString( cJSON *obj ) {
 		case cJSON_False:
 			return "0";
 		default:
-			Com_Printf( "StatQuery: Couldnt cast JSON type %s to string (object name %s)\n",
-						StatQuery_JsonTypeToString( obj->type ), obj->string != 0 ? obj->string : "" );
-			buffer[0] = '\0';
+			if( !defaultValue ) {
+				Com_Printf( "StatQuery: Couldnt cast JSON type %s to string (object name %s)\n",
+							StatQuery_JsonTypeToString( obj->type ), obj->string != 0 ? obj->string : "" );
+				return NULL;
+			}
+			return *defaultValue;
 	}
 
-	return buffer;
+	return defaultValue ? *defaultValue : NULL;
 }
 
 //===============================================
@@ -378,7 +393,7 @@ static void StatQuery_Prepare( stat_query_t *query ) {
 		compData = NULL;
 
 		// set the json field to POST request
-		wswcurl_formadd_raw( query->req, "data", b64Data, b64Size );
+		wswcurl_formadd_raw( query->req, "json_attachment", b64Data, b64Size );
 
 		free( b64Data );
 	}
@@ -497,8 +512,20 @@ static void StatQuery_AddArrayNumber( stat_query_section_t *array, double prop_v
 	cJSON_AddItemToArray( (cJSON *)array, object );
 }
 
+static bool StatQuery_IsArray( const stat_query_section_t *section ) {
+	return section && ( (cJSON *)section )->type == cJSON_Array;
+}
+
+static bool StatQuery_IsObject( const stat_query_section_t *section ) {
+	return section && ( (cJSON *)section )->type == cJSON_Object;
+}
+
 static stat_query_section_t *StatQuery_GetRoot( stat_query_t *query ) {
 	return (stat_query_section_t *)query->json_in;
+}
+
+static stat_query_section_t *StatQuery_GetOutRoot( stat_query_t *query ) {
+	return (stat_query_section_t *)query->json_out;
 }
 
 static stat_query_section_t *StatQuery_GetSection( stat_query_section_t *parent, const char *name ) {
@@ -507,12 +534,26 @@ static stat_query_section_t *StatQuery_GetSection( stat_query_section_t *parent,
 
 static double StatQuery_GetNumber( stat_query_section_t *parent, const char *name ) {
 	cJSON *object = cJSON_GetObjectItem( (cJSON *)parent, name );
-	return StatQuery_JsonToNumber( object );
+	return StatQuery_JsonToNumber( object, NULL );
+}
+
+static double StatQuery_GetNumberOrDefault( stat_query_section_t *parent, const char *name, double defaultValue ) {
+	cJSON *object = cJSON_GetObjectItem( (cJSON *)parent, name );
+	return StatQuery_JsonToNumber( object, &defaultValue );
 }
 
 static const char *StatQuery_GetString( stat_query_section_t *parent, const char *name ) {
 	cJSON *object = cJSON_GetObjectItem( (cJSON *)parent, name );
-	return StatQuery_JsonToString( object );
+	return StatQuery_JsonToString( object, NULL );
+}
+
+static const char *StatQuery_GetStringOrDefault( stat_query_section_t *parent, const char *name, const char *defaultValue ) {
+	cJSON *object = cJSON_GetObjectItem( (cJSON *)parent, name );
+	return StatQuery_JsonToString( object, &defaultValue );
+}
+
+static int StatQuery_GetArraySize( stat_query_section_t *section ) {
+	return cJSON_GetArraySize( (cJSON *)section );
 }
 
 static stat_query_section_t *StatQuery_GetArraySection( stat_query_section_t *parent, int idx ) {
@@ -521,12 +562,12 @@ static stat_query_section_t *StatQuery_GetArraySection( stat_query_section_t *pa
 
 static double StatQuery_GetArrayNumber( stat_query_section_t *parent, int idx ) {
 	cJSON *object = cJSON_GetArrayItem( (cJSON *)parent, idx );
-	return StatQuery_JsonToNumber( object );
+	return StatQuery_JsonToNumber( object, NULL );
 }
 
 static const char *StatQuery_GetArrayString( stat_query_section_t *parent, int idx ) {
 	cJSON *object = cJSON_GetArrayItem( (cJSON *)parent, idx );
-	return StatQuery_JsonToString( object );
+	return StatQuery_JsonToString( object, NULL );
 }
 
 static const char *StatQuery_GetRawResponse( stat_query_t *query ) {
@@ -587,9 +628,13 @@ void StatQuery_Init( void ) {
 	sq_export.Send = StatQuery_Send;
 	sq_export.SetField = StatQuery_SetField;
 	sq_export.GetRoot = StatQuery_GetRoot;
+	sq_export.GetOutRoot = StatQuery_GetOutRoot;
 	sq_export.GetSection = StatQuery_GetSection;
 	sq_export.GetNumber = StatQuery_GetNumber;
+	sq_export.GetNumberOrDefault = StatQuery_GetNumberOrDefault;
 	sq_export.GetString = StatQuery_GetString;
+	sq_export.GetStringOrDefault = StatQuery_GetStringOrDefault;
+	sq_export.GetArraySize = StatQuery_GetArraySize;
 	sq_export.GetArraySection = StatQuery_GetArraySection;
 	sq_export.GetArrayNumber = StatQuery_GetArrayNumber;
 	sq_export.GetArrayString = StatQuery_GetArrayString;
@@ -601,6 +646,8 @@ void StatQuery_Init( void ) {
 	sq_export.SetArrayNumber = StatQuery_SetArrayNumber;
 	sq_export.AddArrayString = StatQuery_AddArrayString;
 	sq_export.AddArrayNumber = StatQuery_AddArrayNumber;
+	sq_export.IsArray = StatQuery_IsArray;
+	sq_export.IsObject = StatQuery_IsObject;
 	sq_export.GetRawResponse = StatQuery_GetRawResponse;
 	sq_export.GetTokenizedResponse = StatQuery_GetTokenizedResponse;
 	sq_export.Poll = StatQuery_Poll;

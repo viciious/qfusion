@@ -27,11 +27,7 @@ Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
 #define GUNBLADE_TIMEOUT_FOR_COMBO  400
 
 void G_PlayerAward( edict_t *ent, const char *awardMsg ) {
-	edict_t *other;
 	char cmd[MAX_STRING_CHARS];
-	gameaward_t *ga;
-	int i, size;
-	score_stats_t *stats;
 
 	//asdasd
 	if( !awardMsg || !awardMsg[0] || !ent->r.client ) {
@@ -49,37 +45,10 @@ void G_PlayerAward( edict_t *ent, const char *awardMsg ) {
 	teamlist[ent->s.team].stats.awards++;
 	G_Gametype_ScoreEvent( ent->r.client, "award", awardMsg );
 
-	stats = &ent->r.client->level.stats;
-	if( !stats->awardAllocator ) {
-		stats->awardAllocator = LinearAllocator( sizeof( gameaward_t ), 0, _G_LevelMalloc, _G_LevelFree );
-	}
-
-	// ch : this doesnt work for race right?
-	if( GS_MatchState() == MATCH_STATE_PLAYTIME || GS_MatchState() == MATCH_STATE_POSTMATCH ) {
-		// ch : we store this locally to send to MM
-		// first check if we already have this one on the clients list
-		size = LA_Size( stats->awardAllocator );
-		ga = NULL;
-		for( i = 0; i < size; i++ ) {
-			ga = ( gameaward_t * )LA_Pointer( stats->awardAllocator, i );
-			if( !strncmp( ga->name, awardMsg, sizeof( ga->name ) - 1 ) ) {
-				break;
-			}
-		}
-
-		if( i >= size ) {
-			ga = ( gameaward_t * )LA_Alloc( stats->awardAllocator );
-			memset( ga, 0, sizeof( *ga ) );
-			ga->name = G_RegisterLevelString( awardMsg );
-		}
-
-		if( ga ) {
-			ga->count++;
-		}
-	}
+	G_Match_AddAward( ent, awardMsg );
 
 	// add it to every player who's chasing this player
-	for( other = game.edicts + 1; PLAYERNUM( other ) < gs.maxclients; other++ ) {
+	for( edict_t *other = game.edicts + 1; PLAYERNUM( other ) < gs.maxclients; other++ ) {
 		if( !other->r.client || !other->r.inuse || !other->r.client->resp.chase.active ) {
 			continue;
 		}
@@ -91,10 +60,6 @@ void G_PlayerAward( edict_t *ent, const char *awardMsg ) {
 }
 
 void G_PlayerMetaAward( edict_t *ent, const char *awardMsg ) {
-	int i, size;
-	gameaward_t *ga;
-	score_stats_t *stats;
-
 	/*
 	* ch : meta-award is an award that isn't announced but
 	* it is sent to MM
@@ -104,33 +69,9 @@ void G_PlayerMetaAward( edict_t *ent, const char *awardMsg ) {
 		return;
 	}
 
-	stats = &ent->r.client->level.stats;
-	if( !stats->awardAllocator ) {
-		stats->awardAllocator = LinearAllocator( sizeof( gameaward_t ), 0, _G_LevelMalloc, _G_LevelFree );
-	}
-
 	// ch : this doesnt work for race right?
 	if( GS_MatchState() == MATCH_STATE_PLAYTIME ) {
-		// ch : we store this locally to send to MM
-		// first check if we already have this one on the clients list
-		size = LA_Size( stats->awardAllocator );
-		ga = NULL;
-		for( i = 0; i < size; i++ ) {
-			ga = ( gameaward_t * )LA_Pointer( stats->awardAllocator, i );
-			if( !strncmp( ga->name, awardMsg, sizeof( ga->name ) - 1 ) ) {
-				break;
-			}
-		}
-
-		if( i >= size ) {
-			ga = ( gameaward_t * )LA_Alloc( stats->awardAllocator );
-			memset( ga, 0, sizeof( *ga ) );
-			ga->name = G_RegisterLevelString( awardMsg );
-		}
-
-		if( ga ) {
-			ga->count++;
-		}
+		G_Match_AddAward( ent, awardMsg );
 	}
 }
 
@@ -281,8 +222,6 @@ void G_AwardPlayerMissedLasergun( edict_t *self, int mod ) {
 
 void G_AwardPlayerKilled( edict_t *self, edict_t *inflictor, edict_t *attacker, int mod ) {
 	trace_t trace;
-	score_stats_t *stats;
-	loggedFrag_t *lfrag;
 
 	if( self->r.svflags & SVF_CORPSE ) {
 		return;
@@ -409,14 +348,14 @@ void G_AwardPlayerKilled( edict_t *self, edict_t *inflictor, edict_t *attacker, 
 		G_PlayerAward( attacker, s );
 	}
 
-	if( teamlist[attacker->s.team].stats.frags == 1 ) {
+	if( teamlist[attacker->s.team].stats.GetEntry( "frags" ) == 1 ) {
 		int i;
 
 		for( i = TEAM_PLAYERS; i < GS_MAX_TEAMS; i++ ) {
 			if( i == attacker->s.team ) {
 				continue;
 			}
-			if( teamlist[i].stats.frags ) {
+			if( teamlist[i].stats.GetEntry( "frags" ) ) {
 				break;
 			}
 		}
@@ -431,19 +370,7 @@ void G_AwardPlayerKilled( edict_t *self, edict_t *inflictor, edict_t *attacker, 
 		attacker->r.client->level.stats.accuracy_frags[G_ModToAmmo( mod ) - AMMO_GUNBLADE]++;
 	}
 
-	if( GS_MatchState() == MATCH_STATE_PLAYTIME /* && !strcmp( "duel", gs.gametypeName ) */ ) {
-		// ch : frag log
-		stats = &attacker->r.client->level.stats;
-		if( !stats->fragAllocator ) {
-			stats->fragAllocator = LinearAllocator( sizeof( loggedFrag_t ), 0, _G_LevelMalloc, _G_LevelFree );
-		}
-
-		lfrag = ( loggedFrag_t * )LA_Alloc( stats->fragAllocator );
-		lfrag->mm_attacker = attacker->r.client->mm_session;
-		lfrag->mm_victim = self->r.client->mm_session;
-		lfrag->weapon = G_ModToAmmo( mod ) - AMMO_GUNBLADE;
-		lfrag->time = ( game.serverTime - GS_MatchStartTime() ) / 1000;
-	}
+	G_Match_AddFrag( attacker, self, mod );
 }
 
 void G_AwardPlayerPickup( edict_t *self, edict_t *item ) {
@@ -453,7 +380,7 @@ void G_AwardPlayerPickup( edict_t *self, edict_t *item ) {
 
 	// MH control
 	if( item->item->tag == HEALTH_MEGA ) {
-		self->r.client->level.stats.mh_taken++;
+		self->r.client->level.stats.AddToEntry( "mh_taken", 1 );
 		self->r.client->resp.awardInfo.mh_control_award++;
 		if( self->r.client->resp.awardInfo.mh_control_award % 5 == 0 ) {
 			G_PlayerAward( self, S_COLOR_CYAN "Mega-Health Control!" );
@@ -461,7 +388,7 @@ void G_AwardPlayerPickup( edict_t *self, edict_t *item ) {
 	}
 	// UH control
 	else if( item->item->tag == HEALTH_ULTRA ) {
-		self->r.client->level.stats.uh_taken++;
+		self->r.client->level.stats.AddToEntry( "uh_taken", 1 );
 		self->r.client->resp.awardInfo.uh_control_award++;
 		if( self->r.client->resp.awardInfo.uh_control_award % 5 == 0 ) {
 			G_PlayerAward( self, S_COLOR_CYAN "Ultra-Health Control!" );
@@ -469,7 +396,7 @@ void G_AwardPlayerPickup( edict_t *self, edict_t *item ) {
 	}
 	// RA control
 	else if( item->item->tag == ARMOR_RA ) {
-		self->r.client->level.stats.ra_taken++;
+		self->r.client->level.stats.AddToEntry( "ra_taken", 1 );
 		self->r.client->resp.awardInfo.ra_control_award++;
 		if( self->r.client->resp.awardInfo.ra_control_award % 5 == 0 ) {
 			G_PlayerAward( self, S_COLOR_CYAN "Red Armor Control!" );
@@ -477,56 +404,20 @@ void G_AwardPlayerPickup( edict_t *self, edict_t *item ) {
 	}
 	// Other items counts
 	else if( item->item->tag == ARMOR_GA ) {
-		self->r.client->level.stats.ga_taken++;
+		self->r.client->level.stats.AddToEntry( "ga_taken", 1 );
 	} else if( item->item->tag == ARMOR_YA ) {
-		self->r.client->level.stats.ya_taken++;
+		self->r.client->level.stats.AddToEntry( "ya_taken", 1 );
 	} else if( item->item->tag == POWERUP_QUAD ) {
-		self->r.client->level.stats.quads_taken++;
+		self->r.client->level.stats.AddToEntry( "quads_taken", 1 );
 	} else if( item->item->tag == POWERUP_REGEN ) {
-		self->r.client->level.stats.regens_taken++;
+		self->r.client->level.stats.AddToEntry( "regens_taken", 1 );
 	} else if( item->item->tag == POWERUP_SHELL ) {
-		self->r.client->level.stats.shells_taken++;
+		self->r.client->level.stats.AddToEntry( "shells_taken", 1 );
 	}
 }
 
 void G_AwardRaceRecord( edict_t *self ) {
 	G_PlayerAward( self, S_COLOR_CYAN "New Record!" );
-}
-
-void G_AwardFairPlay( edict_t *ent ) {
-	// only award during postmatch
-	if( GS_MatchState() != MATCH_STATE_POSTMATCH ) {
-		return;
-	}
-	if( level.finalMatchDuration <= SIGNIFICANT_MATCH_DURATION ) {
-		return;
-	}
-
-	gclient_t *client = ent->r.client;
-
-	// don't try to give the award to the server console
-	if( !client ) {
-		return;
-	}
-
-	// already awarded
-	if( client->resp.awardInfo.fairplay_award ) {
-		return;
-	}
-
-	// the player must not be muted during the match
-	if( client->level.stats.muted_count > 0 ) {
-		return;
-	}
-
-	// has he actually played?
-	if( !client->level.stats.had_playtime ) {
-		return;
-	}
-
-	client->level.stats.fairplay_count++;
-	client->resp.awardInfo.fairplay_award = true;
-	G_PlayerAward( ent, S_COLOR_CYAN "Fair Play!" );
 }
 
 void G_DeathAwards( edict_t *ent ) {

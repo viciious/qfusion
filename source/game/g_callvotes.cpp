@@ -1057,7 +1057,7 @@ static bool G_VoteMuteValidate( callvotedata_t *vote, bool first ) {
 static void G_VoteMutePassed( callvotedata_t *vote ) {
 	if( edict_t *ent = G_Vote_GetValidDeferredVoteTarget( vote ) ) {
 		ent->r.client->muted |= 1;
-		ent->r.client->level.stats.muted_count++;
+		ent->r.client->level.stats.AddToEntry( "muted_count", 1 );
 	}
 }
 
@@ -1066,7 +1066,7 @@ static void G_VoteVMutePassed( callvotedata_t *vote ) {
 	// TODO: Can be generalized but does not make sense since vsays should be removed anyway
 	if( edict_t *ent = G_Vote_GetValidDeferredVoteTarget( vote ) ) {
 		ent->r.client->muted |= 2;
-		ent->r.client->level.stats.muted_count++;
+		ent->r.client->level.stats.AddToEntry( "muted_count", 1 );
 	}
 }
 
@@ -1684,7 +1684,8 @@ static void G_VoteRebalancePassed( callvotedata_t *vote ) {
 		if( e->s.team != newteam ) {
 			G_Teams_SetTeam( e, newteam );
 		}
-		memset( &e->r.client->level.stats, 0, sizeof( e->r.client->level.stats ) ); // clear scores
+
+		e->r.client->level.stats.Clear();
 
 		if( i % 2 == 0 ) {
 			team++;

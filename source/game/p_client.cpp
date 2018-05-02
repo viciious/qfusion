@@ -438,7 +438,7 @@ void G_ClientClearStats( edict_t *ent ) {
 		return;
 	}
 
-	memset( &ent->r.client->level.stats, 0, sizeof( ent->r.client->level.stats ) );
+	ent->r.client->level.stats.Clear();
 }
 
 /*
@@ -744,7 +744,7 @@ void ClientBegin( edict_t *ent ) {
 	const char *mm_login;
 
 	memset( &client->ucmd, 0, sizeof( client->ucmd ) );
-	memset( &client->level, 0, sizeof( client->level ) );
+	client->level.Reset();
 	client->level.timeStamp = level.time;
 	G_Client_UpdateActivity( client ); // activity detected
 
@@ -755,7 +755,7 @@ void ClientBegin( edict_t *ent ) {
 	G_UpdatePlayerMatchMsg( ent );
 
 	mm_login = Info_ValueForKey( client->userinfo, "cl_mm_login" );
-	if( mm_login && *mm_login && client->mm_session > 0 ) {
+	if( mm_login && *mm_login && client->mm_session.IsValidSessionId() ) {
 		G_PrintMsg( NULL, "%s" S_COLOR_WHITE " (" S_COLOR_YELLOW "%s" S_COLOR_WHITE ") entered the game\n", client->netname, mm_login );
 	} else {
 		if( !level.gametype.disableObituaries || !( ent->r.svflags & SVF_FAKECLIENT ) ) {
@@ -1190,7 +1190,9 @@ void ClientUserinfoChanged( edict_t *ent, char *userinfo ) {
 	// mm session
 	// TODO: remove the key after storing it to gclient_t !
 	s = Info_ValueForKey( userinfo, "cl_mm_session" );
-	cl->mm_session = ( s == NULL ) ? 0 : atoi( s );
+	if( !Uuid_FromString( s, &cl->mm_session ) ) {
+		cl->mm_session = Uuid_ZeroUuid();
+	}
 
 	s = Info_ValueForKey( userinfo, "mmflags" );
 	cl->mmflags = ( s == NULL ) ? 0 : strtoul( s, NULL, 10 );
@@ -1241,7 +1243,6 @@ bool ClientConnect( edict_t *ent, char *userinfo, bool fakeClient, bool tvClient
 
 	assert( ent );
 	assert( userinfo && Info_Validate( userinfo ) );
-	assert( Info_ValueForKey( userinfo, "ip" ) && Info_ValueForKey( userinfo, "socket" ) );
 
 	// verify that server gave us valid data
 	if( !Info_Validate( userinfo ) ) {
@@ -1258,7 +1259,7 @@ bool ClientConnect( edict_t *ent, char *userinfo, bool fakeClient, bool tvClient
 		return false;
 	}
 
-	if( !Info_ValueForKey( userinfo, "ip" ) ) {
+	if( !Info_ValueForKey( userinfo, "socket" ) ) {
 		Info_SetValueForKey( userinfo, "rejtype", va( "%i", DROP_TYPE_GENERAL ) );
 		Info_SetValueForKey( userinfo, "rejflag", va( "%i", 0 ) );
 		Info_SetValueForKey( userinfo, "rejmsg", "Error: Server didn't provide client socket" );
@@ -1294,7 +1295,7 @@ bool ClientConnect( edict_t *ent, char *userinfo, bool fakeClient, bool tvClient
 	ent->r.solid = SOLID_NOT;
 	ent->r.client = game.clients + PLAYERNUM( ent );
 	ent->r.svflags = ( SVF_NOCLIENT | ( fakeClient ? SVF_FAKECLIENT : 0 ) );
-	memset( ent->r.client, 0, sizeof( gclient_t ) );
+	ent->r.client->Reset();
 	ent->r.client->ps.playerNum = PLAYERNUM( ent );
 	ent->r.client->connecting = true;
 	ent->r.client->isTV = tvClient == true;
@@ -1365,7 +1366,7 @@ void ClientDisconnect( edict_t *ent, const char *reason ) {
 	ent->r.inuse = false;
 	ent->r.svflags = SVF_NOCLIENT;
 
-	memset( ent->r.client, 0, sizeof( *ent->r.client ) );
+	ent->r.client->Reset();
 	ent->r.client->ps.playerNum = PLAYERNUM( ent );
 
 	trap_ConfigString( CS_PLAYERINFOS + PLAYERNUM( ent ), "" );

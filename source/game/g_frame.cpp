@@ -21,6 +21,11 @@ Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
 
 #include "g_local.h"
 
+#undef min
+#undef max
+// The only sane implementation among 40 y/o garbage
+#include <chrono>
+
 extern cvar_t *g_votable_gametypes;
 extern cvar_t *g_disable_vote_gametype;
 
@@ -157,8 +162,8 @@ static void G_UpdateServerInfo( void ) {
 		char score[MAX_INFO_STRING];
 
 		score[0] = 0;
-		Q_strncatz( score, va( " %s: %i", GS_TeamName( TEAM_ALPHA ), teamlist[TEAM_ALPHA].stats.score ), sizeof( score ) );
-		Q_strncatz( score, va( " %s: %i", GS_TeamName( TEAM_BETA ), teamlist[TEAM_BETA].stats.score ), sizeof( score ) );
+		Q_strncatz( score, va( " %s: %d", GS_TeamName( TEAM_ALPHA ), teamlist[TEAM_ALPHA].stats.score ), sizeof( score ) );
+		Q_strncatz( score, va( " %s: %d", GS_TeamName( TEAM_BETA ), teamlist[TEAM_BETA].stats.score ), sizeof( score ) );
 
 		if( strlen( score ) >= MAX_INFO_VALUE ) {
 			// prevent "invalid info cvar value" flooding
@@ -704,7 +709,18 @@ static edict_t *G_GetNextThinkClient( edict_t *current ) {
 void G_RunFrame( unsigned int msec, int64_t serverTime ) {
 	G_CheckCvars();
 
-	game.localTime = time( NULL );
+	using namespace std::chrono;
+	// Some IDE's always infer "rep" type as "int" confusing a coder
+	static_assert( sizeof( milliseconds::rep ) == 8, "The underlying implementation must use a 64-bit type" );
+	game.utcTimeMillis = duration_cast<milliseconds>( system_clock::now().time_since_epoch() ).count();
+
+	if( GS_MatchState() == MATCH_STATE_PLAYTIME ) {
+		if( !game.utcMatchStartTime ) {
+			game.utcMatchStartTime = game.utcTimeMillis;
+		}
+	} else {
+		game.utcMatchStartTime = 0;
+	}
 
 	unsigned int serverTimeDelta = serverTime - game.serverTime;
 	game.serverTime = serverTime;

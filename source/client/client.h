@@ -295,8 +295,8 @@ typedef struct {
 
 	purelist_t *purelist;
 
-	int mm_session;
-	unsigned int mm_ticket;
+	mm_uuid_t mm_session;
+	mm_uuid_t mm_ticket;
 	clientRating_t *ratings;
 
 	char session[MAX_INFO_VALUE];

@@ -138,9 +138,11 @@ typedef enum {
 typedef struct {
 	edict_t *edicts;        // [maxentities]
 	gclient_t *clients;     // [maxclients]
+
 	gclient_quit_t *quits;  // [dynamic] <-- MM
 	clientRating_t *ratings;    // list of ratings for current game and gametype <-- MM
 	linear_allocator_t *raceruns;   // raceRun_t <-- MM
+	bool discardMatchReport;
 
 	int protocol;
 	char demoExtension[MAX_QPATH];
@@ -161,7 +163,9 @@ typedef struct {
 	int64_t realtime;				// actual time, set with Sys_Milliseconds every frame
 	int64_t serverTime;				// actual time in the server
 
-	time_t localTime;               // local time in milliseconds
+	int64_t utcTimeMillis;          // local time since epoch
+	int64_t utcMatchStartTime;      // utcTimeMillis at the actual match start
+	                                // (we can't compute it based on the current time due to possible timeouts)
 
 	int numBots;
 
@@ -1006,13 +1010,6 @@ void G_AwardResetPlayerComboStats( edict_t *ent );
 void G_AwardRaceRecord( edict_t *self );
 void G_DeathAwards( edict_t *ent );
 
-/**
- * Gives the player the Fair Play award if all conditions are met.
- *
- * @param ent the player entity
- */
-void G_AwardFairPlay( edict_t *ent );
-
 //============================================================================
 
 #include "ai/ai.h"
@@ -1109,7 +1106,7 @@ typedef struct {
 
 } client_snapreset_t;
 
-typedef struct {
+typedef struct client_respawnreset_s {
 	client_snapreset_t snap;
 	chasecam_t chase;
 	award_info_t awardInfo;
@@ -1133,9 +1130,14 @@ typedef struct {
 	int old_watertype;
 
 	int64_t pickup_msg_time;
+
+	// Stay uniform with client_levelreset_s
+	void Reset() {
+		memset( this, 0, sizeof( *this ) );
+	}
 } client_respawnreset_t;
 
-typedef struct {
+typedef struct client_levelreset_s {
 	int64_t timeStamp;				// last time it was reset
 
 	unsigned int respawnCount;
@@ -1161,9 +1163,33 @@ typedef struct {
 	int64_t callvote_when;
 
 	char quickMenuItems[1024];
+
+	void Reset() {
+		timeStamp = 0;
+
+		respawnCount = 0;
+		memset( &matchmessage, 0, sizeof( matchmessage ) );
+		helpmessage = 0;
+		last_vsay = 0;
+		last_activity = 0;
+
+		stats.Clear();
+
+		showscores = false;
+		scoreboard_time = 0;
+		showPLinks = false;
+
+		flood_locktill = 0;
+		memset( flood_when, 0, sizeof( flood_when ) );
+		flood_whenhead = 0;
+		memset( flood_team_when, 0, sizeof( flood_team_when ) );
+
+		callvote_when = 0;
+		memset( quickMenuItems, 0, sizeof( quickMenuItems ) );
+	}
 } client_levelreset_t;
 
-typedef struct {
+typedef struct client_teamreset_s {
 	int64_t timeStamp; // last time it was reset
 
 	bool is_coach;
@@ -1181,6 +1207,11 @@ typedef struct {
 	vec3_t last_drop_location;
 	edict_t *last_pickup;
 	edict_t *last_killer;
+
+	// Stay uniform with client_levelreset_s
+	void Reset() {
+		memset( this, 0, sizeof( *this ) );
+	}
 } client_teamreset_t;
 
 struct gclient_s {
@@ -1224,7 +1255,10 @@ struct gclient_s {
 		int channel;
 	} tv;
 
-	int mm_session;                 // 0 - invalid session, < 0 - local session, > 0 authenticated account
+	// is a zero UUID if a client is not authenticated
+	// is an all-bits-set UUID if the session is local
+	// is a valid UUID if a client is authenticated
+	mm_uuid_t mm_session;
 	clientRating_t *ratings;        // list of ratings for gametypes
 
 	bool connecting;
@@ -1250,18 +1284,73 @@ struct gclient_s {
 	pmove_state_t old_pmove;    // for detecting out-of-pmove changes
 
 	int asRefCount, asFactored;
+
+	void Reset() {
+		memset( &ps, 0, sizeof( ps ) );
+		memset( &r, 0, sizeof( r ) );
+
+		resp.Reset();
+		level.Reset();
+		teamstate.Reset();
+
+		memset( userinfo, 0, sizeof( userinfo ) );
+		memset( netname, 0, sizeof( netname ) );
+		memset( clanname, 0, sizeof( clanname ) );
+		memset( ip, 0, sizeof( ip ) );
+		memset( socket, 0, sizeof( socket ) );
+
+		memset( &tv, 0, sizeof( tv ) );
+
+		mm_session = Uuid_ZeroUuid();
+		ratings = nullptr;
+
+		connecting = false;
+		multiview = false;
+		isTV = false;
+
+		Vector4Clear( color );
+		team = 0;
+		hand = 0;
+		mmflags = 0;
+		handicap = 0;
+		movestyle = 0;
+		movestyle_latched = 0;
+		isoperator = false;
+		queueTimeStamp = 0;
+		muted = 0;
+
+		memset( &ucmd, 0, sizeof( ucmd ) );
+		timeDelta = 0;
+		memset( timeDeltas, 0, sizeof( timeDeltas ) );
+		timeDeltasHead = 0;
+
+		memset( &old_pmove, 0, sizeof( old_pmove ) );
+
+		asRefCount = 0;
+		asFactored = 0;
+	}
 };
 
 // quit or teamchange data for clients (stats)
 struct gclient_quit_s {
 	char netname[MAX_NAME_BYTES];
 	int team;
-	int mm_session;
+	mm_uuid_t mm_session;
 
 	score_stats_t stats;
 	int64_t timePlayed;
 	bool final;         // is true, player was there in the end
 	struct gclient_quit_s *next;
+
+	gclient_quit_s() {
+		netname[0] = '\0';
+		team = 0;
+		mm_session = Uuid_ZeroUuid();
+
+		timePlayed = 0;
+		final = false;
+		next = nullptr;
+	}
 };
 
 typedef struct snap_edict_s {
@@ -1453,6 +1542,9 @@ static inline edict_t *PLAYERENT( int x ) { return game.edicts + x + 1; }
 
 void G_AddPlayerReport( edict_t *ent, bool final );
 void G_Match_SendReport( void );
+
+void G_Match_AddAward( edict_t *ent, const char *awardMsg );
+void G_Match_AddFrag( edict_t *attacker, edict_t *victim, int mod );
 
 void G_TransferRatings( void );
 clientRating_t *G_AddDefaultRating( edict_t *ent, const char *gametype );

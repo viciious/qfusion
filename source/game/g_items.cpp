@@ -289,8 +289,8 @@ static bool Pickup_Health( edict_t *other, const gsitem_t *item, int flags ) {
 	other->health += item->quantity;
 
 	if( other->r.client ) {
-		other->r.client->level.stats.health_taken += item->quantity;
-		teamlist[other->s.team].stats.health_taken += item->quantity;
+		other->r.client->level.stats.AddToEntry( "health_taken", item->quantity );
+		teamlist[other->s.team].stats.AddToEntry( "health_taken", item->quantity );
 	}
 
 	if( !( flags & ITEM_IGNORE_MAX ) ) {
@@ -348,8 +348,8 @@ bool Add_Armor( edict_t *other, const gsitem_t *item, bool pick_it ) {
 	if( pick_it ) {
 		client->resp.armor = newarmorcount;
 		client->ps.stats[STAT_ARMOR] = ARMOR_TO_INT( client->resp.armor );
-		client->level.stats.armor_taken += item->quantity;
-		teamlist[other->s.team].stats.armor_taken += item->quantity;
+		client->level.stats.AddToEntry( "armor_taken", item->quantity );
+		teamlist[other->s.team].stats.AddToEntry( "armor_taken", item->quantity );
 	}
 
 	return true;
