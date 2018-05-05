@@ -201,6 +201,14 @@ static inline int trap_PointLeafNum( const vec3_t p ) {
 	return SOUND_IMPORT.PointLeafNum( p );
 }
 
+static inline int trap_NumLeafs() {
+	return SOUND_IMPORT.NumLeafs();
+}
+
+static inline const vec3_t *trap_GetLeafBounds( int leafnum ) {
+	return SOUND_IMPORT.GetLeafBounds( leafnum );
+}
+
 static inline bool trap_LeafsInPVS( int leafnum1, int leafnum2 ) {
 	// The imported call does not perform this check.
 	// And also, testing it here allows a faster cutoff avoiding a cross-library call.
@@ -208,6 +216,10 @@ static inline bool trap_LeafsInPVS( int leafnum1, int leafnum2 ) {
 		return true;
 	}
 	return SOUND_IMPORT.LeafsInPVS( leafnum1, leafnum2 );
+}
+
+static inline const char *trap_GetConfigString( int index ) {
+	return SOUND_IMPORT.GetConfigString( index );
 }
 
 static inline struct qthread_s *trap_Thread_Create( void *( *routine )( void* ), void *param ) {

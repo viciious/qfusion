@@ -140,8 +140,6 @@ bool SF_Init( void *hwnd, int maxEntities, bool verbose ) {
 	s_hrtf = trap_Cvar_Get( "s_hrtf", "1", CVAR_ARCHIVE | CVAR_LATCH_SOUND );
 	s_attenuate_on_obstruction = trap_Cvar_Get( "s_attenuate_on_obstruction", "1", CVAR_ARCHIVE );
 
-	ENV_Init();
-
 #ifdef ENABLE_PLAY
 	trap_Cmd_AddCommand( "play", SF_Play_f );
 #endif
@@ -170,6 +168,8 @@ bool SF_Init( void *hwnd, int maxEntities, bool verbose ) {
 
 	S_InitBuffers();
 
+	ENV_Init();
+
 	return true;
 }
 
@@ -190,6 +190,8 @@ void SF_Shutdown( bool verbose ) {
 	S_FinishSoundCmdPipe( s_cmdPipe );
 
 	S_ShutdownBuffers();
+
+	ENV_Shutdown();
 
 	// shutdown backend
 	S_IssueShutdownCmd( s_cmdPipe, verbose );
@@ -213,8 +215,6 @@ void SF_Shutdown( bool verbose ) {
 	trap_Cmd_RemoveCommand( "pausemusic" );
 	trap_Cmd_RemoveCommand( "soundlist" );
 	trap_Cmd_RemoveCommand( "s_devices" );
-
-	ENV_Shutdown();
 
 	QAL_Shutdown();
 
@@ -245,6 +245,7 @@ void SF_EndRegistration( void ) {
 
 	s_registering = false;
 
+	ENV_EndRegistration();
 }
 
 /*

@@ -671,6 +671,8 @@ static void CMod_LoadLeafs( cmodel_state_t *cms, lump_t *l ) {
 	int *const first_leaf_faces = Mem_TempMalloc( cms->numleafs * sizeof( int ) );
 	int *const first_leaf_brushes = Mem_TempMalloc( cms->numleafs * sizeof( int ) );
 
+	cms->leaf_bounds = Mem_Alloc( cms->mempool, count * 2 * sizeof( vec3_t ) );
+
 	for( i = 0; i < count; i++, in++, out++ ) {
 
 		out->contents = 0;
@@ -710,6 +712,11 @@ static void CMod_LoadLeafs( cmodel_state_t *cms, lump_t *l ) {
 
 		if( out->area >= cms->numareas ) {
 			cms->numareas = out->area + 1;
+		}
+
+		for( j = 0; j < 3; ++j ) {
+			cms->leaf_bounds[i * 2 + 0][j] = LittleFloat( in->mins[j] );
+			cms->leaf_bounds[i * 2 + 1][j] = LittleFloat( in->maxs[j] );
 		}
 	}
 

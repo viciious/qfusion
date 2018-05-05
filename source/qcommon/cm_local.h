@@ -167,6 +167,8 @@ struct cmodel_state_s {
 	cbrushside_t *leaf_inline_sides;
 	cface_t *leaf_inline_faces;
 
+	vec3_t *leaf_bounds;            // kept aside from "hot" leaf data as being rarely accessed
+
 	int nummarkfaces;
 	cface_t **map_markfaces;        // instance-local (is not shared)
 

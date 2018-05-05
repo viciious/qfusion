@@ -76,6 +76,9 @@ bool CM_InPVS( cmodel_state_t *cms, const vec3_t p1, const vec3_t p2 );
 
 bool CM_LeafsInPVS( cmodel_state_t *cms, int leafnum1, int leafnum2 );
 
+int CM_NumLeafs( const cmodel_state_t *cms );
+const vec3_t *CM_GetLeafBounds( const cmodel_state_t *cms, int leafNum );
+
 //
 cmodel_state_t *CM_New( void *mempool );
 

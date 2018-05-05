@@ -421,6 +421,8 @@ typedef struct envUpdateState_s {
 	vec3_t lastUpdateOrigin;
 	vec3_t lastUpdateVelocity;
 
+	int leafNum;
+
 	int entNum;
 	float attenuation;
 

@@ -122,6 +122,11 @@ static void CM_Clear( cmodel_state_t *cms ) {
 		cms->leaf_inline_faces = NULL;
 	}
 
+	if( cms->leaf_bounds ) {
+		Mem_Free( cms->leaf_bounds );
+		cms->leaf_bounds = NULL;
+	}
+
 	if( cms->map_nodes ) {
 		Mem_Free( cms->map_nodes );
 		cms->map_nodes = NULL;
@@ -871,6 +876,18 @@ bool CM_LeafsInPVS( cmodel_state_t *cms, int leafnum1, int leafnum2 ) {
 
 	}
 	return true;
+}
+
+int CM_NumLeafs( const cmodel_state_t *cms ) {
+	return cms->numleafs;
+}
+
+const vec3_t *CM_GetLeafBounds( const cmodel_state_t *cms, int leafNum ) {
+	if( (unsigned)leafNum > cms->numleafs ) {
+		Com_Error( ERR_FATAL, "CM_ComputeLeafBounds: Illegal leaf num %d\n", leafNum );
+	}
+
+	return &cms->leaf_bounds[leafNum * 2];
 }
 
 /*

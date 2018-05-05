@@ -200,11 +200,32 @@ static int CL_SoundModule_PointLeafNum( const vec3_t p ) {
 	return 0;
 }
 
+static int CL_SoundModule_NumLeafs() {
+	if( cl.sound_cms ) {
+		return CM_NumLeafs( cl.sound_cms );
+	}
+	return 0;
+}
+
+static const vec3_t *CL_SoundModule_GetLeafBounds( int leafnum ) {
+	if( cl.sound_cms ) {
+		return CM_GetLeafBounds( cl.sound_cms, leafnum );
+	}
+	return NULL;
+}
+
 static bool CL_SoundModule_LeafsInPVS( int leafnum1, int leafnum2 ) {
 	if( cl.sound_cms ) {
 		return CM_LeafsInPVS( cl.sound_cms, leafnum1, leafnum2 );
 	}
 	return true;
+}
+
+static const char *CL_SoundModule_GetConfigString( int index ) {
+	if( (unsigned)index >= MAX_CONFIGSTRINGS ) {
+		Com_Error( ERR_FATAL, "CL_SoundModule_GetConfigString: Illegal configstring index %d\n", index );
+	}
+	return cl.configstrings[index];
 }
 
 /*
@@ -301,7 +322,11 @@ void CL_SoundModule_Init( bool verbose ) {
 	import.Trace = CL_SoundModule_Trace;
 	import.PointContents = CL_SoundModule_PointContents;
 	import.PointLeafNum = CL_SoundModule_PointLeafNum;
+	import.NumLeafs = CL_SoundModule_NumLeafs;
+	import.GetLeafBounds = CL_SoundModule_GetLeafBounds;
 	import.LeafsInPVS = CL_SoundModule_LeafsInPVS;
+
+	import.GetConfigString = CL_SoundModule_GetConfigString;
 
 	import.Thread_Create = QThread_Create;
 	import.Thread_Join = QThread_Join;
@@ -385,12 +410,13 @@ void CL_SoundModule_BeginRegistration( void ) {
 */
 void CL_SoundModule_EndRegistration( void ) {
 	if( se ) {
-		se->EndRegistration();
-
 		// CM setup has to be done here due to initialization order issues after restarts
 		assert( !cl.sound_cms );
 		// Just share the client CM state as it is now fully reentrant and thread-safe
 		cl.sound_cms = cl.cms;
+
+		// Note: this call uses the actual CM now, so it is done last
+		se->EndRegistration();
 	}
 }
 
