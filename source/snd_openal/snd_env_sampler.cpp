@@ -725,7 +725,9 @@ void ENV_Shutdown() {
 }
 
 void ENV_EndRegistration() {
-	::leafPropsCache->EnsureValid();
+	if( s_environment_effects->integer ) {
+		::leafPropsCache->EnsureValid();
+	}
 }
 
 void ENV_RegisterSource( src_t *src ) {
