@@ -70,8 +70,8 @@ enum {
 enum {
 	SHADER_SORT_NONE                = 0,
 	SHADER_SORT_PORTAL              = 1,
-	SHADER_SORT_OPAQUE              = 2,
-	SHADER_SORT_SKY                 = 3,
+	SHADER_SORT_SKY                 = 2,
+	SHADER_SORT_OPAQUE              = 3,
 	SHADER_SORT_DECAL               = 4,
 	SHADER_SORT_ALPHATEST           = 5,
 	SHADER_SORT_BANNER              = 6,
