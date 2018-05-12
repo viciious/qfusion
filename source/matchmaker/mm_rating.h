@@ -76,16 +76,16 @@ typedef struct mm_uuid_s {
 } mm_uuid_t;
 
 // Let pass non-modified parameters by value to reduce visual clutter
-inline bool Uuid_Compare( mm_uuid_t u1, mm_uuid_t u2 ) {
+static inline bool Uuid_Compare( mm_uuid_t u1, mm_uuid_t u2 ) {
 	return u1.hiPart == u2.hiPart && u1.loPart == u2.loPart;
 }
 
-inline mm_uuid_t Uuid_ZeroUuid() {
+static inline mm_uuid_t Uuid_ZeroUuid() {
 	mm_uuid_t result = { 0, 0 };
 	return result;
 }
 
-inline mm_uuid_t Uuid_FFFsUuid() {
+static inline mm_uuid_t Uuid_FFFsUuid() {
 	mm_uuid_t result = { (uint64_t)-1, (uint64_t)-1 };
 	return result;
 }
@@ -105,7 +105,7 @@ mm_uuid_t *Uuid_FromString( const char *buffer, mm_uuid_t *dest );
 
 char *Uuid_ToString( char *buffer, mm_uuid_t uuid );
 
-inline bool Uuid_IsValidSessionId( mm_uuid_t uuid ) {
+static inline bool Uuid_IsValidSessionId( mm_uuid_t uuid ) {
 	if( uuid.hiPart == 0 && uuid.loPart == 0 ) {
 		return false;
 	}
@@ -115,11 +115,11 @@ inline bool Uuid_IsValidSessionId( mm_uuid_t uuid ) {
 	return true;
 }
 
-inline bool Uuid_IsZeroUuid( mm_uuid_t uuid ) {
+static inline bool Uuid_IsZeroUuid( mm_uuid_t uuid ) {
 	return uuid.hiPart == 0 && uuid.loPart == 0;
 }
 
-inline bool Uuid_IsFFFsUuid( mm_uuid_t uuid ) {
+static inline bool Uuid_IsFFFsUuid( mm_uuid_t uuid ) {
 	return uuid.hiPart == (uint64_t)-1 && uuid.loPart == (uint64_t)-1;
 }
 
