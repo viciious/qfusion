@@ -429,7 +429,19 @@ static void W_Touch_GunbladeBlast( edict_t *ent, edict_t *other, cplane_t *plane
 	if( ( !other->takedamage || ISBRUSHMODEL( other->s.modelindex ) ) ) {
 		edict_t *event;
 
-		event = G_SpawnEvent( EV_GUNBLADEBLAST_IMPACT, DirToByte( plane ? plane->normal : NULL ), ent->s.origin );
+		// Use a linear combination of (negated) velocity dir and plane normal for impact dir.
+		// Using only plane normal produces weird-looking impact models orientation
+		// that is misaligned with a projectile trail.
+
+		vec3_t eventDir;
+		VectorScale( ent->velocity, -1.0f, eventDir );
+		VectorNormalize( eventDir );
+		if( plane ) {
+			VectorScale( eventDir, 0.7f, eventDir );
+			VectorMA( eventDir, 0.3f, plane->normal, eventDir );
+		}
+
+		event = G_SpawnEvent( EV_GUNBLADEBLAST_IMPACT, DirToByte( eventDir ), ent->s.origin );
 		event->s.weapon = ( ( ent->projectileInfo.radius * 1 / 8 ) > 127 ) ? 127 : ( ent->projectileInfo.radius * 1 / 8 );
 		event->s.skinnum = ( ( ent->projectileInfo.maxKnockback * 1 / 8 ) > 255 ) ? 255 : ( ent->projectileInfo.maxKnockback * 1 / 8 );
 	}
