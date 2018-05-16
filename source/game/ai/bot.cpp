@@ -11,89 +11,96 @@
 #endif
 
 Bot::Bot( edict_t *self_, float skillLevel_ )
-	: Ai( self_, &botBrain, AiAasRouteCache::NewInstance( &travelFlags[0] ),
-		  &movementState.entityPhysicsState, PREFERRED_TRAVEL_FLAGS, ALLOWED_TRAVEL_FLAGS ),
-	weightConfig( self_ ),
-	perceptionManager( self_ ),
-	botBrain( this, skillLevel_ ),
-	skillLevel( skillLevel_ ),
-	selectedEnemies( self_ ),
-	weaponsSelector( self_, selectedEnemies, selectedWeapons, 600 - From0UpToMax( 300, skillLevel_ ) ),
-	tacticalSpotsCache( self_ ),
-	roamingManager( self_ ),
-	builtinFireTargetCache( self_ ),
-	scriptFireTargetCache( self_ ),
-	grabItemGoal( this ),
-	killEnemyGoal( this ),
-	runAwayGoal( this ),
-	reactToDangerGoal( this ),
-	reactToThreatGoal( this ),
-	reactToEnemyLostGoal( this ),
-	attackOutOfDespairGoal( this ),
-	roamGoal( this ),
-	genericRunToItemAction( this ),
-	pickupItemAction( this ),
-	waitForItemAction( this ),
-	killEnemyAction( this ),
-	advanceToGoodPositionAction( this ),
-	retreatToGoodPositionAction( this ),
-	steadyCombatAction( this ),
-	gotoAvailableGoodPositionAction( this ),
-	attackFromCurrentPositionAction( this ),
-	genericRunAvoidingCombatAction( this ),
-	startGotoCoverAction( this ),
-	takeCoverAction( this ),
-	startGotoRunAwayTeleportAction( this ),
-	doRunAwayViaTeleportAction( this ),
-	startGotoRunAwayJumppadAction( this ),
-	doRunAwayViaJumppadAction( this ),
-	startGotoRunAwayElevatorAction( this ),
-	doRunAwayViaElevatorAction( this ),
-	stopRunningAwayAction( this ),
-	dodgeToSpotAction( this ),
-	turnToThreatOriginAction( this ),
-	turnToLostEnemyAction( this ),
-	startLostEnemyPursuitAction( this ),
-	stopLostEnemyPursuitAction( this ),
-	dummyMovementAction( this ),
-	handleTriggeredJumppadMovementAction( this ),
-	landOnSavedAreasSetMovementAction( this ),
-	ridePlatformMovementAction( this ),
-	swimMovementAction( this ),
-	flyUntilLandingMovementAction( this ),
-	campASpotMovementAction( this ),
-	walkCarefullyMovementAction( this ),
-	bunnyStraighteningReachChainMovementAction( this ),
-	bunnyToBestShortcutAreaMovementAction( this ),
-	bunnyToBestFloorClusterPointMovementAction( this ),
-	bunnyInterpolatingReachChainMovementAction( this ),
-	walkOrSlideInterpolatingReachChainMovementAction( this ),
-	combatDodgeSemiRandomlyToTargetMovementAction( this ),
-	movementPredictionContext( self_ ),
-	useWalkableNodeMovementFallback( self_ ),
-	useRampExitMovementFallback( self_ ),
-	useStairsExitMovementFallback( self_ ),
-	useWalkableTriggerMovementFallback( self_ ),
-	jumpToSpotMovementFallback( self_ ),
-	fallDownMovementFallback( self_ ),
-	jumpOverBarrierMovementFallback( self_ ),
-	activeMovementFallback( nullptr ),
-	vsayTimeout( level.time + 10000 ),
-	isInSquad( false ),
-	lastTouchedTeleportAt( 0 ),
-	lastTouchedJumppadAt( 0 ),
-	lastTouchedElevatorAt( 0 ),
-	lastKnockbackAt( 0 ),
-	similarWorldStateInstanceId( 0 ),
-	lastItemSelectedAt( 0 ),
-	noItemAvailableSince( 0 ),
-	lastBlockedNavTargetReportedAt( 0 ),
-	keptInFovPoint( self_ ),
-	nextRotateInputAttemptAt( 0 ),
-	inputRotationBlockingTimer( 0 ),
-	lastInputRotationFailureAt( 0 ),
-	lastChosenLostOrHiddenEnemy( nullptr ),
-	lastChosenLostOrHiddenEnemyInstanceId( 0 ) {
+	: Ai( self_
+		, &botPlanner
+		, AiAasRouteCache::NewInstance( &travelFlags[0] )
+		, &movementState.entityPhysicsState
+		, PREFERRED_TRAVEL_FLAGS
+		, ALLOWED_TRAVEL_FLAGS )
+	, weightConfig( self_ )
+	, perceptionManager( self_ )
+	, threatTracker( self_, this, skillLevel_ )
+	, botPlanner( this, skillLevel_ )
+	, skillLevel( skillLevel_ )
+	, selectedEnemies( self_ )
+	, lostEnemies( self_ )
+	, weaponsSelector( self_, selectedEnemies, selectedWeapons, 600 - From0UpToMax( 300, skillLevel_ ) )
+	, tacticalSpotsCache( self_ )
+	, roamingManager( self_ )
+	, builtinFireTargetCache( self_ )
+	, scriptFireTargetCache( self_ )
+	, grabItemGoal( this )
+	, killEnemyGoal( this )
+	, runAwayGoal( this )
+	, reactToDangerGoal( this )
+	, reactToThreatGoal( this )
+	, reactToEnemyLostGoal( this )
+	, attackOutOfDespairGoal( this )
+	, roamGoal( this )
+	, genericRunToItemAction( this )
+	, pickupItemAction( this )
+	, waitForItemAction( this )
+	, killEnemyAction( this )
+	, advanceToGoodPositionAction( this )
+	, retreatToGoodPositionAction( this )
+	, steadyCombatAction( this )
+	, gotoAvailableGoodPositionAction( this )
+	, attackFromCurrentPositionAction( this )
+	, genericRunAvoidingCombatAction( this )
+	, startGotoCoverAction( this )
+	, takeCoverAction( this )
+	, startGotoRunAwayTeleportAction( this )
+	, doRunAwayViaTeleportAction( this )
+	, startGotoRunAwayJumppadAction( this )
+	, doRunAwayViaJumppadAction( this )
+	, startGotoRunAwayElevatorAction( this )
+	, doRunAwayViaElevatorAction( this )
+	, stopRunningAwayAction( this )
+	, dodgeToSpotAction( this )
+	, turnToThreatOriginAction( this )
+	, turnToLostEnemyAction( this )
+	, startLostEnemyPursuitAction( this )
+	, stopLostEnemyPursuitAction( this )
+	, dummyMovementAction( this )
+	, handleTriggeredJumppadMovementAction( this )
+	, landOnSavedAreasSetMovementAction( this )
+	, ridePlatformMovementAction( this )
+	, swimMovementAction( this )
+	, flyUntilLandingMovementAction( this )
+	, campASpotMovementAction( this )
+	, walkCarefullyMovementAction( this )
+	, bunnyStraighteningReachChainMovementAction( this )
+	, bunnyToBestShortcutAreaMovementAction( this )
+	, bunnyToBestFloorClusterPointMovementAction( this )
+	, bunnyInterpolatingReachChainMovementAction( this )
+	, walkOrSlideInterpolatingReachChainMovementAction( this )
+	, combatDodgeSemiRandomlyToTargetMovementAction( this )
+	, movementPredictionContext( self_ )
+	, useWalkableNodeMovementFallback( self_ )
+	, useRampExitMovementFallback( self_ )
+	, useStairsExitMovementFallback( self_ )
+	, useWalkableTriggerMovementFallback( self_ )
+	, jumpToSpotMovementFallback( self_ )
+	, fallDownMovementFallback( self_ )
+	, jumpOverBarrierMovementFallback( self_ )
+	, activeMovementFallback( nullptr )
+	, vsayTimeout( level.time + 10000 )
+	, lastTouchedTeleportAt( 0 )
+	, lastTouchedJumppadAt( 0 )
+	, lastTouchedElevatorAt( 0 )
+	, lastKnockbackAt( 0 )
+	, similarWorldStateInstanceId( 0 )
+	, lastItemSelectedAt( 0 )
+	, noItemAvailableSince( 0 )
+	, lastBlockedNavTargetReportedAt( 0 )
+	, keptInFovPoint( self_ )
+	, nextRotateInputAttemptAt( 0 )
+	, inputRotationBlockingTimer( 0 )
+	, lastInputRotationFailureAt( 0 )
+	, lastChosenLostOrHiddenEnemy( nullptr )
+	, lastChosenLostOrHiddenEnemyInstanceId( 0 )
+	, selectedNavEntity( nullptr, 0, 0, 0 )
+	, itemsSelector( self ) {
 	self->r.client->movestyle = GS_CLASSICBUNNY;
 	// Enable skimming for bots (since it is useful and should not be noticed from a 3rd person POV).
 	self->r.client->ps.pmove.stats[PM_STAT_FEATURES] &= PMFEAT_CORNERSKIMMING;
@@ -390,7 +397,7 @@ void Bot::UpdateKeptInFovPoint() {
 		timeout = ( timeout * 3u ) / 2u;
 	}
 
-	if( const Enemy *lostOrHiddenEnemy = botBrain.activeEnemyPool->ChooseLostOrHiddenEnemy( self, timeout ) ) {
+	if( const Enemy *lostOrHiddenEnemy = threatTracker.ChooseLostOrHiddenEnemy( timeout ) ) {
 		if( !lastChosenLostOrHiddenEnemy ) {
 			lastChosenLostOrHiddenEnemyInstanceId++;
 		} else if( lastChosenLostOrHiddenEnemy->ent != lostOrHiddenEnemy->ent ) {
@@ -417,14 +424,12 @@ void Bot::UpdateKeptInFovPoint() {
 
 	lastChosenLostOrHiddenEnemy = nullptr;
 
-	// Check whether there is a valid active threat.
-	// Set the kept in fov point to a possible threat origin in that case.
-	if( !botBrain.activeThreat.IsValidFor( self ) ) {
-		keptInFovPoint.Deactivate();
+	if( const auto *hurtEvent = threatTracker.GetValidHurtEvent() ) {
+		keptInFovPoint.Activate( hurtEvent->possibleOrigin, (unsigned)hurtEvent->lastHitTimestamp );
 		return;
 	}
 
-	keptInFovPoint.Activate( botBrain.activeThreat.possibleOrigin, (unsigned)botBrain.activeThreat.lastHitTimestamp );
+	keptInFovPoint.Deactivate();
 }
 
 void Bot::TouchedOtherEntity( const edict_t *entity ) {
@@ -457,6 +462,43 @@ void Bot::TouchedOtherEntity( const edict_t *entity ) {
 	if( !Q_stricmp( entity->classname, "func_plat" ) ) {
 		lastTouchedElevatorAt = level.time;
 		return;
+	}
+}
+
+bool Bot::HasJustPickedGoalItem() const {
+	if( lastNavTargetReachedAt < prevThinkAt ) {
+		return false;
+	}
+	if( !lastReachedNavTarget ) {
+		return false;
+	}
+	if( !lastReachedNavTarget->IsBasedOnNavEntity( prevSelectedNavEntity ) ) {
+		return false;
+	}
+	return true;
+}
+
+const SelectedNavEntity &Bot::GetOrUpdateSelectedNavEntity() {
+	if( selectedNavEntity.IsValid() && !selectedNavEntity.IsEmpty() ) {
+		return selectedNavEntity;
+	}
+
+	// Force an update using the currently selected nav entity
+	// (it's OK if it's not valid) as a reference info for selection
+	ForceSetNavEntity( itemsSelector.SuggestGoalNavEntity( selectedNavEntity ) );
+	// Return the modified selected nav entity
+	return selectedNavEntity;
+}
+
+void Bot::ForceSetNavEntity( const SelectedNavEntity &selectedNavEntity_ ) {
+	// Use direct access to the field to skip assertion
+	this->prevSelectedNavEntity = this->selectedNavEntity.navEntity;
+	this->selectedNavEntity = selectedNavEntity_;
+
+	if( !selectedNavEntity.IsEmpty() ) {
+		self->ai->botRef->lastItemSelectedAt = level.time;
+	} else if( self->ai->botRef->lastItemSelectedAt >= self->ai->botRef->noItemAvailableSince ) {
+		self->ai->botRef->noItemAvailableSince = level.time;
 	}
 }
 
@@ -718,7 +760,7 @@ void Bot::GhostingFrame() {
 
 	lastChosenLostOrHiddenEnemy = nullptr;
 
-	botBrain.ClearGoalAndPlan();
+	botPlanner.ClearGoalAndPlan();
 
 	movementState.Reset();
 	activeMovementFallback = nullptr;
@@ -791,7 +833,7 @@ void Bot::Think() {
 	UpdateKeptInFovPoint();
 
 	if( CanChangeWeapons() ) {
-		weaponsSelector.Think( botBrain.cachedWorldState );
+		weaponsSelector.Think( botPlanner.cachedWorldState );
 		ChangeWeapons( selectedWeapons );
 	}
 }
@@ -821,8 +863,10 @@ void Bot::ActiveFrame() {
 
 	// Always calls Frame() and calls Think() if needed
 	perceptionManager.Update();
+	// Same as for the perception manager
+	threatTracker.Update();
 
-	weaponsSelector.Frame( botBrain.cachedWorldState );
+	weaponsSelector.Frame( botPlanner.cachedWorldState );
 
 	BotInput botInput;
 	// Might modify botInput
@@ -862,8 +906,7 @@ void Bot::CallActiveClientThink( const BotInput &input ) {
 }
 
 void Bot::OnMovementToNavTargetBlocked() {
-	auto *selectedNavEntity = &botBrain.selectedNavEntity;
-	if( !selectedNavEntity->IsValid() || selectedNavEntity->IsEmpty() ) {
+	if( !selectedNavEntity.IsValid() || selectedNavEntity.IsEmpty() ) {
 		return;
 	}
 
@@ -877,17 +920,17 @@ void Bot::OnMovementToNavTargetBlocked() {
 	lastBlockedNavTargetReportedAt = level.time;
 
 	// Force replanning
-	botBrain.ClearGoalAndPlan();
+	botPlanner.ClearGoalAndPlan();
 
-	const auto *navEntity = selectedNavEntity->GetNavEntity();
+	const auto *navEntity = selectedNavEntity.GetNavEntity();
 	if( !navEntity ) {
 		// It is very likely that the nav entity was based on a tactical spot.
 		// Disable all nearby tactical spots for the origin
 		roamingManager.DisableSpotsInRadius( navEntity->Origin(), 144.0f );
-		selectedNavEntity->InvalidateNextFrame();
+		selectedNavEntity.InvalidateNextFrame();
 		return;
 	}
 
-	botBrain.itemsSelector.MarkAsDisabled( *navEntity, 4000 );
-	selectedNavEntity->InvalidateNextFrame();
+	itemsSelector.MarkAsDisabled( *navEntity, 4000 );
+	selectedNavEntity.InvalidateNextFrame();
 }

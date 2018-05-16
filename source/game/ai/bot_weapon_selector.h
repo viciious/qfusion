@@ -94,7 +94,7 @@ public:
 class SelectedEnemies
 {
 	friend class Bot;
-	friend class BotBrain;
+	friend class BotThreatTracker;
 
 	const edict_t *self;
 

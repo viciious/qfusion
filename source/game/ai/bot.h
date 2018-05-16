@@ -3,7 +3,7 @@
 
 #include "static_vector.h"
 #include "bot_perception_manager.h"
-#include "bot_brain.h"
+#include "bot_planner.h"
 #include "ai_base_ai.h"
 #include "vec3.h"
 
@@ -11,6 +11,7 @@
 #include "bot_weapon_selector.h"
 #include "bot_fire_target_cache.h"
 #include "bot_tactical_spots_cache.h"
+#include "bot_threat_tracker.h"
 #include "bot_roaming_manager.h"
 #include "bot_weight_config.h"
 
@@ -39,15 +40,62 @@ struct AiAlertSpot {
 		carrierEnemyInfluenceScale( carrierEnemyInfluenceScale_ ) {}
 };
 
+// This can be represented as an enum but feels better in the following form.
+// Many values that affect bot behaviour already are not boolean
+// (such as nav targets and special movement states like camping spots),
+// and thus controlling a bot by a single flags field already is not possible.
+// This struct is likely to be extended by non-boolean values later.
+struct SelectedMiscTactics {
+	bool willAdvance;
+	bool willRetreat;
+
+	bool shouldBeSilent;
+	bool shouldMoveCarefully;
+
+	bool shouldAttack;
+	bool shouldKeepXhairOnEnemy;
+
+	bool willAttackMelee;
+	bool shouldRushHeadless;
+
+	inline SelectedMiscTactics() { Clear(); };
+
+	inline void Clear() {
+		willAdvance = false;
+		willRetreat = false;
+
+		shouldBeSilent = false;
+		shouldMoveCarefully = false;
+
+		shouldAttack = false;
+		shouldKeepXhairOnEnemy = false;
+
+		willAttackMelee = false;
+		shouldRushHeadless = false;
+	}
+
+	inline void PreferAttackRatherThanRun() {
+		shouldAttack = true;
+		shouldKeepXhairOnEnemy = true;
+	}
+
+	inline void PreferRunRatherThanAttack() {
+		shouldAttack = true;
+		shouldKeepXhairOnEnemy = false;
+	}
+};
+
 class Bot : public Ai
 {
 	friend class AiManager;
 	friend class BotEvolutionManager;
 	friend class AiBaseTeam;
+	friend class AiSquadBasedTeam;
 	friend class AiObjectiveBasedTeam;
-	friend class BotBrain;
+	friend class BotPlanner;
 	friend class AiSquad;
 	friend class AiBaseEnemyPool;
+	friend class BotThreatTracker;
 	friend class BotPerceptionManager;
 	friend class BotFireTargetCache;
 	friend class BotItemsSelector;
@@ -95,6 +143,8 @@ class Bot : public Ai
 	friend class BotUseWalkableTriggerMovementFallback;
 	friend class BotFallDownMovementFallback;
 	friend class BotJumpOverBarrierMovementFallback;
+
+	friend class CachedTravelTimesMatrix;
 public:
 	static constexpr auto PREFERRED_TRAVEL_FLAGS =
 		TFL_WALK | TFL_WALKOFFLEDGE | TFL_JUMP | TFL_STRAFEJUMP | TFL_AIR | TFL_TELEPORT | TFL_JUMPPAD;
@@ -105,6 +155,13 @@ public:
 
 	~Bot() override;
 
+	// For backward compatibility with dated code that should be rewritten
+	const edict_t *Self() const { return self; }
+	edict_t *Self() { return self; }
+
+	// Should be preferred instead of use of Self() that is deprecated and will be removed
+	int EntNum() const { return ENTNUM( self ); }
+
 	inline float Skill() const { return skillLevel; }
 	inline bool IsReady() const { return level.ready[PLAYERNUM( self )]; }
 
@@ -112,53 +169,66 @@ public:
 		if( kick != 0.0f ) {
 			lastKnockbackAt = level.time;
 		}
-		botBrain.OnPain( enemy, kick, damage );
+		threatTracker.OnPain( enemy, kick, damage );
 	}
+
 	void OnEnemyDamaged( const edict_t *enemy, int damage ) {
-		botBrain.OnEnemyDamaged( enemy, damage );
+		threatTracker.OnEnemyDamaged( enemy, damage );
+	}
+
+	void OnEnemyOriginGuessed( const edict_t *enemy, unsigned millisSinceLastSeen, const float *guessedOrigin = nullptr ) {
+		if( !guessedOrigin ) {
+			guessedOrigin = enemy->s.origin;
+		}
+		threatTracker.OnEnemyOriginGuessed( enemy, millisSinceLastSeen, guessedOrigin );
 	}
 
 	void RegisterEvent( const edict_t *ent, int event, int parm ) {
 		perceptionManager.RegisterEvent( ent, event, parm );
 	}
 
-	inline void OnAttachedToSquad( AiSquad *squad ) {
-		botBrain.OnAttachedToSquad( squad );
-		isInSquad = true;
+	inline void OnAttachedToSquad( AiSquad *squad_ ) {
+		this->squad = squad_;
+		threatTracker.OnAttachedToSquad( squad_ );
+		ForcePlanBuilding();
 	}
-	inline void OnDetachedFromSquad( AiSquad *squad ) {
-		botBrain.OnDetachedFromSquad( squad );
-		isInSquad = false;
-	}
-	inline bool IsInSquad() const { return isInSquad; }
 
-	inline unsigned LastAttackedByTime( const edict_t *attacker ) {
-		return botBrain.LastAttackedByTime( attacker );
+	inline void OnDetachedFromSquad( AiSquad *squad_ ) {
+		this->squad = nullptr;
+		threatTracker.OnDetachedFromSquad( squad_ );
+		ForcePlanBuilding();
 	}
-	inline unsigned LastTargetTime( const edict_t *target ) {
-		return botBrain.LastTargetTime( target );
+
+	inline bool IsInSquad() const { return squad != nullptr; }
+
+	inline int64_t LastAttackedByTime( const edict_t *attacker ) {
+		return threatTracker.LastAttackedByTime( attacker );
+	}
+	inline int64_t LastTargetTime( const edict_t *target ) {
+		return threatTracker.LastTargetTime( target );
 	}
 	inline void OnEnemyRemoved( const Enemy *enemy ) {
-		botBrain.OnEnemyRemoved( enemy );
+		threatTracker.OnEnemyRemoved( enemy );
 	}
-	inline void OnNewThreat( const edict_t *newThreat, const AiFrameAwareUpdatable *threatDetector ) {
-		botBrain.OnNewThreat( newThreat, threatDetector );
+	inline void OnHurtByNewThreat( const edict_t *newThreat, const AiFrameAwareUpdatable *threatDetector ) {
+		threatTracker.OnHurtByNewThreat( newThreat, threatDetector );
 	}
 
-	inline void SetAttitude( const edict_t *ent, int attitude ) {
-		botBrain.SetAttitude( ent, attitude );
+	inline float GetBaseOffensiveness() const { return baseOffensiveness; }
+
+	float GetEffectiveOffensiveness() const;
+
+	inline void SetBaseOffensiveness( float baseOffensiveness_ ) {
+		this->baseOffensiveness = baseOffensiveness_;
+		clamp( this->baseOffensiveness, 0.0f, 1.0f );
 	}
+
 	inline void ClearOverriddenEntityWeights() {
-		botBrain.ClearOverriddenEntityWeights();
-	}
-	inline void OverrideEntityWeight( const edict_t *ent, float weight ) {
-		botBrain.OverrideEntityWeight( ent, weight );
+		itemsSelector.ClearOverriddenEntityWeights();
 	}
 
-	inline float GetBaseOffensiveness() const { return botBrain.GetBaseOffensiveness(); }
-	inline float GetEffectiveOffensiveness() const { return botBrain.GetEffectiveOffensiveness(); }
-	inline void SetBaseOffensiveness( float baseOffensiveness ) {
-		botBrain.SetBaseOffensiveness( baseOffensiveness );
+	inline void OverrideEntityWeight( const edict_t *ent, float weight ) {
+		itemsSelector.OverrideEntityWeight( ent, weight );
 	}
 
 	inline const int *Inventory() const { return self->r.client->ps.inventory; }
@@ -233,11 +303,11 @@ public:
 	inline float Fov() const { return 110.0f + 69.0f * Skill(); }
 	inline float FovDotFactor() const { return cosf( (float)DEG2RAD( Fov() / 2 ) ); }
 
-	inline BotBaseGoal *GetGoalByName( const char *name ) { return botBrain.GetGoalByName( name ); }
-	inline BotBaseAction *GetActionByName( const char *name ) { return botBrain.GetActionByName( name ); }
+	inline BotBaseGoal *GetGoalByName( const char *name ) { return botPlanner.GetGoalByName( name ); }
+	inline BotBaseAction *GetActionByName( const char *name ) { return botPlanner.GetActionByName( name ); }
 
-	inline BotScriptGoal *AllocScriptGoal() { return botBrain.AllocScriptGoal(); }
-	inline BotScriptAction *AllocScriptAction() { return botBrain.AllocScriptAction(); }
+	inline BotScriptGoal *AllocScriptGoal() { return botPlanner.AllocScriptGoal(); }
+	inline BotScriptAction *AllocScriptAction() { return botPlanner.AllocScriptAction(); }
 
 	inline const BotWeightConfig &WeightConfig() const { return weightConfig; }
 	inline BotWeightConfig &WeightConfig() { return weightConfig; }
@@ -270,12 +340,13 @@ protected:
 
 	virtual void SetFrameAffinity( unsigned modulo, unsigned offset ) override {
 		AiFrameAwareUpdatable::SetFrameAffinity( modulo, offset );
-		botBrain.SetFrameAffinity( modulo, offset );
+		botPlanner.SetFrameAffinity( modulo, offset );
 		perceptionManager.SetFrameAffinity( modulo, offset );
+		threatTracker.SetFrameAffinity( modulo, offset );
 	}
 
 	virtual void OnNavTargetTouchHandled() override {
-		botBrain.selectedNavEntity.InvalidateNextFrame();
+		selectedNavEntity.InvalidateNextFrame();
 	}
 
 	virtual void TouchedOtherEntity( const edict_t *entity ) override;
@@ -283,16 +354,21 @@ protected:
 	virtual Vec3 GetNewViewAngles( const vec3_t oldAngles, const Vec3 &desiredDirection,
 								   unsigned frameTime, float angularSpeedMultiplier ) const override;
 private:
-	inline bool IsPrimaryAimEnemy( const edict_t *enemy ) const { return botBrain.IsPrimaryAimEnemy( enemy ); }
+	inline bool IsPrimaryAimEnemy( const edict_t *enemy ) const {
+		return selectedEnemies.IsPrimaryEnemy( enemy );
+	}
 
 	BotWeightConfig weightConfig;
 	BotPerceptionManager perceptionManager;
-	BotBrain botBrain;
+	BotThreatTracker threatTracker;
+	BotPlanner botPlanner;
 
 	float skillLevel;
 
 	SelectedEnemies selectedEnemies;
+	SelectedEnemies lostEnemies;
 	SelectedWeapons selectedWeapons;
+	SelectedMiscTactics selectedTactics;
 
 	BotWeaponSelector weaponsSelector;
 
@@ -377,7 +453,7 @@ private:
 
 	int64_t vsayTimeout;
 
-	bool isInSquad;
+	AiSquad *squad;
 
 	ObjectiveSpotDef objectiveSpotDef;
 
@@ -547,7 +623,15 @@ public:
 	const Enemy *lastChosenLostOrHiddenEnemy;
 	unsigned lastChosenLostOrHiddenEnemyInstanceId;
 
+	float baseOffensiveness;
+
 	class AiNavMeshQuery *navMeshQuery;
+
+	SelectedNavEntity selectedNavEntity;
+	// For tracking picked up items
+	const NavEntity *prevSelectedNavEntity;
+
+	BotItemsSelector itemsSelector;
 
 	void UpdateKeptInFovPoint();
 
@@ -600,15 +684,18 @@ public:
 					  const GenericFireDef *scriptFireDef, BotInput *input );
 
 	inline bool HasEnemy() const { return selectedEnemies.AreValid(); }
+	/*
 	inline bool IsEnemyAStaticSpot() const { return selectedEnemies.IsStaticSpot(); }
 	inline const edict_t *EnemyTraceKey() const { return selectedEnemies.TraceKey(); }
 	inline const bool IsEnemyOnGround() const { return selectedEnemies.OnGround(); }
+	 */
 	inline Vec3 EnemyOrigin() const { return selectedEnemies.LastSeenOrigin(); }
+	/*
 	inline Vec3 EnemyLookDir() const { return selectedEnemies.LookDir(); }
 	inline unsigned EnemyFireDelay() const { return selectedEnemies.FireDelay(); }
 	inline Vec3 EnemyVelocity() const { return selectedEnemies.LastSeenVelocity(); }
 	inline Vec3 EnemyMins() const { return selectedEnemies.Mins(); }
-	inline Vec3 EnemyMaxs() const { return selectedEnemies.Maxs(); }
+	inline Vec3 EnemyMaxs() const { return selectedEnemies.Maxs(); }*/
 
 	static constexpr unsigned MAX_SAVED_AREAS = BotMovementPredictionContext::MAX_SAVED_LANDING_AREAS;
 	StaticVector<int, MAX_SAVED_AREAS> savedLandingAreas;
@@ -616,25 +703,17 @@ public:
 
 	void CheckTargetProximity();
 
+	bool HasJustPickedGoalItem() const;
 public:
 	// These methods are exposed mostly for script interface
 	inline unsigned NextSimilarWorldStateInstanceId() {
 		return ++similarWorldStateInstanceId;
 	}
-	inline void ForceSetNavEntity( const SelectedNavEntity &selectedNavEntity_ ) {
-		botBrain.ForceSetNavEntity( selectedNavEntity_ );
-	}
+
+	void ForceSetNavEntity( const SelectedNavEntity &selectedNavEntity_ );
+
 	inline void ForcePlanBuilding() {
-		botBrain.ClearGoalAndPlan();
-	}
-	inline void SetNavTarget( NavTarget *navTarget ) {
-		botBrain.SetNavTarget( navTarget );
-	}
-	inline void SetNavTarget( const Vec3 &navTargetOrigin, float reachRadius ) {
-		botBrain.SetNavTarget( navTargetOrigin, reachRadius );
-	}
-	inline void ResetNavTarget() {
-		botBrain.ResetNavTarget();
+		basePlanner->ClearGoalAndPlan();
 	}
 	inline void SetCampingSpot( const AiCampingSpot &campingSpot ) {
 		movementState.campingSpotState.Activate( campingSpot );
@@ -655,32 +734,35 @@ public:
 		return movementState.pendingLookAtPointState.IsActive();
 	}
 	const SelectedNavEntity &GetSelectedNavEntity() const {
-		return botBrain.selectedNavEntity;
+		return selectedNavEntity;
 	}
+
+	const SelectedNavEntity &GetOrUpdateSelectedNavEntity();
+
 	const SelectedEnemies &GetSelectedEnemies() const { return selectedEnemies; }
-	SelectedMiscTactics &GetMiscTactics() { return botBrain.selectedTactics; }
-	const SelectedMiscTactics &GetMiscTactics() const { return botBrain.selectedTactics; }
+
+	SelectedMiscTactics &GetMiscTactics() { return selectedTactics; }
+	const SelectedMiscTactics &GetMiscTactics() const { return selectedTactics; }
 
 	const AiAasRouteCache *RouteCache() const { return routeCache; }
 
-	const Enemy *TrackedEnemiesHead() const {
-		// TODO: Again this is weird, why non-const protected method is preferred by a compiler?
-		return ( (const AiBaseEnemyPool *)( botBrain.activeEnemyPool ) )->TrackedEnemiesHead();
-	}
+	const Enemy *TrackedEnemiesHead() const { return threatTracker.TrackedEnemiesHead(); }
 
-	const Danger *PrimaryDanger() const { return perceptionManager.PrimaryDanger(); }
+	const BotThreatTracker::HurtEvent *ActiveHurtEvent() const { return threatTracker.GetValidHurtEvent(); }
 
-	inline bool WillAdvance() const { return botBrain.WillAdvance(); }
-	inline bool WillRetreat() const { return botBrain.WillRetreat(); }
+	const Danger *PrimaryDanger() const { return threatTracker.GetValidHazard(); }
 
-	inline bool ShouldBeSilent() const { return botBrain.ShouldBeSilent(); }
-	inline bool ShouldMoveCarefully() const { return botBrain.ShouldMoveCarefully(); }
+	inline bool WillAdvance() const { return selectedTactics.willAdvance; }
+	inline bool WillRetreat() const { return selectedTactics.willRetreat; }
 
-	inline bool ShouldAttack() const { return botBrain.ShouldAttack(); }
-	inline bool ShouldKeepXhairOnEnemy() const { return botBrain.ShouldKeepXhairOnEnemy(); }
+	inline bool ShouldBeSilent() const { return selectedTactics.shouldBeSilent; }
+	inline bool ShouldMoveCarefully() const { return selectedTactics.shouldMoveCarefully; }
 
-	inline bool WillAttackMelee() const { return botBrain.WillAttackMelee(); }
-	inline bool ShouldRushHeadless() const { return botBrain.ShouldRushHeadless(); }
+	inline bool ShouldAttack() const { return selectedTactics.shouldAttack; }
+	inline bool ShouldKeepXhairOnEnemy() const { return selectedTactics.shouldKeepXhairOnEnemy; }
+
+	inline bool WillAttackMelee() const { return selectedTactics.willAttackMelee; }
+	inline bool ShouldRushHeadless() const { return selectedTactics.shouldRushHeadless; }
 };
 
 #endif

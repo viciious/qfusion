@@ -12,7 +12,7 @@
 class AiBaseGoal
 {
 	friend class Ai;
-	friend class AiBaseBrain;
+	friend class AiBasePlanner;
 
 	static inline void Register( Ai *ai, AiBaseGoal *goal );
 
@@ -341,7 +341,7 @@ struct PlannerNode : PoolItem {
 class AiBaseAction
 {
 	friend class Ai;
-	friend class AiBaseBrain;
+	friend class AiBasePlanner;
 
 	static inline void Register( Ai *ai, AiBaseAction *action );
 
@@ -405,7 +405,7 @@ public:
 	virtual PlannerNode *TryApply( const WorldState &worldState ) = 0;
 };
 
-class AiBaseBrain : public AiFrameAwareUpdatable
+class AiBasePlanner : public AiFrameAwareUpdatable
 {
 	friend class Ai;
 	friend class AiManager;
@@ -420,22 +420,11 @@ public:
 	static constexpr unsigned MAX_ACTIONS = 36;
 
 protected:
-	edict_t *self;
+	edict_t *const self;
 
-	// Its mainly used as a storage for nav targets set by scripts
-	NavTarget localNavTarget;
-	NavTarget *navTarget;
 	AiBaseActionRecord *planHead;
 	AiBaseGoal *activeGoal;
 	int64_t nextActiveGoalUpdateAt;
-
-	const NavTarget *lastReachedNavTarget;
-	int64_t lastNavTargetReachedAt;
-
-	int64_t prevThinkAt;
-
-	float decisionRandom;
-	int64_t nextDecisionRandomUpdateAt;
 
 	StaticVector<AiBaseGoal *, MAX_GOALS> goals;
 	StaticVector<AiBaseAction *, MAX_ACTIONS> actions;
@@ -443,11 +432,7 @@ protected:
 	static constexpr unsigned MAX_PLANNER_NODES = 384;
 	Pool<PlannerNode, MAX_PLANNER_NODES> plannerNodesPool;
 
-	signed char attitude[MAX_EDICTS];
-	// Used to detect attitude change
-	signed char oldAttitude[MAX_EDICTS];
-
-	AiBaseBrain( edict_t *self );
+	AiBasePlanner( edict_t *self );
 
 	virtual void PrepareCurrWorldState( WorldState *worldState ) = 0;
 
@@ -464,72 +449,26 @@ protected:
 
 	void SetGoalAndPlan( AiBaseGoal *goal_, AiBaseActionRecord *planHead_ );
 
-	inline void SetNavTarget( NavTarget *navTarget_ ) {
-		this->navTarget = navTarget_;
-		self->ai->aiRef->OnNavTargetSet( this->navTarget );
-	}
+	void Think() override;
 
-	inline void SetNavTarget( const Vec3 &navTargetOrigin, float reachRadius ) {
-		localNavTarget.SetToTacticalSpot( navTargetOrigin, reachRadius );
-		self->ai->aiRef->OnNavTargetSet( &localNavTarget );
-	}
-
-	inline void ResetNavTarget() {
-		this->navTarget = nullptr;
-		self->ai->aiRef->OnNavTargetTouchHandled();
-	}
-
-	virtual void PreThink() override;
-
-	virtual void Think() override;
-
-	virtual void PostThink() override {
-		prevThinkAt = level.time;
-	}
-
-	virtual void OnAttitudeChanged( const edict_t *ent, int oldAttitude_, int newAttitude_ ) {}
-
+	virtual void BeforePlanning() {}
+	virtual void AfterPlanning() {}
 public:
-	virtual ~AiBaseBrain() override {}
-
-	void SetAttitude( const edict_t *ent, int attitude );
-
-	inline bool HasNavTarget() const { return navTarget != nullptr; }
+	~AiBasePlanner() override {}
 
 	inline bool HasPlan() const { return planHead != nullptr; }
 
 	void ClearGoalAndPlan();
 
 	void DeletePlan( AiBaseActionRecord *head );
-
-	bool IsCloseToNavTarget( float proximityThreshold ) const {
-		return DistanceSquared( self->s.origin, navTarget->Origin().Data() ) < proximityThreshold * proximityThreshold;
-	}
-	// Calling it when there is no nav target is legal
-	int NavTargetAasAreaNum() const {
-		return navTarget ? navTarget->AasAreaNum() : 0;
-	}
-	Vec3 NavTargetOrigin() const { return navTarget->Origin(); }
-	float NavTargetRadius() const { return navTarget->RadiusOrDefault( 12.0f ); }
-	bool IsNavTargetBasedOnEntity( const edict_t *ent ) const {
-		return navTarget ? navTarget->IsBasedOnEntity( ent ) : false;
-	}
-
-	bool HandleNavTargetTouch( const edict_t *ent );
-	bool TryReachNavTargetByProximity();
-
-	// Helps to reject non-feasible enemies quickly.
-	// A false result does not guarantee that enemy is feasible.
-	// A true result guarantees that enemy is not feasible.
-	bool MayNotBeFeasibleEnemy( const edict_t *ent ) const;
 };
 
 inline void AiBaseGoal::Register( Ai *ai, AiBaseGoal *goal ) {
-	ai->aiBaseBrain->goals.push_back( goal );
+	ai->basePlanner->goals.push_back( goal );
 }
 
 inline void AiBaseAction::Register( Ai *ai, AiBaseAction *action ) {
-	ai->aiBaseBrain->actions.push_back( action );
+	ai->basePlanner->actions.push_back( action );
 }
 
 inline AiBaseAction::PlannerNodePtr::~PlannerNodePtr() {
@@ -569,7 +508,7 @@ inline AiBaseAction::PlannerNodePtr AiBaseAction::NewNodeForRecord( AiBaseAction
 		return PlannerNodePtr( nullptr );
 	}
 
-	PlannerNode *node = self->ai->aiRef->aiBaseBrain->plannerNodesPool.New( self );
+	PlannerNode *node = self->ai->aiRef->basePlanner->plannerNodesPool.New( self );
 	if( !node ) {
 		Debug( "Can't allocate a planner node\n" );
 		record->DeleteSelf();

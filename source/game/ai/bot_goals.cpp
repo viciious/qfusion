@@ -2,11 +2,11 @@
 #include "bot.h"
 
 inline const SelectedNavEntity &BotBaseGoal::SelectedNavEntity() const {
-	return self->ai->botRef->botBrain.selectedNavEntity;
+	return self->ai->botRef->GetSelectedNavEntity();
 }
 
 inline const SelectedEnemies &BotBaseGoal::SelectedEnemies() const {
-	return self->ai->botRef->selectedEnemies;
+	return self->ai->botRef->GetSelectedEnemies();
 }
 
 inline const BotWeightConfig &BotBaseGoal::WeightConfig() const {

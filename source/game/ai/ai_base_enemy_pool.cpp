@@ -422,7 +422,7 @@ void AiBaseEnemyPool::OnPain( const edict_t *bot, const edict_t *enemy, float ki
 	}
 
 	if( newThreat ) {
-		OnNewThreat( enemy );
+		OnHurtByNewThreat( enemy );
 	}
 }
 

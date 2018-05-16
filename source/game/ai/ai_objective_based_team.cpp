@@ -159,12 +159,12 @@ void AiObjectiveBasedTeam::OnAlertReported( Bot *bot, int id, float alertLevel )
 				// TODO: Precache
 				int locationTag = G_MapLocationTAGForOrigin( defenceSpots[i].entity->s.origin );
 				if( !locationTag ) {
-					G_Say_Team( bot->Self(), S_COLOR_RED "An enemy is incoming!!!", false );
+					G_Say_Team( bot->self, S_COLOR_RED "An enemy is incoming!!!", false );
 				} else {
 					char location[MAX_CONFIGSTRING_CHARS];
 					G_MapLocationNameForTAG( locationTag, location, MAX_CONFIGSTRING_CHARS );
 					char *msg = va( S_COLOR_RED "An enemy is @ %s" S_COLOR_RED "!!!", location );
-					G_Say_Team( bot->Self(), msg, false );
+					G_Say_Team( bot->self, msg, false );
 				}
 			}
 

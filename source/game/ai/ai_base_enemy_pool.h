@@ -324,6 +324,8 @@ public:
 class AiBaseEnemyPool : public AiFrameAwareUpdatable
 {
 	friend class Enemy;
+	friend class BotThreatTracker;
+	friend class AiSquad;
 public:
 	static constexpr unsigned MAX_TRACKED_ATTACKERS = 5;
 	static constexpr unsigned MAX_TRACKED_TARGETS = 5;
@@ -439,7 +441,7 @@ protected:
 		Unlink( enemy, ACTIVE_LIST_INDEX );
 	}
 
-	virtual void OnNewThreat( const edict_t *newThreat ) = 0;
+	virtual void OnHurtByNewThreat( const edict_t *newThreat ) = 0;
 	virtual bool CheckHasQuad() const = 0;
 	virtual bool CheckHasShell() const = 0;
 	virtual void OnEnemyRemoved( const Enemy *enemy ) = 0;

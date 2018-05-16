@@ -7,7 +7,7 @@
 
 class SelectedNavEntity
 {
-	friend class BotBrain;
+	friend class Bot;
 	friend class BotItemsSelector;
 	friend class AiSquad;
 

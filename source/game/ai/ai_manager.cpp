@@ -1,5 +1,5 @@
 #include "ai_manager.h"
-#include "ai_base_brain.h"
+#include "ai_base_planner.h"
 #include "ai_base_team.h"
 #include "bot_evolution_manager.h"
 #include "ai_shutdown_hooks_holder.h"
@@ -495,13 +495,13 @@ void AiManager::SetupBotGoalsAndActions( edict_t *ent ) {
 #ifdef _DEBUG
 	// Make sure all builtin goals and actions have been registered
 	bool wereErrors = false;
-	for( const auto *goal: ent->ai->botRef->botBrain.goals ) {
+	for( const auto *goal: ent->ai->botRef->botPlanner.goals ) {
 		if( !registeredGoals.Get( goal->Name() ) ) {
 			Debug( S_COLOR_RED "Builtin goal %s has not been registered\n", goal->Name() );
 			wereErrors = true;
 		}
 	}
-	for( const auto *action: ent->ai->botRef->botBrain.actions ) {
+	for( const auto *action: ent->ai->botRef->botPlanner.actions ) {
 		if( !registeredActions.Get( action->Name() ) ) {
 			Debug( S_COLOR_RED "Builtin action %s has not been registered\n", action->Name() );
 			wereErrors = true;

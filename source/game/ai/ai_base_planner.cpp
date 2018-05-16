@@ -1,4 +1,4 @@
-#include "ai_base_brain.h"
+#include "ai_base_planner.h"
 #include "ai_manager.h"
 #include "ai_base_team.h"
 #include "ai_base_ai.h"
@@ -100,35 +100,12 @@ void PoolBase::Clear() {
 	}
 }
 
-AiBaseBrain::AiBaseBrain( edict_t *self_ )
-	: self( self_ ),
-	localNavTarget( NavTarget::Dummy() ),
-	navTarget( nullptr ),
-	planHead( nullptr ),
-	activeGoal( nullptr ),
-	nextActiveGoalUpdateAt( 0 ),
-	lastReachedNavTarget( nullptr ),
-	lastNavTargetReachedAt( 0 ),
-	prevThinkAt( 0 ),
-	decisionRandom( 0.5f ),
-	nextDecisionRandomUpdateAt( 0 ),
-	plannerNodesPool( "PlannerNodesPool" ) {
-	// Set a negative attitude to other entities
-	std::fill_n( attitude, MAX_EDICTS, -1 );
-	// Save the attitude values as an old attitude values
-	static_assert( sizeof( attitude ) == sizeof( oldAttitude ), "" );
-	memcpy( oldAttitude, attitude, sizeof( attitude ) );
-}
-
-void AiBaseBrain::SetAttitude( const edict_t *ent, int attitude_ ) {
-	int entNum = ENTNUM( const_cast<edict_t*>( ent ) );
-	oldAttitude[entNum] = this->attitude[entNum];
-	this->attitude[entNum] = (signed char)attitude_;
-
-	if( oldAttitude[entNum] != attitude_ ) {
-		OnAttitudeChanged( ent, oldAttitude[entNum], attitude_ );
-	}
-}
+AiBasePlanner::AiBasePlanner( edict_t *self_ )
+	: self( self_ )
+	, planHead( nullptr )
+	, activeGoal( nullptr )
+	, nextActiveGoalUpdateAt( 0 )
+	, plannerNodesPool( "PlannerNodesPool" ) {}
 
 struct GoalRef {
 	AiBaseGoal *goal;
@@ -136,7 +113,7 @@ struct GoalRef {
 	bool operator<( const GoalRef &that ) const { return *this->goal < *that.goal; }
 };
 
-bool AiBaseBrain::FindNewGoalAndPlan( const WorldState &currWorldState ) {
+bool AiBasePlanner::FindNewGoalAndPlan( const WorldState &currWorldState ) {
 	if( planHead ) {
 		FailWith( "FindNewGoalAndPlan(): an active plan is present\n" );
 	}
@@ -147,6 +124,8 @@ bool AiBaseBrain::FindNewGoalAndPlan( const WorldState &currWorldState ) {
 	if( ShouldSkipPlanning() ) {
 		return false;
 	}
+
+	BeforePlanning();
 
 	// Update goals weights based for the current world state before sorting
 	for( AiBaseGoal *goal: goals )
@@ -161,6 +140,7 @@ bool AiBaseBrain::FindNewGoalAndPlan( const WorldState &currWorldState ) {
 
 	if( relevantGoals.empty() ) {
 		Debug( "There are no relevant goals\n" );
+		AfterPlanning();
 		return false;
 	}
 
@@ -172,16 +152,18 @@ bool AiBaseBrain::FindNewGoalAndPlan( const WorldState &currWorldState ) {
 		if( AiBaseActionRecord *newPlanHead = BuildPlan( goalRef.goal, currWorldState ) ) {
 			Debug( "About to set new goal %s as an active one\n", goalRef.goal->Name() );
 			SetGoalAndPlan( goalRef.goal, newPlanHead );
+			AfterPlanning();
 			return true;
 		}
 		Debug( "Can't find a plan that satisfies an relevant goal %s\n", goalRef.goal->Name() );
 	}
 
 	Debug( "Can't find any goal that has a satisfying it plan\n" );
+	AfterPlanning();
 	return false;
 }
 
-bool AiBaseBrain::UpdateGoalAndPlan( const WorldState &currWorldState ) {
+bool AiBasePlanner::UpdateGoalAndPlan( const WorldState &currWorldState ) {
 	if( !planHead ) {
 		FailWith( "UpdateGoalAndPlan(): there is no active plan\n" );
 	}
@@ -479,7 +461,7 @@ public:
 	}
 };
 
-AiBaseActionRecord *AiBaseBrain::BuildPlan( AiBaseGoal *goal, const WorldState &currWorldState ) {
+AiBaseActionRecord *AiBasePlanner::BuildPlan( AiBaseGoal *goal, const WorldState &currWorldState ) {
 	goal->OnPlanBuildingStarted();
 
 	PlannerNode *startNode = plannerNodesPool.New( self );
@@ -566,7 +548,7 @@ AiBaseActionRecord *AiBaseBrain::BuildPlan( AiBaseGoal *goal, const WorldState &
 	return nullptr;
 }
 
-AiBaseActionRecord *AiBaseBrain::ReconstructPlan( PlannerNode *lastNode ) const {
+AiBaseActionRecord *AiBasePlanner::ReconstructPlan( PlannerNode *lastNode ) const {
 	AiBaseActionRecord *recordsStack[MAX_PLANNER_NODES];
 	int numNodes = 0;
 
@@ -596,7 +578,7 @@ AiBaseActionRecord *AiBaseBrain::ReconstructPlan( PlannerNode *lastNode ) const 
 	return firstInPlan;
 }
 
-void AiBaseBrain::SetGoalAndPlan( AiBaseGoal *activeGoal_, AiBaseActionRecord *planHead_ ) {
+void AiBasePlanner::SetGoalAndPlan( AiBaseGoal *activeGoal_, AiBaseActionRecord *planHead_ ) {
 	if( this->planHead ) {
 		FailWith( "SetGoalAndPlan(): current plan is still present\n" );
 	}
@@ -620,7 +602,7 @@ void AiBaseBrain::SetGoalAndPlan( AiBaseGoal *activeGoal_, AiBaseActionRecord *p
 	this->planHead->Activate();
 }
 
-void AiBaseBrain::ClearGoalAndPlan() {
+void AiBasePlanner::ClearGoalAndPlan() {
 	if( planHead ) {
 		Debug( "ClearGoalAndPlan(): Should deactivate plan head\n" );
 		planHead->Deactivate();
@@ -631,7 +613,7 @@ void AiBaseBrain::ClearGoalAndPlan() {
 	activeGoal = nullptr;
 }
 
-void AiBaseBrain::DeletePlan( AiBaseActionRecord *head ) {
+void AiBasePlanner::DeletePlan( AiBaseActionRecord *head ) {
 	AiBaseActionRecord *currRecord = head;
 	while( currRecord ) {
 		AiBaseActionRecord *nextRecord = currRecord->nextInPlan;
@@ -640,44 +622,7 @@ void AiBaseBrain::DeletePlan( AiBaseActionRecord *head ) {
 	}
 }
 
-bool AiBaseBrain::MayNotBeFeasibleEnemy( const edict_t *ent ) const {
-	if( !ent->r.inuse ) {
-		return true;
-	}
-	// Skip non-clients that do not have positive intrinsic entity weight
-	if( !ent->r.client && ent->aiIntrinsicEnemyWeight <= 0.0f ) {
-		return true;
-	}
-	// Skip ghosting entities
-	if( G_ISGHOSTING( ent ) ) {
-		return true;
-	}
-	// Skip chatting or notarget entities except carriers
-	if( ( ent->flags & ( FL_NOTARGET | FL_BUSY ) ) && !( ent->s.effects & EF_CARRIER ) ) {
-		return true;
-	}
-	// Skip teammates. Note that team overrides attitude
-	if( GS_TeamBasedGametype() && ent->s.team == self->s.team ) {
-		return true;
-	}
-	// Skip entities that has a non-negative bot attitude.
-	// Note that by default all entities have negative attitude.
-	const int entNum = ENTNUM( const_cast<edict_t*>( ent ) );
-	if( attitude[entNum] >= 0 ) {
-		return true;
-	}
-
-	return self == ent;
-}
-
-void AiBaseBrain::PreThink() {
-	if( nextDecisionRandomUpdateAt <= level.time ) {
-		decisionRandom = random();
-		nextDecisionRandomUpdateAt = level.time + 2000;
-	}
-}
-
-void AiBaseBrain::Think() {
+void AiBasePlanner::Think() {
 	if( G_ISGHOSTING( self ) ) {
 		return;
 	}
@@ -733,47 +678,4 @@ void AiBaseBrain::Think() {
 			nextActiveGoalUpdateAt = level.time + activeGoal->UpdatePeriod();
 		}
 	}
-}
-
-bool AiBaseBrain::HandleNavTargetTouch( const edict_t *ent ) {
-	if( !ent ) {
-		return false;
-	}
-
-	if( !navTarget ) {
-		return false;
-	}
-
-	if( !navTarget->IsBasedOnEntity( ent ) ) {
-		return false;
-	}
-
-	if( !navTarget->ShouldBeReachedAtTouch() ) {
-		return false;
-	}
-
-	lastReachedNavTarget = navTarget;
-	lastNavTargetReachedAt = level.time;
-	return true;
-}
-
-constexpr float GOAL_PROXIMITY_THRESHOLD = 40.0f * 40.0f;
-
-bool AiBaseBrain::TryReachNavTargetByProximity() {
-	if( !navTarget ) {
-		return false;
-	}
-
-	if( !navTarget->ShouldBeReachedAtRadius() ) {
-		return false;
-	}
-
-	float goalRadius = navTarget->RadiusOrDefault( GOAL_PROXIMITY_THRESHOLD );
-	if( ( navTarget->Origin() - self->s.origin ).SquaredLength() < goalRadius * goalRadius ) {
-		lastReachedNavTarget = navTarget;
-		lastNavTargetReachedAt = level.time;
-		return true;
-	}
-
-	return false;
 }

@@ -1,7 +1,6 @@
 #ifndef QFUSION_AI_BASE_AI_H
 #define QFUSION_AI_BASE_AI_H
 
-#include "edict_ref.h"
 #include "ai_frame_aware_updatable.h"
 #include "ai_goal_entities.h"
 #include "ai_aas_world.h"
@@ -238,20 +237,24 @@ public:
 	}
 };
 
-class Ai : public EdictRef, public AiFrameAwareUpdatable
+class Ai : public AiFrameAwareUpdatable
 {
 	friend class AiManager;
 	friend class AiBaseTeam;
-	friend class AiBaseBrain;
+	friend class AiSquad;
+	friend class AiSquadBasedTeam;
+	friend class AiObjectiveBasedTeam;
+	friend class AiBasePlanner;
 	friend class AiBaseAction;
 	friend class AiBaseActionRecord;
 	friend class AiBaseGoal;
 
 protected:
+	edict_t *const self;
 	// Must be set in a subclass constructor. A subclass manages memory for its brain
 	// (it either has it as an intrusive member of allocates it on heap)
 	// and provides a reference to it to this base class via this pointer.
-	class AiBaseBrain *aiBaseBrain;
+	class AiBasePlanner *basePlanner;
 	// Must be set in a subclass constructor.
 	// A subclass should decide whether a shared or separated route cache should be used.
 	// A subclass should destroy the cache instance if necessary.
@@ -267,17 +270,41 @@ protected:
 	ArrayRange<int> travelFlagsRange;
 
 	int64_t blockedTimeoutAt;
+	int64_t prevThinkAt;
+	int64_t lastNavTargetReachedAt;
 
 	vec3_t angularViewSpeed;
 
+	// An actually used nav target, be it a nav entity or a spot
+	NavTarget *navTarget;
+	const NavTarget *lastReachedNavTarget;
+	// A storage navTarget might point to in case when it is just a spot and not a nav entity
+	NavTarget localNavTargetStorage;
+
+	// Negative  = enemy
+	// Zero      = ignore (don't attack)
+	// Positive  = allies (might be treated as potential squad mates)
+	// All entities have a negative attitude by default.
+	// The default MayNotBeFeasibleEnemy() gives attitude the lowest priority,
+	// teams in team-based gametypes, aiIntrinsicEntityWeight (for non-clients) are tested first.
+	int8_t attitude[MAX_EDICTS];
+	// Helps to detect attitude change
+	int8_t oldAttitude[MAX_EDICTS];
+
 	void SetFrameAffinity( unsigned modulo, unsigned offset ) override;
 
-	void OnNavTargetSet( NavTarget *navTarget );
+	virtual void OnNavTargetSet() {};
 	virtual void OnNavTargetTouchHandled() {};
 
-	virtual void Frame() override;
-	virtual void Think() override;
+	bool CanHandleNavTargetTouch( const edict_t *ent );
+	bool TryReachNavTargetByProximity();
 
+	void Frame() override;
+	void Think() override;
+
+	void PostThink() override {
+		prevThinkAt = level.time;
+	}
 public:
 	static constexpr unsigned MAX_REACH_CACHED = 20;
 	struct alignas ( 2 )ReachAndTravelTime {
@@ -305,25 +332,41 @@ public:
 
 	typedef StaticVector<ReachAndTravelTime, MAX_REACH_CACHED> ReachChainVector;
 
-	Ai( edict_t *self_,
-		AiBaseBrain *aiBaseBrain_,
-		AiAasRouteCache *routeCache_,
-		AiEntityPhysicsState *entityPhysicsState_,
-		int preferredAasTravelFlags_,
-		int allowedAasTravelFlags_,
-		float yawSpeed = 330.0f,
-		float pitchSpeed = 170.0f );
-
-	virtual ~Ai() override {};
+	Ai( edict_t *self_
+	  , AiBasePlanner *planner_
+	  , AiAasRouteCache *routeCache_
+	  , AiEntityPhysicsState *entityPhysicsState_
+	  , int preferredAasTravelFlags_
+	  , int allowedAasTravelFlags_
+	  , float yawSpeed = 330.0f
+	  , float pitchSpeed = 170.0f );
 
 	inline bool IsGhosting() const { return G_ISGHOSTING( self ); }
 
 	inline int CurrAreaNum() const { return entityPhysicsState->currAasAreaNum; }
 	inline int DroppedToFloorAreaNum() const { return entityPhysicsState->droppedToFloorAasAreaNum; }
-	int NavTargetAasAreaNum() const;
-	Vec3 NavTargetOrigin() const;
-	float NavTargetRadius() const;
-	bool IsNavTargetBasedOnEntity( const edict_t *ent ) const;
+
+	int NavTargetAasAreaNum() const {
+		return navTarget ? navTarget->AasAreaNum() : 0;
+	}
+
+	Vec3 NavTargetOrigin() const {
+		if( !navTarget ) {
+			AI_FailWith( "Ai::NavTargetOrigin()", "Nav target is not present\n" );
+		}
+		return navTarget->Origin();
+	}
+
+	float NavTargetRadius() const {
+		if ( !navTarget ) {
+			AI_FailWith( "Ai::NavTargetRadius()", "Nav target is not present\n" );
+		}
+		return navTarget->RadiusOrDefault( 48.0f );
+	}
+
+	bool IsNavTargetBasedOnEntity( const edict_t *ent ) const {
+		return navTarget->IsBasedOnEntity( ent );
+	}
 
 	// Exposed for native and script actions
 	int CheckTravelTimeMillis( const Vec3 &from, const Vec3 &to, bool allowUnreachable = true );
@@ -341,6 +384,27 @@ public:
 	virtual void OnEntityReachedSignal( const edict_t *entity ) {}
 
 	void ResetNavigation();
+
+	inline void SetNavTarget( NavTarget *navTarget_ ) {
+		this->navTarget = navTarget_;
+		OnNavTargetSet();
+	}
+
+	inline void SetNavTarget( const Vec3 &navTargetOrigin, float reachRadius ) {
+		localNavTargetStorage.SetToTacticalSpot( navTargetOrigin, reachRadius );
+		OnNavTargetSet();
+	}
+
+	inline void ResetNavTarget() {
+		this->navTarget = nullptr;
+		self->ai->aiRef->OnNavTargetTouchHandled();
+	}
+
+	bool IsCloseToNavTarget( float proximityThreshold ) const {
+		return DistanceSquared( self->s.origin, navTarget->Origin().Data() ) < proximityThreshold * proximityThreshold;
+	}
+
+	void SetAttitude( const edict_t *ent, int attitude );
 
 	virtual void OnBlockedTimeout() {};
 
@@ -365,12 +429,19 @@ public:
 		int64_t diff = level.time - blockedTimeoutAt;
 		return diff >= 0 ? (unsigned)diff : 0;
 	}
+
+	// Helps to reject non-feasible enemies quickly.
+	// A false result does not guarantee that enemy is feasible.
+	// A true result guarantees that enemy is not feasible.
+	virtual bool MayNotBeFeasibleEnemy( const edict_t *ent ) const;
 protected:
 	const char *Nick() const {
 		return self->r.client ? self->r.client->netname : self->classname;
 	}
 
 	virtual void TouchedOtherEntity( const edict_t *entity ) {}
+
+	virtual void OnAttitudeChanged( const edict_t *ent, int oldAttitude_, int newAttitude_ ) {}
 
 	// This function produces very basic but reliable results.
 	// Imitation of human-like aiming should be a burden of callers that prepare the desiredDirection.

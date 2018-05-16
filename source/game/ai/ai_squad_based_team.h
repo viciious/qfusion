@@ -107,7 +107,7 @@ private:
 		void CheckSquadValid() const;
 
 protected:
-		virtual void OnNewThreat( const edict_t *newThreat ) override;
+		virtual void OnHurtByNewThreat( const edict_t *newThreat ) override;
 		virtual bool CheckHasQuad() const override;
 		virtual bool CheckHasShell() const override;
 		virtual float ComputeDamageToBeKilled() const override;

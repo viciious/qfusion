@@ -22,7 +22,7 @@ void Bot::UpdateScriptWeaponsStatus() {
 		}
 
 		selectedWeapons.Invalidate();
-		botBrain.ClearGoalAndPlan();
+		ForcePlanBuilding();
 		return;
 	}
 
@@ -58,7 +58,7 @@ void Bot::UpdateScriptWeaponsStatus() {
 
 	if( hasStatusChanged ) {
 		selectedWeapons.Invalidate();
-		botBrain.ClearGoalAndPlan();
+		ForcePlanBuilding();
 	}
 }
 

@@ -1,11 +1,11 @@
 #ifndef QFUSION_BOT_GOALS_H
 #define QFUSION_BOT_GOALS_H
 
-#include "ai_base_brain.h"
+#include "ai_base_planner.h"
 
 class BotBaseGoal : public AiBaseGoal
 {
-	StaticVector<AiBaseAction *, AiBaseBrain::MAX_ACTIONS> extraApplicableActions;
+	StaticVector<AiBaseAction *, AiBasePlanner::MAX_ACTIONS> extraApplicableActions;
 
 public:
 	BotBaseGoal( Ai *ai_, const char *name_, int debugColor_, unsigned updatePeriod_ )

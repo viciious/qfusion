@@ -125,7 +125,7 @@ void AiBaseTeam::InitTeamAffinity() const {
 void AiBaseTeam::AddBot( Bot *bot ) {
 	Debug( "new bot %s has been added\n", bot->Nick() );
 
-	AcquireBotFrameAffinity( bot->EntNum() );
+	AcquireBotFrameAffinity( ENTNUM( bot->self ) );
 	// Call subtype method (if any)
 	OnBotAdded( bot );
 }
@@ -133,7 +133,7 @@ void AiBaseTeam::AddBot( Bot *bot ) {
 void AiBaseTeam::RemoveBot( Bot *bot ) {
 	Debug( "bot %s has been removed\n", bot->Nick() );
 
-	ReleaseBotFrameAffinity( bot->EntNum() );
+	ReleaseBotFrameAffinity( ENTNUM( bot->self ) );
 	// Call subtype method (if any)
 	OnBotRemoved( bot );
 }
@@ -196,10 +196,7 @@ void AiBaseTeam::SetBotFrameAffinity( int entNum, unsigned modulo, unsigned offs
 void AiBaseTeam::Init() {
 #ifndef PUBLIC_BUILD
 	for( int team = TEAM_PLAYERS; team < GS_MAX_TEAMS; ++team ) {
-		// This address of the team cell is always valid, but not the value at this address
-		AiBaseTeam **teamRef = TeamRefForNum( team );
-		// If there is a non-null value at this address
-		if( *teamRef ) {
+		if( *TeamRefForNum( team ) ) {
 			AI_FailWith( "AiBaseTeam::Init()", "A team for num %d is already present / was not released", team );
 		}
 	}

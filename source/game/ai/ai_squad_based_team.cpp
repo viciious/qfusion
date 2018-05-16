@@ -26,7 +26,7 @@ int CachedTravelTimesMatrix::GetAASTravelTime( const edict_t *client1, const edi
 
 // Can't be defined in header since Bot class is not visible in it
 int CachedTravelTimesMatrix::GetAASTravelTime( const Bot *from, const Bot *to ) {
-	return GetAASTravelTime( from->Self(), to->Self() );
+	return GetAASTravelTime( from->self, to->self );
 }
 
 int CachedTravelTimesMatrix::FindAASTravelTime( const edict_t *client1, const edict_t *client2 ) {
@@ -89,12 +89,12 @@ void AiSquad::SquadEnemyPool::CheckSquadValid() const {
 
 // We have to skip ghosting bots because squads itself did not think yet when enemy pool thinks
 
-void AiSquad::SquadEnemyPool::OnNewThreat( const edict_t *newThreat ) {
+void AiSquad::SquadEnemyPool::OnHurtByNewThreat( const edict_t *newThreat ) {
 	CheckSquadValid();
 	// TODO: Use more sophisticated bot selection?
 	for( Bot *bot: squad->bots )
 		if( !bot->IsGhosting() ) {
-			bot->OnNewThreat( newThreat, this );
+			bot->OnHurtByNewThreat( newThreat, this );
 		}
 }
 
@@ -121,7 +121,7 @@ float AiSquad::SquadEnemyPool::ComputeDamageToBeKilled() const {
 	float result = 0.0f;
 	for( Bot *bot: squad->bots )
 		if( !bot->IsGhosting() ) {
-			result += DamageToKill( bot->Self() );
+			result += DamageToKill( bot->self );
 		}
 	return result;
 }
@@ -166,13 +166,13 @@ void AiSquad::SquadEnemyPool::OnBotEnemyAssigned( const edict_t *bot, const Enem
 }
 
 AiSquad::AiSquad( CachedTravelTimesMatrix &travelTimesMatrix_ )
-	: isValid( false ),
-	inUse( false ),
-	canFightTogether( false ),
-	canMoveTogether( false ),
-	brokenConnectivityTimeoutAt( 0 ),
-	botsDetached( false ),
-	travelTimesMatrix( travelTimesMatrix_ ) {
+	: isValid( false )
+	, inUse( false )
+	, canFightTogether( false )
+	, canMoveTogether( false )
+	, brokenConnectivityTimeoutAt( 0 )
+	, botsDetached( false )
+	, travelTimesMatrix( travelTimesMatrix_ ) {
 	std::fill_n( lastDroppedByBotTimestamps, MAX_SIZE, 0 );
 	std::fill_n( lastDroppedForBotTimestamps, MAX_SIZE, 0 );
 
@@ -694,7 +694,7 @@ bool AiSquad::ShouldNotDropItemsNow() const {
 	for( unsigned i = 0, end = std::min( 4u, potentialStealers.size() ); i < end; ++i ) {
 		PotentialStealer stealer = potentialStealers[i];
 		for( const Bot *bot: bots ) {
-			edict_t *botEnt = const_cast<edict_t*>( bot->Self() );
+			edict_t *botEnt = const_cast<edict_t*>( bot->self );
 			if( !pvsCache->AreInPvs( botEnt, stealer.enemy->ent ) ) {
 				continue;
 			}
@@ -710,7 +710,7 @@ bool AiSquad::ShouldNotDropItemsNow() const {
 }
 
 void AiSquad::FindSupplierCandidates( unsigned botNum, StaticVector<unsigned, AiSquad::MAX_SIZE - 1> &result ) const {
-	Vec3 botVelocityDir( bots[botNum]->Self()->velocity );
+	Vec3 botVelocityDir( bots[botNum]->self->velocity );
 	float squareBotSpeed = botVelocityDir.SquaredLength();
 
 	// If a bot moves fast, modify score for mates depending of the bot velocity direction
@@ -900,9 +900,9 @@ edict_t *AiSquad::TryDropAmmo( unsigned botNum, unsigned supplierNum, int weapon
 		return nullptr;
 	}
 
-	edict_t *dropped = G_DropItem( mate->Self(), GS_FindItemByTag( fireDef.ammo_id ) );
+	edict_t *dropped = G_DropItem( mate->self, GS_FindItemByTag( fireDef.ammo_id ) );
 	if( dropped ) {
-		G_Say_Team( bots[supplierNum]->Self(), va( "Dropped %%d at %%D for %s", Nick( bots[botNum]->Self() ) ), false );
+		G_Say_Team( bots[supplierNum]->self, va( "Dropped %%d at %%D for %s", Nick( bots[botNum]->self ) ), false );
 	}
 	return dropped;
 }
@@ -944,9 +944,9 @@ edict_t *AiSquad::TryDropWeapon( unsigned botNum, unsigned supplierNum, int weap
 	}
 
 	// Try drop a weapon
-	edict_t *dropped = G_DropItem( mate->Self(), GS_FindItemByTag( weapon ) );
+	edict_t *dropped = G_DropItem( mate->self, GS_FindItemByTag( weapon ) );
 	if( dropped ) {
-		G_Say_Team( bots[supplierNum]->Self(), va( "Dropped %%d at %%D for %s", Nick( bots[botNum]->Self() ) ), false );
+		G_Say_Team( bots[supplierNum]->self, va( "Dropped %%d at %%D for %s", Nick( bots[botNum]->self ) ), false );
 	}
 	return dropped;
 }
@@ -985,7 +985,7 @@ bool AiSquad::RequestDrop( unsigned botNum, bool wouldSupply[MAX_SIZE], Supplier
 		( bots[supplierNum]->*dropFunc )();
 		lastDroppedByBotTimestamps[supplierNum] = level.time;
 		lastDroppedForBotTimestamps[botNum] = level.time;
-		G_Say_Team( bots[supplierNum]->Self(), va( "Dropped %%d at %%D for %s", Nick( bots[botNum]->Self() ) ), false );
+		G_Say_Team( bots[supplierNum]->self, va( "Dropped %%d at %%D for %s", Nick( bots[botNum]->self ) ), false );
 		return true;
 	}
 	return false;
@@ -1045,7 +1045,7 @@ bool AiSquad::MayAttachBot( const Bot *bot ) const {
 
 	for( Bot *presentBot: bots ) {
 		constexpr float squaredDistanceLimit = CONNECTIVITY_PROXIMITY * CONNECTIVITY_PROXIMITY;
-		if( DistanceSquared( bot->Self()->s.origin, presentBot->Self()->s.origin ) > squaredDistanceLimit ) {
+		if( DistanceSquared( bot->self->s.origin, presentBot->self->s.origin ) > squaredDistanceLimit ) {
 			continue;
 		}
 

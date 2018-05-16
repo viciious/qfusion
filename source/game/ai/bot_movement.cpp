@@ -4567,7 +4567,7 @@ float BotLandOnSavedAreasMovementAction::SaveJumppadLandingAreas( const edict_t 
 
 	const auto *aasWorld = AiAasWorld::Instance();
 	const auto *routeCache = self->ai->botRef->routeCache;
-	if( int navTargetAreaNum = self->ai->botRef->botBrain.NavTargetAasAreaNum() ) {
+	if( int navTargetAreaNum = self->ai->botRef->NavTargetAasAreaNum() ) {
 		int reachNum = 0;
 		if( routeCache->PreferredRouteToGoalArea( jumppadAreaNum, navTargetAreaNum, &reachNum ) ) {
 			int jumppadTargetAreaNum = aasWorld->Reachabilities()[reachNum].areanum;
@@ -7655,16 +7655,16 @@ void BotCombatDodgeSemiRandomlyToTargetMovementAction::BeforePlanning() {
 }
 
 void Bot::CheckTargetProximity() {
-	if( !botBrain.HasNavTarget() ) {
+	if( !NavTargetAasAreaNum() ) {
 		return;
 	}
 
-	if( !botBrain.IsCloseToNavTarget( 128.0f ) ) {
+	if( !IsCloseToNavTarget( 128.0f ) ) {
 		return;
 	}
 
 	// Save the origin for the roaming manager to avoid its occasional modification in the code below
-	if( !botBrain.TryReachNavTargetByProximity() ) {
+	if( !TryReachNavTargetByProximity() ) {
 		return;
 	}
 
