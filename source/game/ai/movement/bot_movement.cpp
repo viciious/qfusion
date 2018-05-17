@@ -1,10 +1,10 @@
-#include "bot.h"
+#include "../bot.h"
 #include "bot_movement.h"
-#include "navigation/AasWorld.h"
-#include "ai_manager.h"
-#include "combat/TacticalSpotsRegistry.h"
-#include "navigation/NavMeshManager.h"
-#include "ai_trajectory_predictor.h"
+#include "../navigation/AasWorld.h"
+#include "../ai_manager.h"
+#include "../combat/TacticalSpotsRegistry.h"
+#include "../navigation/NavMeshManager.h"
+#include "../ai_trajectory_predictor.h"
 
 #ifndef PUBLIC_BUILD
 #define CHECK_ACTION_SUGGESTION_LOOPS

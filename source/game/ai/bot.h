@@ -7,7 +7,7 @@
 #include "ai_base_ai.h"
 #include "vec3.h"
 
-#include "bot_movement.h"
+#include "movement/bot_movement.h"
 #include "combat/WeaponSelector.h"
 #include "combat/FireTargetCache.h"
 #include "planning/TacticalSpotsCache.h"

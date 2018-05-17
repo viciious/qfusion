@@ -26,6 +26,7 @@ LOCAL_SRC_FILES := \
   $(addprefix ai/,$(notdir $(wildcard $(LOCAL_PATH)/ai/*.cpp))) \
   $(addprefix ai/awareness/,$(notdir $(wildcard $(LOCAL_PATH)/ai/awareness/*.cpp))) \
   $(addprefix ai/combat/,$(notdir $(wildcard $(LOCAL_PATH)/ai/combat/*.cpp))) \
+  $(addprefix ai/movement/,$(notdir $(wildcard $(LOCAL_PATH)/ai/movement/*.cpp))) \
   $(addprefix ai/navigation/,$(notdir $(wildcard $(LOCAL_PATH)/ai/navigation/*.cpp))) \
   $(addprefix ai/planning/,$(notdir $(wildcard $(LOCAL_PATH)/ai/planning/*.cpp))) \
   $(addprefix ai/teamplay/,$(notdir $(wildcard $(LOCAL_PATH)/ai/teamplay/*.cpp))) \

@@ -1,8 +1,7 @@
 #ifndef QFUSION_BOT_MOVEMENT_H
 #define QFUSION_BOT_MOVEMENT_H
 
-#include "ai_base_ai.h"
-#include "bot.h"
+#include "../bot.h"
 
 class alignas ( 2 )AiCampingSpot
 {
