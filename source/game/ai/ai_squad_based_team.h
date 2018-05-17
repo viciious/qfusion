@@ -3,8 +3,8 @@
 
 #include "ai_base_team.h"
 #include "ai_base_enemy_pool.h"
-#include "ai_aas_route_cache.h"
-#include "ai_aas_world.h"
+#include "navigation/AasRouteCache.h"
+#include "navigation/AasWorld.h"
 #include "static_vector.h"
 #include <deque>
 #include <utility>

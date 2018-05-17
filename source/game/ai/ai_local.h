@@ -139,7 +139,7 @@ int GT_asGetScriptWeaponCooldown( const gclient_t *client, int scriptWeaponNum )
 bool GT_asSelectScriptWeapon( gclient_t *client, int scriptWeaponNum );
 bool GT_asFireScriptWeapon( gclient_t *client, int scriptWeaponNum );
 
-#include "ai_aas_world.h"
+#include "navigation/AasWorld.h"
 #include "vec3.h"
 
 typedef struct ai_handle_s {

@@ -1,7 +1,7 @@
-#include "ai_nav_mesh_manager.h"
-#include "ai_precomputed_file_handler.h"
-#include "buffer_builder.h"
-#include "static_vector.h"
+#include "NavMeshManager.h"
+#include "../ai_precomputed_file_handler.h"
+#include "../buffer_builder.h"
+#include "../static_vector.h"
 
 #include <Recast.h>
 #include <RecastAlloc.h>

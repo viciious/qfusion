@@ -1,6 +1,6 @@
 #include "ai_ground_trace_cache.h"
 #include "ai_objective_based_team.h"
-#include "ai_aas_route_cache.h"
+#include "navigation/AasRouteCache.h"
 #include "bot.h"
 
 template <typename Container, typename T>

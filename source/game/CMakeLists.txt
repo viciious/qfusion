@@ -5,8 +5,9 @@ include_directories("../../third-party/recastnavigation/Recast/Include")
 include_directories("../../third-party/recastnavigation/Detour/Include")
 
 file(GLOB GAME_HEADERS
-    "*.h"
-    "ai/*.h"
+	"*.h"
+	"ai/*.h"
+	"ai/navigation/*.h"
 	"../gameshared/*.h"
 	"../qalgo/base64.h"
 	"../qalgo/md5.h"
@@ -17,10 +18,11 @@ file(GLOB GAME_HEADERS
 )
 
 file(GLOB GAME_SOURCES
-    "*.cpp"
-    "ai/*.cpp"
-    "../gameshared/*.c"
-    "../matchmaker/mm_rating.c"
+	"*.cpp"
+	"ai/*.cpp"
+	"ai/navigation/*.cpp"
+	"../gameshared/*.c"
+	"../matchmaker/mm_rating.c"
 	"../qalgo/base64.c"
 	"../qalgo/md5.c"
 	"../../third-party/recastnavigation/Recast/Source/*.cpp"

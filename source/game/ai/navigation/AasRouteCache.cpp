@@ -1,7 +1,7 @@
-#include "ai_aas_route_cache.h"
-#include "static_vector.h"
-#include "ai_local.h"
-#include "bot.h"
+#include "AasRouteCache.h"
+#include "../static_vector.h"
+#include "../ai_local.h"
+#include "../bot.h"
 
 #undef min
 #undef max

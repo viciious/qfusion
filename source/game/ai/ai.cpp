@@ -1,7 +1,7 @@
 #include "bot.h"
 #include "ai_shutdown_hooks_holder.h"
 #include "ai_manager.h"
-#include "ai_nav_mesh_manager.h"
+#include "navigation/NavMeshManager.h"
 #include "ai_objective_based_team.h"
 #include "tactical_spots_registry.h"
 

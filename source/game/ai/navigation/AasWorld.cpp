@@ -1,9 +1,9 @@
-#include "ai_aas_world.h"
-#include "buffer_builder.h"
-#include "static_vector.h"
-#include "ai_local.h"
-#include "../../qalgo/md5.h"
-#include "../../qalgo/base64.h"
+#include "AasWorld.h"
+#include "../buffer_builder.h"
+#include "../static_vector.h"
+#include "../ai_local.h"
+#include "../../../qalgo/md5.h"
+#include "../../../qalgo/base64.h"
 
 #undef min
 #undef max

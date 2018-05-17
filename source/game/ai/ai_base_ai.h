@@ -3,8 +3,8 @@
 
 #include "ai_frame_aware_updatable.h"
 #include "ai_goal_entities.h"
-#include "ai_aas_world.h"
-#include "ai_aas_route_cache.h"
+#include "navigation/AasWorld.h"
+#include "navigation/AasRouteCache.h"
 #include "static_vector.h"
 #include "../../gameshared/q_comref.h"
 

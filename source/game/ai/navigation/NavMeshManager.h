@@ -1,7 +1,7 @@
 #ifndef QFUSION_AI_NAV_MESH_MANAGER_H
 #define QFUSION_AI_NAV_MESH_MANAGER_H
 
-#include "ai_local.h"
+#include "../ai_local.h"
 
 class AiNavMeshQuery
 {

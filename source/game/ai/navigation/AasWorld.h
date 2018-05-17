@@ -1,9 +1,9 @@
 #ifndef QFUSION_AI_AAS_WORLD_H
 #define QFUSION_AI_AAS_WORLD_H
 
-#include "../../gameshared/q_math.h"
-#include "../../gameshared/q_shared.h"
-#include "vec3.h"
+#include "../../../gameshared/q_math.h"
+#include "../../../gameshared/q_shared.h"
+#include "../vec3.h"
 
 //presence types
 #define PRESENCE_NONE               1

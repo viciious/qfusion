@@ -1,6 +1,6 @@
 #include "ai_local.h"
 #include "ai.h"
-#include "ai_aas_route_cache.h"
+#include "navigation/AasRouteCache.h"
 #include "ai_objective_based_team.h"
 #include "bot.h"
 #include "tactical_spots_registry.h"

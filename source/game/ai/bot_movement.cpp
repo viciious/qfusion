@@ -1,9 +1,9 @@
 #include "bot.h"
 #include "bot_movement.h"
-#include "ai_aas_world.h"
+#include "navigation/AasWorld.h"
 #include "ai_manager.h"
 #include "tactical_spots_registry.h"
-#include "ai_nav_mesh_manager.h"
+#include "navigation/NavMeshManager.h"
 #include "ai_trajectory_predictor.h"
 
 #ifndef PUBLIC_BUILD

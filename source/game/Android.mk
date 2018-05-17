@@ -24,6 +24,7 @@ LOCAL_SRC_FILES := \
   ../qalgo/base64.c \
   ../qalgo/md5.c \
   $(addprefix ai/,$(notdir $(wildcard $(LOCAL_PATH)/ai/*.cpp))) \
+  $(addprefix ai/navigation/,$(notdir $(wildcard $(LOCAL_PATH)/ai/navigation/*.cpp))) \
   $(notdir $(wildcard $(LOCAL_PATH)/*.cpp)) \
   $(wildcard $(QFUSION_PATH)/third-party/recastnavigation/Recast/Source/*.cpp) \
   $(wildcard $(QFUSION_PATH)/third-party/recastnavigation/Detour/Source/*.cpp)

@@ -2,7 +2,7 @@
 #define QFUSION_TACTICAL_SPOTS_DETECTOR_H
 
 #include "ai_local.h"
-#include "ai_aas_route_cache.h"
+#include "navigation/AasRouteCache.h"
 #include "static_vector.h"
 #include "bot.h"
 

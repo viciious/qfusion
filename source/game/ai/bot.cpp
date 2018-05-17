@@ -1,6 +1,6 @@
 #include "bot.h"
-#include "ai_aas_world.h"
-#include "ai_nav_mesh_manager.h"
+#include "navigation/AasWorld.h"
+#include "navigation/NavMeshManager.h"
 #include <algorithm>
 
 #ifndef _MSC_VER

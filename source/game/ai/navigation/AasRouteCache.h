@@ -1,7 +1,7 @@
 #ifndef QFUSION_AI_ROUTE_CACHE_H
 #define QFUSION_AI_ROUTE_CACHE_H
 
-#include "ai_aas_world.h"
+#include "AasWorld.h"
 
 //travel flags
 #define TFL_INVALID             0x00000001  //traveling temporary not possible

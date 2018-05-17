@@ -5,7 +5,7 @@
 #include "ai_goal_entities.h"
 #include "ai_frame_aware_updatable.h"
 #include "static_vector.h"
-#include "ai_aas_route_cache.h"
+#include "navigation/AasRouteCache.h"
 #include "ai_base_ai.h"
 #include "world_state.h"
 

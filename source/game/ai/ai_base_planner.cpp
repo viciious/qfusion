@@ -3,7 +3,7 @@
 #include "ai_base_team.h"
 #include "ai_base_ai.h"
 #include "ai_ground_trace_cache.h"
-#include "ai_aas_world.h"
+#include "navigation/AasWorld.h"
 #include "static_vector.h"
 #include "../../gameshared/q_collision.h"
 
