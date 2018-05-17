@@ -2,7 +2,7 @@
 #include "ai_shutdown_hooks_holder.h"
 #include "ai_manager.h"
 #include "navigation/NavMeshManager.h"
-#include "ai_objective_based_team.h"
+#include "teamplay/ObjectiveBasedTeam.h"
 #include "combat/TacticalSpotsRegistry.h"
 
 const cvar_t *ai_evolution;

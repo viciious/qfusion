@@ -1,5 +1,5 @@
 #include "bot_threat_tracker.h"
-#include "ai_squad_based_team.h"
+#include "teamplay/SquadBasedTeam.h"
 #include "bot.h"
 
 BotThreatTracker::BotThreatTracker( edict_t *self_, Bot *bot_, float skill_ )

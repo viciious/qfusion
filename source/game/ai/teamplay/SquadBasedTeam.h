@@ -1,11 +1,11 @@
 #ifndef QFUSION_AI_SQUAD_BASED_TEAM_BRAIN_H
 #define QFUSION_AI_SQUAD_BASED_TEAM_BRAIN_H
 
-#include "ai_base_team.h"
-#include "ai_base_enemy_pool.h"
-#include "navigation/AasRouteCache.h"
-#include "navigation/AasWorld.h"
-#include "static_vector.h"
+#include "BaseTeam.h"
+#include "../ai_base_enemy_pool.h"
+#include "../navigation/AasRouteCache.h"
+#include "../navigation/AasWorld.h"
+#include "../static_vector.h"
 #include <deque>
 #include <utility>
 

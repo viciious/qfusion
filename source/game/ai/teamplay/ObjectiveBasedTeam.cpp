@@ -1,7 +1,7 @@
-#include "ai_ground_trace_cache.h"
-#include "ai_objective_based_team.h"
-#include "navigation/AasRouteCache.h"
-#include "bot.h"
+#include "../ai_ground_trace_cache.h"
+#include "ObjectiveBasedTeam.h"
+#include "../navigation/AasRouteCache.h"
+#include "../bot.h"
 
 template <typename Container, typename T>
 inline int AiObjectiveBasedTeam::AddItem( const char *name, Container &c, T &&item ) {

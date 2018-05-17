@@ -1,7 +1,7 @@
 #include "ai_local.h"
 #include "ai.h"
 #include "navigation/AasRouteCache.h"
-#include "ai_objective_based_team.h"
+#include "teamplay/ObjectiveBasedTeam.h"
 #include "bot.h"
 #include "combat/TacticalSpotsRegistry.h"
 #include "../g_as_local.h"

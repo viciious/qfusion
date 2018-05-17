@@ -1,6 +1,6 @@
 #include "BasePlanner.h"
 #include "../ai_manager.h"
-#include "../ai_base_team.h"
+#include "../teamplay/BaseTeam.h"
 #include "../ai_base_ai.h"
 #include "../ai_ground_trace_cache.h"
 #include "../navigation/AasWorld.h"

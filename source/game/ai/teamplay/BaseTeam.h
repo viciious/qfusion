@@ -1,7 +1,7 @@
 #ifndef QFUSION_AI_BASE_TEAM_BRAIN_H
 #define QFUSION_AI_BASE_TEAM_BRAIN_H
 
-#include "ai_frame_aware_updatable.h"
+#include "../ai_frame_aware_updatable.h"
 
 #include <typeinfo>
 

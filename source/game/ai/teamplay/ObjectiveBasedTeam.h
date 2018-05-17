@@ -1,7 +1,7 @@
 #ifndef QFUSION_AI_OBJECTIVE_BASED_TEAM_BRAIN_H
 #define QFUSION_AI_OBJECTIVE_BASED_TEAM_BRAIN_H
 
-#include "ai_squad_based_team.h"
+#include "SquadBasedTeam.h"
 
 // Visible for script
 struct AiDefenceSpot {

@@ -1,7 +1,7 @@
-#include "ai_base_team.h"
-#include "ai_squad_based_team.h"
-#include "ai_shutdown_hooks_holder.h"
-#include "bot.h"
+#include "BaseTeam.h"
+#include "SquadBasedTeam.h"
+#include "../ai_shutdown_hooks_holder.h"
+#include "../bot.h"
 
 AiBaseTeam *AiBaseTeam::teamsForNums[GS_MAX_TEAMS - 1];
 

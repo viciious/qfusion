@@ -1,6 +1,6 @@
 #include "ai_manager.h"
 #include "planning/BasePlanner.h"
-#include "ai_base_team.h"
+#include "teamplay/BaseTeam.h"
 #include "bot_evolution_manager.h"
 #include "ai_shutdown_hooks_holder.h"
 #include "bot.h"
