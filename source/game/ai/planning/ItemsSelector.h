@@ -1,9 +1,9 @@
 #ifndef QFUSION_BOT_ITEMS_SELECTOR_H
 #define QFUSION_BOT_ITEMS_SELECTOR_H
 
-#include "ai_local.h"
-#include "ai_goal_entities.h"
-#include "static_vector.h"
+#include "../ai_local.h"
+#include "GoalEntities.h"
+#include "../static_vector.h"
 
 class SelectedNavEntity
 {

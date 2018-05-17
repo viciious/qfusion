@@ -1,11 +1,11 @@
-#include "ai_base_planner.h"
-#include "ai_manager.h"
-#include "ai_base_team.h"
-#include "ai_base_ai.h"
-#include "ai_ground_trace_cache.h"
-#include "navigation/AasWorld.h"
-#include "static_vector.h"
-#include "../../gameshared/q_collision.h"
+#include "BasePlanner.h"
+#include "../ai_manager.h"
+#include "../ai_base_team.h"
+#include "../ai_base_ai.h"
+#include "../ai_ground_trace_cache.h"
+#include "../navigation/AasWorld.h"
+#include "../static_vector.h"
+#include "../../../gameshared/q_collision.h"
 
 inline void PoolBase::Link( int16_t itemIndex, int16_t listIndex ) {
 #ifdef _DEBUG
@@ -100,7 +100,7 @@ void PoolBase::Clear() {
 	}
 }
 
-AiBasePlanner::AiBasePlanner( edict_t *self_ )
+BasePlanner::BasePlanner( edict_t *self_ )
 	: self( self_ )
 	, planHead( nullptr )
 	, activeGoal( nullptr )
@@ -113,7 +113,7 @@ struct GoalRef {
 	bool operator<( const GoalRef &that ) const { return *this->goal < *that.goal; }
 };
 
-bool AiBasePlanner::FindNewGoalAndPlan( const WorldState &currWorldState ) {
+bool BasePlanner::FindNewGoalAndPlan( const WorldState &currWorldState ) {
 	if( planHead ) {
 		FailWith( "FindNewGoalAndPlan(): an active plan is present\n" );
 	}
@@ -163,7 +163,7 @@ bool AiBasePlanner::FindNewGoalAndPlan( const WorldState &currWorldState ) {
 	return false;
 }
 
-bool AiBasePlanner::UpdateGoalAndPlan( const WorldState &currWorldState ) {
+bool BasePlanner::UpdateGoalAndPlan( const WorldState &currWorldState ) {
 	if( !planHead ) {
 		FailWith( "UpdateGoalAndPlan(): there is no active plan\n" );
 	}
@@ -461,7 +461,7 @@ public:
 	}
 };
 
-AiBaseActionRecord *AiBasePlanner::BuildPlan( AiBaseGoal *goal, const WorldState &currWorldState ) {
+AiBaseActionRecord *BasePlanner::BuildPlan( AiBaseGoal *goal, const WorldState &currWorldState ) {
 	goal->OnPlanBuildingStarted();
 
 	PlannerNode *startNode = plannerNodesPool.New( self );
@@ -548,7 +548,7 @@ AiBaseActionRecord *AiBasePlanner::BuildPlan( AiBaseGoal *goal, const WorldState
 	return nullptr;
 }
 
-AiBaseActionRecord *AiBasePlanner::ReconstructPlan( PlannerNode *lastNode ) const {
+AiBaseActionRecord *BasePlanner::ReconstructPlan( PlannerNode *lastNode ) const {
 	AiBaseActionRecord *recordsStack[MAX_PLANNER_NODES];
 	int numNodes = 0;
 
@@ -578,7 +578,7 @@ AiBaseActionRecord *AiBasePlanner::ReconstructPlan( PlannerNode *lastNode ) cons
 	return firstInPlan;
 }
 
-void AiBasePlanner::SetGoalAndPlan( AiBaseGoal *activeGoal_, AiBaseActionRecord *planHead_ ) {
+void BasePlanner::SetGoalAndPlan( AiBaseGoal *activeGoal_, AiBaseActionRecord *planHead_ ) {
 	if( this->planHead ) {
 		FailWith( "SetGoalAndPlan(): current plan is still present\n" );
 	}
@@ -602,7 +602,7 @@ void AiBasePlanner::SetGoalAndPlan( AiBaseGoal *activeGoal_, AiBaseActionRecord 
 	this->planHead->Activate();
 }
 
-void AiBasePlanner::ClearGoalAndPlan() {
+void BasePlanner::ClearGoalAndPlan() {
 	if( planHead ) {
 		Debug( "ClearGoalAndPlan(): Should deactivate plan head\n" );
 		planHead->Deactivate();
@@ -613,7 +613,7 @@ void AiBasePlanner::ClearGoalAndPlan() {
 	activeGoal = nullptr;
 }
 
-void AiBasePlanner::DeletePlan( AiBaseActionRecord *head ) {
+void BasePlanner::DeletePlan( AiBaseActionRecord *head ) {
 	AiBaseActionRecord *currRecord = head;
 	while( currRecord ) {
 		AiBaseActionRecord *nextRecord = currRecord->nextInPlan;
@@ -622,7 +622,7 @@ void AiBasePlanner::DeletePlan( AiBaseActionRecord *head ) {
 	}
 }
 
-void AiBasePlanner::Think() {
+void BasePlanner::Think() {
 	if( G_ISGHOSTING( self ) ) {
 		return;
 	}

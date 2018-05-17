@@ -1,18 +1,18 @@
 #ifndef QFUSION_AI_BASE_BRAIN_H
 #define QFUSION_AI_BASE_BRAIN_H
 
-#include "ai_local.h"
-#include "ai_goal_entities.h"
-#include "ai_frame_aware_updatable.h"
-#include "static_vector.h"
-#include "navigation/AasRouteCache.h"
-#include "ai_base_ai.h"
-#include "world_state.h"
+#include "../ai_local.h"
+#include "GoalEntities.h"
+#include "../ai_frame_aware_updatable.h"
+#include "../static_vector.h"
+#include "../navigation/AasRouteCache.h"
+#include "../ai_base_ai.h"
+#include "WorldState.h"
 
 class AiBaseGoal
 {
 	friend class Ai;
-	friend class AiBasePlanner;
+	friend class BasePlanner;
 
 	static inline void Register( Ai *ai, AiBaseGoal *goal );
 
@@ -341,7 +341,7 @@ struct PlannerNode : PoolItem {
 class AiBaseAction
 {
 	friend class Ai;
-	friend class AiBasePlanner;
+	friend class BasePlanner;
 
 	static inline void Register( Ai *ai, AiBaseAction *action );
 
@@ -405,7 +405,7 @@ public:
 	virtual PlannerNode *TryApply( const WorldState &worldState ) = 0;
 };
 
-class AiBasePlanner : public AiFrameAwareUpdatable
+class BasePlanner : public AiFrameAwareUpdatable
 {
 	friend class Ai;
 	friend class AiManager;
@@ -432,7 +432,7 @@ protected:
 	static constexpr unsigned MAX_PLANNER_NODES = 384;
 	Pool<PlannerNode, MAX_PLANNER_NODES> plannerNodesPool;
 
-	AiBasePlanner( edict_t *self );
+	BasePlanner( edict_t *self );
 
 	virtual void PrepareCurrWorldState( WorldState *worldState ) = 0;
 
@@ -454,7 +454,7 @@ protected:
 	virtual void BeforePlanning() {}
 	virtual void AfterPlanning() {}
 public:
-	~AiBasePlanner() override {}
+	~BasePlanner() override {}
 
 	inline bool HasPlan() const { return planHead != nullptr; }
 

@@ -1,7 +1,7 @@
 #ifndef QFUSION_BOT_ACTIONS_H
 #define QFUSION_BOT_ACTIONS_H
 
-#include "ai_base_planner.h"
+#include "BasePlanner.h"
 
 constexpr const float GOAL_PICKUP_ACTION_RADIUS = 72.0f;
 constexpr const float TACTICAL_SPOT_RADIUS = 40.0f;

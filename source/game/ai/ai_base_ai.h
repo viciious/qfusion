@@ -2,7 +2,7 @@
 #define QFUSION_AI_BASE_AI_H
 
 #include "ai_frame_aware_updatable.h"
-#include "ai_goal_entities.h"
+#include "planning/GoalEntities.h"
 #include "navigation/AasWorld.h"
 #include "navigation/AasRouteCache.h"
 #include "static_vector.h"
@@ -244,7 +244,7 @@ class Ai : public AiFrameAwareUpdatable
 	friend class AiSquad;
 	friend class AiSquadBasedTeam;
 	friend class AiObjectiveBasedTeam;
-	friend class AiBasePlanner;
+	friend class BasePlanner;
 	friend class AiBaseAction;
 	friend class AiBaseActionRecord;
 	friend class AiBaseGoal;
@@ -254,7 +254,7 @@ protected:
 	// Must be set in a subclass constructor. A subclass manages memory for its brain
 	// (it either has it as an intrusive member of allocates it on heap)
 	// and provides a reference to it to this base class via this pointer.
-	class AiBasePlanner *basePlanner;
+	class BasePlanner *basePlanner;
 	// Must be set in a subclass constructor.
 	// A subclass should decide whether a shared or separated route cache should be used.
 	// A subclass should destroy the cache instance if necessary.
@@ -333,7 +333,7 @@ public:
 	typedef StaticVector<ReachAndTravelTime, MAX_REACH_CACHED> ReachChainVector;
 
 	Ai( edict_t *self_
-	  , AiBasePlanner *planner_
+	  , BasePlanner *planner_
 	  , AiAasRouteCache *routeCache_
 	  , AiEntityPhysicsState *entityPhysicsState_
 	  , int preferredAasTravelFlags_

@@ -1,9 +1,9 @@
 #include "ai_base_ai.h"
-#include "ai_base_planner.h"
+#include "planning/BasePlanner.h"
 #include "ai_ground_trace_cache.h"
 
 Ai::Ai( edict_t *self_
-	  , AiBasePlanner *planner_
+	  , BasePlanner *planner_
 	  , AiAasRouteCache *routeCache_
 	  , AiEntityPhysicsState *entityPhysicsState_
 	  , int allowedAasTravelFlags_

@@ -1,7 +1,7 @@
-#include "bot_actions.h"
-#include "bot.h"
-#include "ai_ground_trace_cache.h"
-#include "combat/TacticalSpotsRegistry.h"
+#include "Actions.h"
+#include "../bot.h"
+#include "../ai_ground_trace_cache.h"
+#include "../combat/TacticalSpotsRegistry.h"
 
 typedef WorldState::SatisfyOp SatisfyOp;
 

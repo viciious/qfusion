@@ -1,8 +1,8 @@
 #ifndef QFUSION_BOT_ROAMING_MANAGER_H
 #define QFUSION_BOT_ROAMING_MANAGER_H
 
-#include "ai_local.h"
-#include "static_vector.h"
+#include "../ai_local.h"
+#include "../static_vector.h"
 
 class BotRoamingManager
 {

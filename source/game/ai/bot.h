@@ -3,20 +3,20 @@
 
 #include "static_vector.h"
 #include "bot_perception_manager.h"
-#include "bot_planner.h"
+#include "planning/BotPlanner.h"
 #include "ai_base_ai.h"
 #include "vec3.h"
 
 #include "bot_movement.h"
 #include "combat/WeaponSelector.h"
 #include "combat/FireTargetCache.h"
-#include "bot_tactical_spots_cache.h"
+#include "planning/TacticalSpotsCache.h"
 #include "bot_threat_tracker.h"
-#include "bot_roaming_manager.h"
+#include "planning/RoamingManager.h"
 #include "bot_weight_config.h"
 
-#include "bot_goals.h"
-#include "bot_actions.h"
+#include "planning/Goals.h"
+#include "planning/Actions.h"
 
 class AiSquad;
 class AiBaseEnemyPool;

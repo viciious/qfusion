@@ -26,6 +26,7 @@ LOCAL_SRC_FILES := \
   $(addprefix ai/,$(notdir $(wildcard $(LOCAL_PATH)/ai/*.cpp))) \
   $(addprefix ai/combat/,$(notdir $(wildcard $(LOCAL_PATH)/ai/combat/*.cpp))) \
   $(addprefix ai/navigation/,$(notdir $(wildcard $(LOCAL_PATH)/ai/navigation/*.cpp))) \
+  $(addprefix ai/planning/,$(notdir $(wildcard $(LOCAL_PATH)/ai/planning/*.cpp))) \
   $(notdir $(wildcard $(LOCAL_PATH)/*.cpp)) \
   $(wildcard $(QFUSION_PATH)/third-party/recastnavigation/Recast/Source/*.cpp) \
   $(wildcard $(QFUSION_PATH)/third-party/recastnavigation/Detour/Source/*.cpp)

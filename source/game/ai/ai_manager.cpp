@@ -1,5 +1,5 @@
 #include "ai_manager.h"
-#include "ai_base_planner.h"
+#include "planning/BasePlanner.h"
 #include "ai_base_team.h"
 #include "bot_evolution_manager.h"
 #include "ai_shutdown_hooks_holder.h"

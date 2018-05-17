@@ -1,7 +1,7 @@
 #ifndef QFUSION_BOT_TACTICAL_SPOTS_CACHE_H
 #define QFUSION_BOT_TACTICAL_SPOTS_CACHE_H
 
-#include "ai_local.h"
+#include "../ai_local.h"
 
 class BotTacticalSpotsCache
 {

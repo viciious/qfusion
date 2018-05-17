@@ -1,14 +1,14 @@
-#include "bot.h"
-#include "ai_ground_trace_cache.h"
-#include "ai_squad_based_team.h"
-#include "bot_planner.h"
-#include "combat/TacticalSpotsRegistry.h"
+#include "../bot.h"
+#include "../ai_ground_trace_cache.h"
+#include "../ai_squad_based_team.h"
+#include "BotPlanner.h"
+#include "../combat/TacticalSpotsRegistry.h"
 #include <algorithm>
 #include <limits>
 #include <stdarg.h>
 
 BotPlanner::BotPlanner( Bot *bot, float skillLevel_ )
-	: AiBasePlanner( bot->self ), cachedWorldState( bot->self ) {}
+	: BasePlanner( bot->self ), cachedWorldState( bot->self ) {}
 
 BotBaseGoal *BotPlanner::GetGoalByName( const char *name ) {
 	for( unsigned i = 0; i < scriptGoals.size(); ++i ) {
@@ -249,7 +249,7 @@ bool BotPlanner::ShouldSkipPlanning() const {
 }
 
 void BotPlanner::BeforePlanning() {
-	AiBasePlanner::BeforePlanning();
+	BasePlanner::BeforePlanning();
 
 	self->ai->botRef->tacticalSpotsCache.Clear();
 }

@@ -1,4 +1,4 @@
-#include "ai_goal_entities.h"
+#include "GoalEntities.h"
 
 float NavEntity::CostInfluence() const {
 	// Usually these kinds of nav entities are CTF flags or bomb spots,

@@ -2,15 +2,15 @@
 #define QFUSION_BOT_BRAIN_H
 
 #include <stdarg.h>
-#include "ai_base_ai.h"
-#include "ai_base_planner.h"
-#include "ai_base_enemy_pool.h"
-#include "bot_items_selector.h"
-#include "combat/WeaponSelector.h"
-#include "bot_actions.h"
-#include "bot_goals.h"
+#include "../ai_base_ai.h"
+#include "BasePlanner.h"
+#include "../ai_base_enemy_pool.h"
+#include "ItemsSelector.h"
+#include "../combat/WeaponSelector.h"
+#include "Actions.h"
+#include "Goals.h"
 
-class BotPlanner : public AiBasePlanner
+class BotPlanner : public BasePlanner
 {
 	friend class Bot;
 	friend class BotItemsSelector;

@@ -1,7 +1,7 @@
 #ifndef QFUSION_WORLD_STATE_H
 #define QFUSION_WORLD_STATE_H
 
-#include "ai_local.h"
+#include "../ai_local.h"
 
 float DamageToKill( float health, float armor, float armorProtection, float armorDegradation );
 

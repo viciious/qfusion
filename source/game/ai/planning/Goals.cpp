@@ -1,5 +1,5 @@
-#include "bot_goals.h"
-#include "bot.h"
+#include "Goals.h"
+#include "../bot.h"
 
 inline const SelectedNavEntity &BotBaseGoal::SelectedNavEntity() const {
 	return self->ai->botRef->GetSelectedNavEntity();

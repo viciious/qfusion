@@ -1,7 +1,7 @@
 #ifndef QFUSION_BOT_PERCEPTION_MANAGER_H
 #define QFUSION_BOT_PERCEPTION_MANAGER_H
 
-#include "ai_base_planner.h"
+#include "planning/BasePlanner.h"
 #include "static_deque.h"
 
 struct Danger : public PoolItem {

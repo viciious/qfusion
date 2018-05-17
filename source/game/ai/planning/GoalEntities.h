@@ -1,8 +1,8 @@
 #ifndef QFUSION_AI_GOAL_ENTITIES_H
 #define QFUSION_AI_GOAL_ENTITIES_H
 
-#include "ai_local.h"
-#include "vec3.h"
+#include "../ai_local.h"
+#include "../vec3.h"
 
 enum class NavEntityFlags : unsigned {
 	NONE = 0x0,

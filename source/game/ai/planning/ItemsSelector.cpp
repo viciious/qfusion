@@ -1,6 +1,6 @@
-#include "bot_items_selector.h"
-#include "bot.h"
-#include "ai_objective_based_team.h"
+#include "ItemsSelector.h"
+#include "../bot.h"
+#include "../ai_objective_based_team.h"
 
 void BotItemsSelector::UpdateInternalItemAndGoalWeights() {
 	memset( internalEntityWeights, 0, sizeof( internalEntityWeights ) );
