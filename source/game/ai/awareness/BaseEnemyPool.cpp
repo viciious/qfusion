@@ -1,5 +1,5 @@
-#include "ai_base_enemy_pool.h"
-#include "bot.h"
+#include "BaseEnemyPool.h"
+#include "../bot.h"
 
 constexpr float MAX_ENEMY_WEIGHT = 5.0f;
 

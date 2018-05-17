@@ -1,9 +1,9 @@
 #ifndef QFUSION_BOT_THREAT_TRACKER_H
 #define QFUSION_BOT_THREAT_TRACKER_H
 
-#include "ai_base_enemy_pool.h"
-#include "bot_perception_manager.h"
-#include "combat/WeaponSelector.h"
+#include "BaseEnemyPool.h"
+#include "PerceptionManager.h"
+#include "../combat/WeaponSelector.h"
 
 class AiSquad;
 

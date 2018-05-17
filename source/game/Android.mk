@@ -24,6 +24,7 @@ LOCAL_SRC_FILES := \
   ../qalgo/base64.c \
   ../qalgo/md5.c \
   $(addprefix ai/,$(notdir $(wildcard $(LOCAL_PATH)/ai/*.cpp))) \
+  $(addprefix ai/awareness/,$(notdir $(wildcard $(LOCAL_PATH)/ai/awareness/*.cpp))) \
   $(addprefix ai/combat/,$(notdir $(wildcard $(LOCAL_PATH)/ai/combat/*.cpp))) \
   $(addprefix ai/navigation/,$(notdir $(wildcard $(LOCAL_PATH)/ai/navigation/*.cpp))) \
   $(addprefix ai/planning/,$(notdir $(wildcard $(LOCAL_PATH)/ai/planning/*.cpp))) \

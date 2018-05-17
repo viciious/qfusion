@@ -2,7 +2,7 @@
 #define QFUSION_AI_SQUAD_BASED_TEAM_BRAIN_H
 
 #include "BaseTeam.h"
-#include "../ai_base_enemy_pool.h"
+#include "../awareness/BaseEnemyPool.h"
 #include "../navigation/AasRouteCache.h"
 #include "../navigation/AasWorld.h"
 #include "../static_vector.h"

@@ -1,11 +1,11 @@
 #ifndef QFUSION_AI_BASE_ENEMY_POOL_H
 #define QFUSION_AI_BASE_ENEMY_POOL_H
 
-#include "ai_frame_aware_updatable.h"
-#include "static_deque.h"
-#include "static_vector.h"
-#include "vec3.h"
-#include "../../gameshared/q_comref.h"
+#include "../ai_frame_aware_updatable.h"
+#include "../static_deque.h"
+#include "../static_vector.h"
+#include "../vec3.h"
+#include "../../../gameshared/q_comref.h"
 #include <limits>
 
 template <int Weapon>

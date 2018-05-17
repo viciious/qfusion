@@ -1,8 +1,8 @@
 #ifndef QFUSION_BOT_PERCEPTION_MANAGER_H
 #define QFUSION_BOT_PERCEPTION_MANAGER_H
 
-#include "planning/BasePlanner.h"
-#include "static_deque.h"
+#include "../planning/BasePlanner.h"
+#include "../static_deque.h"
 
 struct Danger : public PoolItem {
 	static constexpr unsigned TIMEOUT = 750;

@@ -2,7 +2,7 @@
 #define AI_BOT_H
 
 #include "static_vector.h"
-#include "bot_perception_manager.h"
+#include "awareness/PerceptionManager.h"
 #include "planning/BotPlanner.h"
 #include "ai_base_ai.h"
 #include "vec3.h"
@@ -11,7 +11,7 @@
 #include "combat/WeaponSelector.h"
 #include "combat/FireTargetCache.h"
 #include "planning/TacticalSpotsCache.h"
-#include "bot_threat_tracker.h"
+#include "awareness/ThreatTracker.h"
 #include "planning/RoamingManager.h"
 #include "bot_weight_config.h"
 

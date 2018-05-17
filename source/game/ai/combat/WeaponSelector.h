@@ -1,7 +1,7 @@
 #ifndef QFUSION_BOT_WEAPON_SELECTOR_H
 #define QFUSION_BOT_WEAPON_SELECTOR_H
 
-#include "../ai_base_enemy_pool.h"
+#include "../awareness/BaseEnemyPool.h"
 
 class WorldState;
 

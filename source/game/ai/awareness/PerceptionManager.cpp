@@ -1,7 +1,7 @@
-#include "ai_shutdown_hooks_holder.h"
-#include "ai_caching_game_allocator.h"
-#include "bot_perception_manager.h"
-#include "bot.h"
+#include "../ai_shutdown_hooks_holder.h"
+#include "../ai_caching_game_allocator.h"
+#include "PerceptionManager.h"
+#include "../bot.h"
 
 EntitiesPvsCache EntitiesPvsCache::instance;
 

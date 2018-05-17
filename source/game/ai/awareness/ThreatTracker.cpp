@@ -1,6 +1,6 @@
-#include "bot_threat_tracker.h"
-#include "teamplay/SquadBasedTeam.h"
-#include "bot.h"
+#include "ThreatTracker.h"
+#include "../teamplay/SquadBasedTeam.h"
+#include "../bot.h"
 
 BotThreatTracker::BotThreatTracker( edict_t *self_, Bot *bot_, float skill_ )
 	: activeEnemyPool( &ownEnemyPool )

@@ -4,7 +4,7 @@
 #include <stdarg.h>
 #include "../ai_base_ai.h"
 #include "BasePlanner.h"
-#include "../ai_base_enemy_pool.h"
+#include "../awareness/BaseEnemyPool.h"
 #include "ItemsSelector.h"
 #include "../combat/WeaponSelector.h"
 #include "Actions.h"

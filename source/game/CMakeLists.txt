@@ -7,6 +7,7 @@ include_directories("../../third-party/recastnavigation/Detour/Include")
 file(GLOB GAME_HEADERS
 	"*.h"
 	"ai/*.h"
+	"ai/awareness/*.h"
 	"ai/combat/*.h"
 	"ai/navigation/*.h"
 	"ai/planning/*.h"
@@ -23,6 +24,7 @@ file(GLOB GAME_HEADERS
 file(GLOB GAME_SOURCES
 	"*.cpp"
 	"ai/*.cpp"
+	"ai/awareness/*.cpp"
 	"ai/combat/*.cpp"
 	"ai/navigation/*.cpp"
 	"ai/planning/*.cpp"
