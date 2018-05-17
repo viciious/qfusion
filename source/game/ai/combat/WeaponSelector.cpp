@@ -1,6 +1,6 @@
-#include "bot_weapon_selector.h"
-#include "bot.h"
-#include "../../gameshared/q_collision.h"
+#include "WeaponSelector.h"
+#include "../bot.h"
+#include "../../../gameshared/q_collision.h"
 
 bool SelectedEnemies::AreValid() const {
 	for( const Enemy *enemy: activeEnemies )

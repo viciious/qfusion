@@ -1,7 +1,7 @@
-#include "bot_fire_target_cache.h"
-#include "ai_trajectory_predictor.h"
-#include "ai_shutdown_hooks_holder.h"
-#include "bot.h"
+#include "FireTargetCache.h"
+#include "../ai_trajectory_predictor.h"
+#include "../ai_shutdown_hooks_holder.h"
+#include "../bot.h"
 
 class FixedBitVector
 {

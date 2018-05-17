@@ -3,7 +3,7 @@
 
 #include "ai_base_enemy_pool.h"
 #include "bot_perception_manager.h"
-#include "bot_weapon_selector.h"
+#include "combat/WeaponSelector.h"
 
 class AiSquad;
 

@@ -2,7 +2,7 @@
 #include "bot_movement.h"
 #include "navigation/AasWorld.h"
 #include "ai_manager.h"
-#include "tactical_spots_registry.h"
+#include "combat/TacticalSpotsRegistry.h"
 #include "navigation/NavMeshManager.h"
 #include "ai_trajectory_predictor.h"
 

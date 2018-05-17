@@ -1,5 +1,5 @@
 #include "bot.h"
-#include "tactical_spots_registry.h"
+#include "combat/TacticalSpotsRegistry.h"
 
 inline AiAasRouteCache *BotTacticalSpotsCache::RouteCache() {
 	return self->ai->botRef->routeCache;

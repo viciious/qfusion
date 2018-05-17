@@ -1,6 +1,6 @@
-#include "bot.h"
-#include "ai_trajectory_predictor.h"
-#include "ai_shutdown_hooks_holder.h"
+#include "../bot.h"
+#include "../ai_trajectory_predictor.h"
+#include "../ai_shutdown_hooks_holder.h"
 
 inline bool operator!=( const AiScriptWeaponDef &first, const AiScriptWeaponDef &second ) {
 	return memcmp( &first, &second, sizeof( AiScriptWeaponDef ) ) != 0;

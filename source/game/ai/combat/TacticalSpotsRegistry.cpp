@@ -1,6 +1,6 @@
-#include "tactical_spots_registry.h"
-#include "ai_precomputed_file_handler.h"
-#include "bot.h"
+#include "TacticalSpotsRegistry.h"
+#include "../ai_precomputed_file_handler.h"
+#include "../bot.h"
 
 TacticalSpotsRegistry *TacticalSpotsRegistry::instance = nullptr;
 // An actual storage for an instance

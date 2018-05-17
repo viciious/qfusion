@@ -1,10 +1,10 @@
 #ifndef QFUSION_TACTICAL_SPOTS_DETECTOR_H
 #define QFUSION_TACTICAL_SPOTS_DETECTOR_H
 
-#include "ai_local.h"
-#include "navigation/AasRouteCache.h"
-#include "static_vector.h"
-#include "bot.h"
+#include "../ai_local.h"
+#include "../navigation/AasRouteCache.h"
+#include "../static_vector.h"
+#include "../bot.h"
 
 class TacticalSpotsRegistry
 {

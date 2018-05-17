@@ -2,7 +2,7 @@
 #include "ai_ground_trace_cache.h"
 #include "ai_squad_based_team.h"
 #include "bot_planner.h"
-#include "tactical_spots_registry.h"
+#include "combat/TacticalSpotsRegistry.h"
 #include <algorithm>
 #include <limits>
 #include <stdarg.h>

@@ -8,8 +8,8 @@
 #include "vec3.h"
 
 #include "bot_movement.h"
-#include "bot_weapon_selector.h"
-#include "bot_fire_target_cache.h"
+#include "combat/WeaponSelector.h"
+#include "combat/FireTargetCache.h"
 #include "bot_tactical_spots_cache.h"
 #include "bot_threat_tracker.h"
 #include "bot_roaming_manager.h"

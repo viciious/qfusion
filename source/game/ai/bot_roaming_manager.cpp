@@ -1,5 +1,5 @@
 #include "bot_roaming_manager.h"
-#include "tactical_spots_registry.h"
+#include "combat/TacticalSpotsRegistry.h"
 
 // Cannot be defined in the header
 BotRoamingManager::BotRoamingManager( edict_t *self_ )

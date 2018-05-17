@@ -3,7 +3,7 @@
 #include "ai_manager.h"
 #include "navigation/NavMeshManager.h"
 #include "ai_objective_based_team.h"
-#include "tactical_spots_registry.h"
+#include "combat/TacticalSpotsRegistry.h"
 
 const cvar_t *ai_evolution;
 const cvar_t *ai_debug_output;

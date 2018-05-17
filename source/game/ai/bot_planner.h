@@ -6,7 +6,7 @@
 #include "ai_base_planner.h"
 #include "ai_base_enemy_pool.h"
 #include "bot_items_selector.h"
-#include "bot_weapon_selector.h"
+#include "combat/WeaponSelector.h"
 #include "bot_actions.h"
 #include "bot_goals.h"
 

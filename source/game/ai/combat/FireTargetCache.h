@@ -1,7 +1,7 @@
 #ifndef QFUSION_BOT_FIRE_TARGET_CACHE_H
 #define QFUSION_BOT_FIRE_TARGET_CACHE_H
 
-#include "bot_weapon_selector.h"
+#include "WeaponSelector.h"
 
 struct AimParams {
 	vec3_t fireOrigin;

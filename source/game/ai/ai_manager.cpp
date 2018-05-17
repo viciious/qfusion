@@ -4,7 +4,7 @@
 #include "bot_evolution_manager.h"
 #include "ai_shutdown_hooks_holder.h"
 #include "bot.h"
-#include "tactical_spots_registry.h"
+#include "combat/TacticalSpotsRegistry.h"
 
 // Class static variable declaration
 AiManager *AiManager::instance = nullptr;
