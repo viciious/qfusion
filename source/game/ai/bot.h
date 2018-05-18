@@ -399,6 +399,7 @@ private:
 	BotSteadyCombatAction steadyCombatAction;
 	BotGotoAvailableGoodPositionAction gotoAvailableGoodPositionAction;
 	BotAttackFromCurrentPositionAction attackFromCurrentPositionAction;
+	BotAttackAdvancingToTargetAction attackAdvancingToTargetAction;
 
 	BotGenericRunAvoidingCombatAction genericRunAvoidingCombatAction;
 	BotStartGotoCoverAction startGotoCoverAction;

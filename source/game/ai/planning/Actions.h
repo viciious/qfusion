@@ -167,6 +167,25 @@ DECLARE_ACTION( BotGotoAvailableGoodPositionAction, 2 );
 DECLARE_COMBAT_ACTION_RECORD( BotAttackFromCurrentPositionActionRecord );
 DECLARE_ACTION( BotAttackFromCurrentPositionAction, 2 );
 
+class BotAttackAdvancingToTargetActionRecord: public BotBaseActionRecord
+{
+	unsigned selectedEnemiesInstanceId;
+	NavTarget navTarget;
+public:
+	BotAttackAdvancingToTargetActionRecord( PoolBase *pool_
+										  , edict_t *self_
+		                                  , unsigned selectedEnemiesInstanceId_ )
+		: BotBaseActionRecord( pool_, self_, "BotAttackAdvancingToTargetActionRecord" )
+		, selectedEnemiesInstanceId( selectedEnemiesInstanceId_ )
+		, navTarget( NavTarget::Dummy() ) {}
+
+	void Activate() override;
+	void Deactivate() override;
+	Status CheckStatus( const WorldState &currWorldState ) const override;
+};
+
+DECLARE_ACTION( BotAttackAdvancingToTargetAction, 2 );
+
 class BotRunAwayActionRecord : public BotBaseActionRecord
 {
 protected:

@@ -365,7 +365,7 @@ public:
 	}
 
 	bool IsNavTargetBasedOnEntity( const edict_t *ent ) const {
-		return navTarget->IsBasedOnEntity( ent );
+		return navTarget && navTarget->IsBasedOnEntity( ent );
 	}
 
 	// Exposed for native and script actions

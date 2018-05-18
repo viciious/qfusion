@@ -104,6 +104,7 @@ void BotKillEnemyGoal::GetDesiredWorldState( WorldState *worldState ) {
 PlannerNode *BotKillEnemyGoal::GetWorldStateTransitions( const WorldState &worldState ) {
 	PlannerNode *firstTransition = nullptr;
 
+	TRY_APPLY_ACTION( attackAdvancingToTargetAction );
 	TRY_APPLY_ACTION( advanceToGoodPositionAction );
 	TRY_APPLY_ACTION( retreatToGoodPositionAction );
 	TRY_APPLY_ACTION( steadyCombatAction );
