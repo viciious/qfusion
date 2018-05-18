@@ -48,8 +48,9 @@ class BotFireTargetCache
 		}
 	};
 
+	const Bot *const bot;
+
 	CachedFireTarget cachedFireTarget;
-	const edict_t *bot;
 	// Contains a value in range [0, 1] used for extrapolation of enemy origin for imitation of human-like aiming
 	float extrapolationRandom;
 	int64_t extrapolationRandomTimeoutAt;
@@ -85,7 +86,7 @@ class BotFireTargetCache
 								bool applyTargetGravity );
 
 public:
-	BotFireTargetCache( const edict_t *bot_ )
+	BotFireTargetCache( const Bot *bot_ )
 		: bot( bot_ ), extrapolationRandom( 0.0f ), extrapolationRandomTimeoutAt( 0 ) {}
 
 	void AdjustAimParams( const SelectedEnemies &selectedEnemies, const SelectedWeapons &selectedWeapons,

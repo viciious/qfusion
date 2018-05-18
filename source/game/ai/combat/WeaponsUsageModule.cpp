@@ -1,13 +1,30 @@
-#include "../bot.h"
+#include "WeaponsUsageModule.h"
 #include "../ai_trajectory_predictor.h"
 #include "../ai_shutdown_hooks_holder.h"
+#include "../bot.h"
+
+BotWeaponsUsageModule::BotWeaponsUsageModule( Bot *bot_ )
+	: bot( bot_ )
+	, builtinFireTargetCache( bot_ )
+	, scriptFireTargetCache( bot_ )
+	, weaponSelector( bot_, 600 - From0UpToMax( 300, bot_->Skill() ) ) {}
 
 inline bool operator!=( const AiScriptWeaponDef &first, const AiScriptWeaponDef &second ) {
 	return memcmp( &first, &second, sizeof( AiScriptWeaponDef ) ) != 0;
 }
 
-void Bot::UpdateScriptWeaponsStatus() {
-	int scriptWeaponsNum = GT_asGetScriptWeaponsNum( self->r.client );
+void BotWeaponsUsageModule::Frame( const WorldState &cachedWorldState ) {
+	weaponSelector.Frame( cachedWorldState );
+}
+
+void BotWeaponsUsageModule::Think( const WorldState &cachedWorldState ) {
+	weaponSelector.Think( cachedWorldState );
+}
+
+void BotWeaponsUsageModule::UpdateScriptWeaponsStatus() {
+	const auto *client = game.edicts[bot->EntNum()].r.client;
+
+	int scriptWeaponsNum = GT_asGetScriptWeaponsNum( client );
 
 	if( (int)scriptWeaponDefs.size() != scriptWeaponsNum ) {
 		scriptWeaponDefs.clear();
@@ -15,14 +32,14 @@ void Bot::UpdateScriptWeaponsStatus() {
 
 		for( int weaponNum = 0; weaponNum < scriptWeaponsNum; ++weaponNum ) {
 			AiScriptWeaponDef weaponDef;
-			if( GT_asGetScriptWeaponDef( self->r.client, weaponNum, &weaponDef ) ) {
+			if( GT_asGetScriptWeaponDef( client, weaponNum, &weaponDef ) ) {
 				scriptWeaponDefs.emplace_back( std::move( weaponDef ) );
-				scriptWeaponCooldown.push_back( GT_asGetScriptWeaponCooldown( self->r.client, weaponNum ) );
+				scriptWeaponCooldown.push_back( GT_asGetScriptWeaponCooldown( client, weaponNum ) );
 			}
 		}
 
 		selectedWeapons.Invalidate();
-		ForcePlanBuilding();
+		bot->ForcePlanBuilding();
 		return;
 	}
 
@@ -30,7 +47,7 @@ void Bot::UpdateScriptWeaponsStatus() {
 	for( int weaponNum = 0; weaponNum < scriptWeaponsNum; ++weaponNum ) {
 		AiScriptWeaponDef actualWeaponDef;
 		// Try to retrieve the weapon def
-		if( !GT_asGetScriptWeaponDef( self->r.client, weaponNum, &actualWeaponDef ) ) {
+		if( !GT_asGetScriptWeaponDef( client, weaponNum, &actualWeaponDef ) ) {
 			// If weapon def retrieval failed, treat the weapon as unavailable by setting a huge cooldown
 			scriptWeaponCooldown[weaponNum] = std::numeric_limits<int>::max();
 			hasStatusChanged = true;
@@ -42,7 +59,7 @@ void Bot::UpdateScriptWeaponsStatus() {
 			hasStatusChanged = true;
 		}
 
-		int cooldown = GT_asGetScriptWeaponCooldown( self->r.client, weaponNum );
+		int cooldown = GT_asGetScriptWeaponCooldown( client, weaponNum );
 		// A weapon became unavailable
 		if( cooldown > scriptWeaponCooldown[weaponNum] ) {
 			hasStatusChanged = true;
@@ -58,11 +75,12 @@ void Bot::UpdateScriptWeaponsStatus() {
 
 	if( hasStatusChanged ) {
 		selectedWeapons.Invalidate();
-		ForcePlanBuilding();
+		bot->ForcePlanBuilding();
 	}
 }
 
-void Bot::FireWeapon( BotInput *input ) {
+void BotWeaponsUsageModule::TryFire( BotInput *input ) {
+	const auto &selectedEnemies = bot->GetSelectedEnemies();
 	if( !selectedEnemies.AreValid() ) {
 		return;
 	}
@@ -109,10 +127,10 @@ void Bot::FireWeapon( BotInput *input ) {
 	}
 
 	// Always track enemy with a "crosshair" like a human does in each frame
-	LookAtEnemy( aimParams->EffectiveCoordError( Skill() ), aimParams->fireOrigin, aimParams->fireTarget, input );
+	LookAtEnemy( aimParams->EffectiveCoordError( bot->Skill() ), aimParams->fireOrigin, aimParams->fireTarget, input );
 
 	// Attack only in Think() frames unless a continuousFire is required or the bot has hard skill
-	if( ShouldSkipThinkFrame() && Skill() < 0.66f ) {
+	if( bot->ShouldSkipThinkFrame() && bot->Skill() < 0.66f ) {
 		if( !primaryFireDef || !primaryFireDef->IsContinuousFire() ) {
 			if( !secondaryFireDef || !secondaryFireDef->IsContinuousFire() ) {
 				return;
@@ -122,25 +140,25 @@ void Bot::FireWeapon( BotInput *input ) {
 
 	// Shut an analyzer up by this condition
 	if( primaryFireDef ) {
-		if( CheckShot( *aimParams, input, selectedEnemies, *primaryFireDef ) ) {
+		if( CheckShot( *aimParams, input, *primaryFireDef ) ) {
 			PressAttack( primaryFireDef, builtinFireDef, scriptFireDef, input );
 		}
 	}
 
 	if( secondaryFireDef ) {
 		// Check whether view angles adjusted for the primary weapon are suitable for firing secondary weapon too
-		if( CheckShot( *aimParams, input, selectedEnemies, *secondaryFireDef ) ) {
+		if( CheckShot( *aimParams, input, *secondaryFireDef ) ) {
 			PressAttack( secondaryFireDef, builtinFireDef, scriptFireDef, input );
 		}
 	}
 
 	// Shut an analyzer up by testing scriptFireDef too
 	if( input->fireScriptWeapon && scriptFireDef ) {
-		GT_asFireScriptWeapon( self->r.client, scriptFireDef->WeaponNum() );
+		GT_asFireScriptWeapon( game.edicts[bot->EntNum()].r.client, scriptFireDef->WeaponNum() );
 	}
 }
 
-void Bot::LookAtEnemy( float coordError, const vec_t *fire_origin, vec_t *target, BotInput *input ) {
+void BotWeaponsUsageModule::LookAtEnemy( float coordError, const vec_t *fire_origin, vec_t *target, BotInput *input ) {
 	if( !input->canOverrideLookVec && !input->canOverridePitch && input->isLookDirSet ) {
 		return;
 	}
@@ -149,13 +167,16 @@ void Bot::LookAtEnemy( float coordError, const vec_t *fire_origin, vec_t *target
 	toTargetDir -= fire_origin;
 	toTargetDir.NormalizeFast();
 
-	for( int i = 0; i < 3; ++i )
+	for( int i = 0; i < 3; ++i ) {
 		target[i] += ( aimingRandomHolder.GetCoordRandom( i ) - 0.5f ) * coordError;
+	}
+
+	float *const entAngles = game.edicts[bot->EntNum()].s.angles;
 
 	// If there is no look vec set or it can be completely overridden
 	if( !input->isLookDirSet || input->canOverrideLookVec ) {
 		input->SetIntendedLookDir( toTargetDir );
-		Vec3 newAngles = GetNewViewAngles( self->s.angles, toTargetDir, game.frametime, 1.0f );
+		Vec3 newAngles = bot->GetNewViewAngles( entAngles, toTargetDir, game.frametime, 1.0f );
 		input->SetAlreadyComputedAngles( newAngles );
 		return;
 	}
@@ -163,30 +184,34 @@ void Bot::LookAtEnemy( float coordError, const vec_t *fire_origin, vec_t *target
 	// (in case when XY view movement is exactly specified and Z view movement can vary)
 	assert( input->canOverridePitch );
 	// These angles can be intended by the already set look vec (can be = not always ideal due to limited view speed).
-	Vec3 intendedAngles = GetNewViewAngles( self->s.angles, input->IntendedLookDir(), game.frametime, 1.0f );
+	Vec3 intendedAngles = bot->GetNewViewAngles( entAngles, input->IntendedLookDir(), game.frametime, 1.0f );
 	// These angles can be required to hit the target
-	Vec3 targetAimAngles = GetNewViewAngles( self->s.angles, toTargetDir, game.frametime, 1.0f );
+	Vec3 targetAimAngles = bot->GetNewViewAngles( entAngles, toTargetDir, game.frametime, 1.0f );
 	// Override pitch in hope this will be sufficient for hitting a target
 	intendedAngles.Data()[PITCH] = targetAimAngles.Data()[PITCH];
 	input->SetAlreadyComputedAngles( intendedAngles );
 }
 
-void Bot::PressAttack( const GenericFireDef *fireDef,
-					   const GenericFireDef *builtinFireDef,
-					   const GenericFireDef *scriptFireDef,
-					   BotInput *input ) {
+void BotWeaponsUsageModule::PressAttack( const GenericFireDef *fireDef
+									   , const GenericFireDef *builtinFireDef
+									   , const GenericFireDef *scriptFireDef
+									   , BotInput *input ) {
 	if( fireDef == scriptFireDef ) {
 		input->fireScriptWeapon = true;
 		return;
 	}
 
-	auto weapState = self->r.client->ps.weaponState;
+	auto weapState = game.edicts[bot->EntNum()].r.client->ps.weaponState;
 	if( weapState == WEAPON_STATE_READY || weapState == WEAPON_STATE_REFIRE || weapState == WEAPON_STATE_REFIRESTRONG ) {
 		input->SetAttackButton( true );
 	}
 }
 
-bool Bot::TryTraceShot( trace_t *tr, const Vec3 &newLookDir, const AimParams &aimParams, const GenericFireDef &fireDef ) {
+bool BotWeaponsUsageModule::TryTraceShot( trace_t *tr
+										, const Vec3 &newLookDir
+										, const AimParams &aimParams
+										, const GenericFireDef &fireDef ) {
+	edict_t *const self = game.edicts + bot->EntNum();
 	if( fireDef.AimType() != AI_WEAPON_AIM_TYPE_DROP ) {
 		Vec3 traceEnd( newLookDir );
 		traceEnd *= 999999.0f;
@@ -213,7 +238,10 @@ bool Bot::TryTraceShot( trace_t *tr, const Vec3 &newLookDir, const AimParams &ai
 	return ( stopEvents & ( AiTrajectoryPredictor::HIT_SOLID | AiTrajectoryPredictor::HIT_ENTITY ) ) != 0;
 }
 
-bool Bot::CheckSplashTeamDamage( const vec3_t hitOrigin, const AimParams &aimParams, const GenericFireDef &fireDef ) {
+bool BotWeaponsUsageModule::CheckSplashTeamDamage( const vec3_t hitOrigin
+												 , const AimParams &aimParams
+												 , const GenericFireDef &fireDef ) {
+	edict_t *const self = game.edicts + bot->EntNum();
 	// TODO: Predict actual teammates origins at the moment of explosion
 	// (it requires a coarse physics simulation and collision tests)
 
@@ -251,10 +279,10 @@ bool Bot::CheckSplashTeamDamage( const vec3_t hitOrigin, const AimParams &aimPar
 	return true;
 }
 
-bool Bot::IsShotBlockedBySolidWall( trace_t *tr,
-									float distanceThreshold,
-									const AimParams &aimParams,
-									const GenericFireDef &fireDef ) {
+bool BotWeaponsUsageModule::IsShotBlockedBySolidWall( trace_t *tr
+													, float distanceThreshold
+													, const AimParams &aimParams
+													, const GenericFireDef &fireDef ) {
 	AimParams adjustedParams;
 	memcpy( &adjustedParams, &aimParams, sizeof( AimParams ) );
 
@@ -284,10 +312,9 @@ bool Bot::IsShotBlockedBySolidWall( trace_t *tr,
 	return DistanceSquared( tr->endpos, aimParams.fireTarget ) > distanceThreshold * distanceThreshold;
 }
 
-bool Bot::CheckShot( const AimParams &aimParams,
-					 const BotInput *input,
-					 const SelectedEnemies &selectedEnemies_,
-					 const GenericFireDef &fireDef ) {
+bool BotWeaponsUsageModule::CheckShot( const AimParams &aimParams
+									 , const BotInput *input
+									 , const GenericFireDef &fireDef ) {
 	// Convert modified angles to direction back (due to limited view speed it rarely will match given direction)
 	Vec3 newLookDir( 0, 0, 0 );
 	AngleVectors( input->AlreadyComputedAngles().Data(), newLookDir.Data(), nullptr, nullptr );
@@ -320,6 +347,7 @@ bool Bot::CheckShot( const AimParams &aimParams,
 
 	float hitToBotDist = std::numeric_limits<float>::max();
 	if( tr.fraction != 1.0f ) {
+		const edict_t *self = game.edicts + bot->EntNum();
 		// Do a generic check for team damage
 		if( ( game.edicts[tr.ent].s.team == self->s.team ) && GS_TeamBasedGametype() && g_allow_teamdamage->integer ) {
 			return false;
@@ -343,7 +371,7 @@ bool Bot::CheckShot( const AimParams &aimParams,
 		}
 
 		float testedSplashRadius = 0.5f * fireDef.SplashRadius();
-		if( !this->ShouldKeepXhairOnEnemy() ) {
+		if( !bot->ShouldKeepXhairOnEnemy() ) {
 			testedSplashRadius *= 1.5f;
 		}
 		return DistanceSquared( tr.endpos, aimParams.fireTarget ) < testedSplashRadius * testedSplashRadius;
@@ -366,7 +394,7 @@ bool Bot::CheckShot( const AimParams &aimParams,
 		if( fireDef.IsBuiltin() ) {
 			// Put very low restrictions on PG since spammy fire style is even adviced.
 			if( fireDef.WeaponNum() == WEAP_PLASMAGUN ) {
-				return toTargetDotLookDir > ( ( this->ShouldKeepXhairOnEnemy() ) ? 0.85f : 0.70f );
+				return toTargetDotLookDir > ( ( bot->ShouldKeepXhairOnEnemy() ) ? 0.85f : 0.70f );
 			}
 
 			if( fireDef.WeaponNum() == WEAP_SHOCKWAVE ) {
@@ -374,7 +402,7 @@ bool Bot::CheckShot( const AimParams &aimParams,
 				// Shockwave requires rather precise directional aiming on long range
 				if( squareDistance > 128.0f * 128.0f ) {
 					const float distanceFactor = BoundedFraction( SQRTFAST( squareDistance ), 1024.0f );
-					if( this->ShouldKeepXhairOnEnemy() ) {
+					if( bot->ShouldKeepXhairOnEnemy() ) {
 						return toTargetDotLookDir > 0.9f + 0.09f * distanceFactor;
 					}
 					return toTargetDotLookDir > 0.9f + 0.05f * distanceFactor;
@@ -398,7 +426,7 @@ bool Bot::CheckShot( const AimParams &aimParams,
 			}
 		}
 
-		return toTargetDotLookDir > ( ( this->ShouldKeepXhairOnEnemy() ) ? 0.95f : 0.90f );
+		return toTargetDotLookDir > ( ( bot->ShouldKeepXhairOnEnemy() ) ? 0.95f : 0.90f );
 	}
 
 	// Trajectory prediction is not accurate, also this adds some randomization in grenade spamming.
@@ -415,13 +443,13 @@ bool Bot::CheckShot( const AimParams &aimParams,
 		}
 
 		float testedSplashRadius = fireDef.SplashRadius();
-		if( !this->ShouldKeepXhairOnEnemy() ) {
+		if( !bot->ShouldKeepXhairOnEnemy() ) {
 			testedSplashRadius *= 1.25f;
 		}
 		return DistanceSquared( tr.endpos, aimParams.fireTarget ) < testedSplashRadius * testedSplashRadius;
 	}
 
-	if( fireDef.IsBuiltin() && this->ShouldKeepXhairOnEnemy() ) {
+	if( fireDef.IsBuiltin() && bot->ShouldKeepXhairOnEnemy() ) {
 		// For one-shot instant-hit weapons each shot is important, so check against a player bounding box
 		// This is an extra hack for EB/IG, otherwise they miss too lot due to premature firing
 		if( fireDef.WeaponNum() == WEAP_ELECTROBOLT || fireDef.WeaponNum() == WEAP_INSTAGUN ) {
@@ -441,9 +469,9 @@ bool Bot::CheckShot( const AimParams &aimParams,
 				absMins += playerbox_stand_mins;
 				absMaxs += playerbox_stand_maxs;
 
-				float factor = ( 1.0f - 0.75f * Skill() );
-				if( this->ShouldKeepXhairOnEnemy() ) {
-					factor *= 1.0f - 0.75 * Skill();
+				float factor = ( 1.0f - 0.75f * bot->Skill() );
+				if( bot->ShouldKeepXhairOnEnemy() ) {
+					factor *= 1.0f - 0.75 * bot->Skill();
 				}
 
 				float radius = 1.0f + factor * 64.0f;
@@ -460,13 +488,48 @@ bool Bot::CheckShot( const AimParams &aimParams,
 	float dotThreshold = 0.97f;
 	if( fireDef.IsBuiltin() ) {
 		if( fireDef.WeaponNum() == WEAP_LASERGUN || fireDef.WeaponNum() == WEAP_RIOTGUN ) {
-			dotThreshold -= ( this->ShouldKeepXhairOnEnemy() ) ? 0.10f : 0.20f;
+			dotThreshold -= ( bot->ShouldKeepXhairOnEnemy() ) ? 0.10f : 0.20f;
 		}
 	} else {
-		if( !this->ShouldKeepXhairOnEnemy() ) {
+		if( !bot->ShouldKeepXhairOnEnemy() ) {
 			dotThreshold -= 0.03f;
 		}
 	}
 
 	return toTargetDotLookDir >= dotThreshold;
+}
+
+void BotWeaponsUsageModule::SetSelectedWeapons( int builtinWeapon, int scriptWeapon,
+												bool preferBuiltinWeapon, unsigned timeoutPeriod ) {
+	selectedWeapons.hasSelectedBuiltinWeapon = false;
+	selectedWeapons.hasSelectedScriptWeapon = false;
+	if( builtinWeapon >= 0 ) {
+		const auto *weaponDef = GS_GetWeaponDef( builtinWeapon );
+		const auto *fireDef = &weaponDef->firedef;
+		// TODO: We avoid issues with blade attack until melee aim style handling is introduced
+		if( builtinWeapon != WEAP_GUNBLADE ) {
+			const auto *inventory = bot->PlayerState()->inventory;
+			// If there is no strong ammo but there is some weak ammo
+			if( !inventory[builtinWeapon + WEAP_TOTAL] ) {
+				static_assert( AMMO_WEAK_GUNBLADE > AMMO_GUNBLADE, "" );
+				if( inventory[builtinWeapon + WEAP_TOTAL + ( AMMO_WEAK_GUNBLADE - AMMO_GUNBLADE )] ) {
+					fireDef = &weaponDef->firedef_weak;
+				}
+			}
+		}
+		selectedWeapons.builtinFireDef = GenericFireDef( builtinWeapon, fireDef );
+		selectedWeapons.hasSelectedBuiltinWeapon = true;
+	}
+	if( scriptWeapon >= 0 ) {
+		selectedWeapons.scriptFireDef = GenericFireDef( scriptWeapon, &scriptWeaponDefs[scriptWeapon] );
+		selectedWeapons.hasSelectedScriptWeapon = true;
+	}
+	selectedWeapons.instanceId++;
+	selectedWeapons.preferBuiltinWeapon = preferBuiltinWeapon;
+	selectedWeapons.timeoutAt = level.time + timeoutPeriod;
+}
+
+void BotWeaponSelector::SetSelectedWeapons( int builtinWeapon, int scriptWeapon,
+											bool preferBuiltinWeapon, unsigned timeoutPeriod ) {
+	bot->weaponsUsageModule.SetSelectedWeapons( builtinWeapon, scriptWeapon, preferBuiltinWeapon, timeoutPeriod );
 }

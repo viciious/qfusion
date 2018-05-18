@@ -8,8 +8,7 @@
 #include "vec3.h"
 
 #include "movement/bot_movement.h"
-#include "combat/WeaponSelector.h"
-#include "combat/FireTargetCache.h"
+#include "combat/WeaponsUsageModule.h"
 #include "planning/TacticalSpotsCache.h"
 #include "awareness/ThreatTracker.h"
 #include "planning/RoamingManager.h"
@@ -100,6 +99,7 @@ class Bot : public Ai
 	friend class BotFireTargetCache;
 	friend class BotItemsSelector;
 	friend class BotWeaponSelector;
+	friend class BotWeaponsUsageModule;
 	friend class BotRoamingManager;
 	friend class TacticalSpotsRegistry;
 	friend class BotNavMeshQueryCache;
@@ -161,6 +161,12 @@ public:
 
 	// Should be preferred instead of use of Self() that is deprecated and will be removed
 	int EntNum() const { return ENTNUM( self ); }
+
+	const player_state_t *PlayerState() const { return &self->r.client->ps; }
+	player_state_t *PlayerState() { return &self->r.client->ps; }
+
+	const float *Origin() const { return self->s.origin; }
+	const float *Velocity() const { return self->velocity; }
 
 	inline float Skill() const { return skillLevel; }
 	inline bool IsReady() const { return level.ready[PLAYERNUM( self )]; }
@@ -335,7 +341,7 @@ protected:
 	virtual void PreFrame() override {
 		// We should update weapons status each frame since script weapons may be changed each frame.
 		// These statuses are used by firing methods, so actual weapon statuses are required.
-		UpdateScriptWeaponsStatus();
+		weaponsUsageModule.UpdateScriptWeaponsStatus();
 	}
 
 	virtual void SetFrameAffinity( unsigned modulo, unsigned offset ) override {
@@ -367,16 +373,12 @@ private:
 
 	SelectedEnemies selectedEnemies;
 	SelectedEnemies lostEnemies;
-	SelectedWeapons selectedWeapons;
 	SelectedMiscTactics selectedTactics;
 
-	BotWeaponSelector weaponsSelector;
+	BotWeaponsUsageModule weaponsUsageModule;
 
 	BotTacticalSpotsCache tacticalSpotsCache;
 	BotRoamingManager roamingManager;
-
-	BotFireTargetCache builtinFireTargetCache;
-	BotFireTargetCache scriptFireTargetCache;
 
 	BotGrabItemGoal grabItemGoal;
 	BotKillEnemyGoal killEnemyGoal;
@@ -482,11 +484,6 @@ private:
 
 	void CheckAlertSpots( const StaticVector<uint16_t, MAX_CLIENTS> &visibleTargets );
 
-	static constexpr unsigned MAX_SCRIPT_WEAPONS = 3;
-
-	StaticVector<AiScriptWeaponDef, MAX_SCRIPT_WEAPONS> scriptWeaponDefs;
-	StaticVector<int, MAX_SCRIPT_WEAPONS> scriptWeaponCooldown;
-
 	int64_t lastTouchedTeleportAt;
 	int64_t lastTouchedJumppadAt;
 	int64_t lastTouchedElevatorAt;
@@ -512,27 +509,6 @@ private:
 
 		return level.time - noItemAvailableSince > 3000;
 	}
-
-	class AimingRandomHolder
-	{
-		int64_t valuesTimeoutAt[3];
-		float values[3];
-
-public:
-		inline AimingRandomHolder() {
-			std::fill_n( valuesTimeoutAt, 3, 0 );
-			std::fill_n( values, 3, 0.5f );
-		}
-		inline float GetCoordRandom( int coordNum ) {
-			if( valuesTimeoutAt[coordNum] <= level.time ) {
-				values[coordNum] = random();
-				valuesTimeoutAt[coordNum] = level.time + 128 + From0UpToMax( 256, random() );
-			}
-			return values[coordNum];
-		}
-	};
-
-	AimingRandomHolder aimingRandomHolder;
 
 	class KeptInFovPoint
 	{
@@ -635,14 +611,10 @@ public:
 
 	void UpdateKeptInFovPoint();
 
-	void UpdateScriptWeaponsStatus();
-
 	void MovementFrame( BotInput *input );
 	void CheckGroundPlatform();
 	bool CanChangeWeapons() const;
 	void ChangeWeapons( const SelectedWeapons &selectedWeapons_ );
-	void ChangeWeapon( int weapon );
-	void FireWeapon( BotInput *input );
 	virtual void OnBlockedTimeout() override;
 	void SayVoiceMessages();
 	void GhostingFrame();
@@ -661,27 +633,6 @@ public:
 	inline void TurnInputToSide( vec3_t sideDir, int sign, BotInput *input, BotMovementPredictionContext *context = nullptr );
 
 	inline bool TryRotateInput( BotInput *input, BotMovementPredictionContext *context = nullptr );
-
-	// Returns true if current look angle worth pressing attack
-	bool CheckShot( const AimParams &aimParams, const BotInput *input,
-					const SelectedEnemies &selectedEnemies, const GenericFireDef &fireDef );
-
-	bool TryTraceShot( trace_t *tr, const Vec3 &newLookDir,
-					   const AimParams &aimParams,
-					   const GenericFireDef &fireDef );
-
-	bool CheckSplashTeamDamage( const vec3_t hitOrigin, const AimParams &aimParams, const GenericFireDef &fireDef );
-
-	// A helper to determine whether continuous-fire weapons should be fired even if there is an obstacle in-front.
-	// Should be called if a TryTraceShot() call has set non-unit fraction.
-	bool IsShotBlockedBySolidWall( trace_t *tr,
-								   float distanceThreshold,
-								   const AimParams &aimParams,
-								   const GenericFireDef &fireDef );
-
-	void LookAtEnemy( float coordError, const vec3_t fire_origin, vec3_t target, BotInput *input );
-	void PressAttack( const GenericFireDef *fireDef, const GenericFireDef *builtinFireDef,
-					  const GenericFireDef *scriptFireDef, BotInput *input );
 
 	inline bool HasEnemy() const { return selectedEnemies.AreValid(); }
 	/*

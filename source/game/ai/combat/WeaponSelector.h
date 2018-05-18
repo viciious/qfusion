@@ -51,6 +51,7 @@ public:
 
 class SelectedWeapons
 {
+	friend class BotWeaponsUsageModule;
 	friend class BotWeaponSelector;
 	friend class Bot;
 
@@ -298,12 +299,11 @@ public:
 	float ComputeThreatFactor( const edict_t *ent, int enemyNum = -1 ) const;
 };
 
+class Bot;
+
 class BotWeaponSelector
 {
-	edict_t *self;
-
-	SelectedWeapons &selectedWeapons;
-	const SelectedEnemies &selectedEnemies;
+	Bot *const bot;
 
 	float weaponChoiceRandom;
 	int64_t weaponChoiceRandomTimeoutAt;
@@ -312,17 +312,12 @@ class BotWeaponSelector
 	const unsigned weaponChoicePeriod;
 
 public:
-	BotWeaponSelector( edict_t *self_,
-					   const SelectedEnemies &selectedEnemies_,
-					   SelectedWeapons &selectedWeapons_,
-					   unsigned weaponChoicePeriod_ )
-		: self( self_ ),
-		selectedWeapons( selectedWeapons_ ),
-		selectedEnemies( selectedEnemies_ ),
-		weaponChoiceRandom( 0.5f ),
-		weaponChoiceRandomTimeoutAt( 0 ),
-		nextFastWeaponSwitchActionCheckAt( 0 ),
-		weaponChoicePeriod( weaponChoicePeriod_ ) {
+	BotWeaponSelector( Bot *bot_, unsigned weaponChoicePeriod_ )
+		: bot( bot_ )
+		, weaponChoiceRandom( 0.5f )
+		, weaponChoiceRandomTimeoutAt( 0 )
+		, nextFastWeaponSwitchActionCheckAt( 0 )
+		, weaponChoicePeriod( weaponChoicePeriod_ ) {
 		// Shut an analyzer up
 		memset( &targetEnvironment, 0, sizeof( TargetEnvironment ) );
 	}
@@ -332,49 +327,35 @@ public:
 
 private:
 #ifndef _MSC_VER
-	inline void Debug( const char *format, ... ) const __attribute__( ( format( printf, 2, 3 ) ) )
+	inline void Debug( const char *format, ... ) const __attribute__( ( format( printf, 2, 3 ) ) );
 #else
-	inline void Debug( _Printf_format_string_ const char *format, ... ) const
+	inline void Debug( _Printf_format_string_ const char *format, ... ) const;
 #endif
-	{
-		va_list va;
-		va_start( va, format );
-		AI_Debugv( self->r.client->netname, format, va );
-		va_end( va );
-	}
 
-	inline bool BotHasQuad() const { return ::HasQuad( self ); }
-	inline bool BotHasShell() const { return ::HasShell( self ); }
-	inline bool BotHasPowerups() const { return ::HasPowerups( self ); }
-	inline bool BotIsCarrier() const { return ::IsCarrier( self ); }
+	// All these method cannot be defined in this header as there is a cyclic dependency with bot.h
+
+	inline bool BotHasQuad() const;
+	inline bool BotHasShell() const;
+	inline bool BotHasPowerups() const;
+	inline bool BotIsCarrier() const;
 
 	inline float DamageToKill( const edict_t *client ) const {
 		return ::DamageToKill( client, g_armor_protection->value, g_armor_degradation->value );
 	}
 
-	inline const int *Inventory() const { return self->r.client->ps.inventory; }
+	inline const int *Inventory() const;
 
-	template <int Weapon>
-	inline int AmmoReadyToFireCount() const {
-		if( !Inventory()[Weapon] ) {
-			return 0;
-		}
-		return Inventory()[WeaponAmmo < Weapon > ::strongAmmoTag] + Inventory()[WeaponAmmo < Weapon > ::weakAmmoTag];
-	}
+	template <int Weapon> inline int AmmoReadyToFireCount() const;
 
-	inline int BlastsReadyToFireCount() const {
-		// Check only strong ammo, the weak ammo enables blade attack
-		return Inventory()[AMMO_GUNBLADE];
-	}
-
-	inline int ShellsReadyToFireCount() const { return AmmoReadyToFireCount<WEAP_RIOTGUN>(); }
-	inline int GrenadesReadyToFireCount() const { return AmmoReadyToFireCount<WEAP_GRENADELAUNCHER>(); }
-	inline int RocketsReadyToFireCount() const { return AmmoReadyToFireCount<WEAP_ROCKETLAUNCHER>(); }
-	inline int PlasmasReadyToFireCount() const { return AmmoReadyToFireCount<WEAP_PLASMAGUN>(); }
-	inline int BulletsReadyToFireCount() const { return AmmoReadyToFireCount<WEAP_MACHINEGUN>(); }
-	inline int LasersReadyToFireCount() const { return AmmoReadyToFireCount<WEAP_LASERGUN>(); }
-	inline int WavesReadyToFireCount() const { return AmmoReadyToFireCount<WEAP_SHOCKWAVE>(); }
-	inline int BoltsReadyToFireCount() const { return AmmoReadyToFireCount<WEAP_ELECTROBOLT>(); }
+	inline int BlastsReadyToFireCount() const;
+	inline int ShellsReadyToFireCount() const;
+	inline int GrenadesReadyToFireCount() const;
+	inline int RocketsReadyToFireCount() const;
+	inline int PlasmasReadyToFireCount() const;
+	inline int BulletsReadyToFireCount() const;
+	inline int LasersReadyToFireCount() const;
+	inline int WavesReadyToFireCount() const;
+	inline int BoltsReadyToFireCount() const;
 
 	bool CheckFastWeaponSwitchAction( const WorldState &worldState );
 
@@ -413,6 +394,9 @@ private:
 	void TestTargetEnvironment( const Vec3 &botOrigin, const Vec3 &targetOrigin, const edict_t *traceKey );
 
 	void SetSelectedWeapons( int builtinWeapon, int scriptWeapon, bool preferBuiltinWeapon, unsigned timeoutPeriod );
+	void SetSelectedWeapons( int builtinWeapon, unsigned timeoutPeriod ) {
+		SetSelectedWeapons( builtinWeapon, -1, true, timeoutPeriod );
+	}
 };
 
 #endif

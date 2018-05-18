@@ -24,11 +24,9 @@ Bot::Bot( edict_t *self_, float skillLevel_ )
 	, skillLevel( skillLevel_ )
 	, selectedEnemies( self_ )
 	, lostEnemies( self_ )
-	, weaponsSelector( self_, selectedEnemies, selectedWeapons, 600 - From0UpToMax( 300, skillLevel_ ) )
+	, weaponsUsageModule( this )
 	, tacticalSpotsCache( self_ )
 	, roamingManager( self_ )
-	, builtinFireTargetCache( self_ )
-	, scriptFireTargetCache( self_ )
 	, grabItemGoal( this )
 	, killEnemyGoal( this )
 	, runAwayGoal( this )
@@ -642,10 +640,6 @@ void Bot::ChangeWeapons( const SelectedWeapons &selectedWeapons_ ) {
 	}
 }
 
-void Bot::ChangeWeapon( int weapon ) {
-	self->r.client->ps.stats[STAT_PENDING_WEAPON] = weapon;
-}
-
 //==========================================
 // BOT_DMclass_VSAYmessages
 //==========================================
@@ -756,7 +750,6 @@ void Bot::OnBlockedTimeout() {
 //==========================================
 void Bot::GhostingFrame() {
 	selectedEnemies.Invalidate();
-	selectedWeapons.Invalidate();
 
 	lastChosenLostOrHiddenEnemy = nullptr;
 
@@ -832,9 +825,10 @@ void Bot::Think() {
 
 	UpdateKeptInFovPoint();
 
+	// TODO: Let the weapons usage module decide?
 	if( CanChangeWeapons() ) {
-		weaponsSelector.Think( botPlanner.cachedWorldState );
-		ChangeWeapons( selectedWeapons );
+		weaponsUsageModule.Think( botPlanner.cachedWorldState );
+		ChangeWeapons( weaponsUsageModule.GetSelectedWeapons() );
 	}
 }
 
@@ -866,7 +860,7 @@ void Bot::ActiveFrame() {
 	// Same as for the perception manager
 	threatTracker.Update();
 
-	weaponsSelector.Frame( botPlanner.cachedWorldState );
+	weaponsUsageModule.Frame( botPlanner.cachedWorldState );
 
 	BotInput botInput;
 	// Might modify botInput
@@ -875,7 +869,7 @@ void Bot::ActiveFrame() {
 	MovementFrame( &botInput );
 	// Might modify botInput
 	if( ShouldAttack() ) {
-		FireWeapon( &botInput );
+		weaponsUsageModule.TryFire( &botInput );
 	}
 
 	// Apply modified botInput

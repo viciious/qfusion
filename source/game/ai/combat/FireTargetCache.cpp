@@ -234,9 +234,10 @@ bool BotFireTargetCache::AdjustTargetByEnvironmentTracing( const SelectedEnemies
 		Vec3 groundPoint( aimParams->fireTarget );
 		groundPoint.Z() += playerbox_stand_maxs[2];
 		// Check whether shot to this point is not blocked
-		G_Trace( &trace, firePoint, nullptr, nullptr, groundPoint.Data(), const_cast<edict_t*>( bot ), MASK_AISOLID );
+		edict_t *self = game.edicts + bot->EntNum();
+		G_Trace( &trace, firePoint, nullptr, nullptr, groundPoint.Data(), self, MASK_AISOLID );
 		if( trace.fraction > 0.999f || selectedEnemies.TraceKey() == game.edicts + trace.ent ) {
-			float skill = bot->ai->botRef->Skill();
+			float skill = bot->Skill();
 			// For mid-skill bots it may be enough. Do not waste cycles.
 			if( skill < 0.66f && random() < ( 1.0f - skill ) ) {
 				aimParams->fireTarget[2] += playerbox_stand_mins[2];
@@ -270,7 +271,8 @@ bool BotFireTargetCache::AdjustTargetByEnvironmentTracing( const SelectedEnemies
 			// trace.endpos will be overwritten
 			Vec3 pointBehind( trace.endpos );
 			// Check whether shot to this point is not blocked
-			G_Trace( &trace, firePoint, nullptr, nullptr, pointBehind.Data(), const_cast<edict_t*>( bot ), MASK_AISOLID );
+			edict_t *self = game.edicts + bot->EntNum();
+			G_Trace( &trace, firePoint, nullptr, nullptr, pointBehind.Data(), self, MASK_AISOLID );
 			if( trace.fraction > 0.999f || selectedEnemies.TraceKey() == game.edicts + trace.ent ) {
 				minSqDistance = sqDistance;
 				VectorCopy( pointBehind.Data(), nearestPoint );
@@ -302,7 +304,7 @@ bool BotFireTargetCache::AdjustTargetByEnvironmentWithAAS( const SelectedEnemies
 	// We assume that FindClosestAreasFacesPoints() returns a sorted array where closest points are first
 	for( const PointAndDistance &pointAndDistance: closestAreaFacePoints ) {
 		float *traceEnd = const_cast<float*>( pointAndDistance.point.Data() );
-		edict_t *passent = const_cast<edict_t*>( bot );
+		edict_t *passent = game.edicts + bot->EntNum();
 		G_Trace( &trace, aimParams->fireOrigin, nullptr, nullptr, traceEnd, passent, MASK_AISOLID );
 
 		if( trace.fraction > 0.999f || selectedEnemies.TraceKey() == game.edicts + trace.ent ) {
@@ -346,7 +348,7 @@ void BotFireTargetCache::AdjustPredictionExplosiveAimTypeParams( const SelectedE
 		cachedFireTarget.origin = Vec3( aimParams->fireTarget );
 	}
 	// Accuracy for air rockets is worse anyway (movement prediction in gravity field is approximate)
-	aimParams->suggestedBaseCoordError = 1.3f * ( 1.01f - bot->ai->botRef->Skill() ) * GENERIC_PROJECTILE_COORD_AIM_ERROR;
+	aimParams->suggestedBaseCoordError = 1.3f * ( 1.01f - bot->Skill() ) * GENERIC_PROJECTILE_COORD_AIM_ERROR;
 }
 
 
@@ -358,7 +360,7 @@ void BotFireTargetCache::AdjustPredictionAimTypeParams( const SelectedEnemies &s
 	if( fireDef.IsBuiltin() ) {
 		switch( fireDef.WeaponNum() ) {
 			case WEAP_PLASMAGUN:
-				aimParams->suggestedBaseCoordError *= 0.5f * ( 1.0f - bot->ai->botRef->Skill() );
+				aimParams->suggestedBaseCoordError *= 0.5f * ( 1.0f - bot->Skill() );
 				break;
 			case WEAP_ELECTROBOLT:
 				// Do not apply any error in this case (set it to some very low feasible value)
@@ -404,7 +406,7 @@ void BotFireTargetCache::AdjustDropAimTypeParams( const SelectedEnemies &selecte
 	}
 
 	// This kind of weapons is not precise by its nature, do not add any more noise.
-	aimParams->suggestedBaseCoordError = 0.3f * ( 1.01f - bot->ai->botRef->Skill() ) * GENERIC_PROJECTILE_COORD_AIM_ERROR;
+	aimParams->suggestedBaseCoordError = 0.3f * ( 1.01f - bot->Skill() ) * GENERIC_PROJECTILE_COORD_AIM_ERROR;
 }
 
 void BotFireTargetCache::AdjustInstantAimTypeParams( const SelectedEnemies &selectedEnemies,
@@ -416,7 +418,7 @@ void BotFireTargetCache::AdjustInstantAimTypeParams( const SelectedEnemies &sele
 void BotFireTargetCache::SetupCoarseFireTarget( const SelectedEnemies &selectedEnemies,
 												const GenericFireDef &fireDef,
 												vec_t *fire_origin, vec_t *target ) {
-	const float skill = bot->ai->botRef->Skill();
+	const float skill = bot->Skill();
 	// For hard bots use actual enemy origin
 	// (last seen one may be outdated up to 3 frames, and it matter a lot for fast-moving enemies)
 	if( skill < 0.66f ) {
@@ -477,9 +479,11 @@ void BotFireTargetCache::SetupCoarseFireTarget( const SelectedEnemies &selectedE
 		VectorMA( target, extrapolationTimeSeconds, velocity, target );
 	}
 
-	fire_origin[0] = bot->s.origin[0];
-	fire_origin[1] = bot->s.origin[1];
-	fire_origin[2] = bot->s.origin[2] + bot->viewheight;
+	const edict_t *self = game.edicts + bot->EntNum();
+
+	fire_origin[0] = self->s.origin[0];
+	fire_origin[1] = self->s.origin[1];
+	fire_origin[2] = self->s.origin[2] + self->viewheight;
 }
 
 // This is a port of public domain projectile prediction code by Kain Shin
@@ -540,7 +544,7 @@ bool PredictProjectileNoClip( const Vec3 &fireOrigin, float projectileSpeed, vec
 void BotFireTargetCache::GetPredictedTargetOrigin( const SelectedEnemies &selectedEnemies,
 												   const SelectedWeapons &selectedWeapons,
 												   float projectileSpeed, AimParams *aimParams ) {
-	if( bot->ai->botRef->Skill() < 0.33f || selectedEnemies.IsStaticSpot() ) {
+	if( bot->Skill() < 0.33f || selectedEnemies.IsStaticSpot() ) {
 		return;
 	}
 
@@ -698,7 +702,7 @@ void BotFireTargetCache::PredictProjectileShot( const SelectedEnemies &selectedE
 														   selectedEnemies.TraceKey(),
 														   projectileSpeed );
 
-		if( !predictor.Run( predictionParams, bot->ai->botRef->Skill(), aimParams->fireTarget ) ) {
+		if( !predictor.Run( predictionParams, bot->Skill(), aimParams->fireTarget ) ) {
 			TryAimingAtGround( &trace, aimParams, traceKey );
 		}
 		return;
