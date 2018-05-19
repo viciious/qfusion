@@ -1826,7 +1826,7 @@ int TacticalSpotsRegistry::FindClosestToTargetWalkableSpot( const OriginParams &
 	const int originAreaNum = originParams.originAreaNum;
 	const int allowedFlags = originParams.allowedTravelFlags;
 	const int preferredFlags = originParams.preferredTravelFlags;
-	constexpr int fallbackTravelFlags = BotGenericGroundMovementFallback::TRAVEL_FLAGS;
+	constexpr int fallbackTravelFlags = GenericGroundMovementFallback::TRAVEL_FLAGS;
 
 	// Assume that max allowed travel time to spot does not exceed travel time required to cover the search radius
 	const int maxTravelTimeToSpotWalking = (int)( originParams.searchRadius * 3.0f );

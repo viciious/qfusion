@@ -117,32 +117,31 @@ class Bot : public Ai
 	friend class BotTacticalSpotsCache;
 	friend class WorldState;
 	friend struct BotMovementState;
-	friend class BotMovementPredictionContext;
-	friend class BotBaseMovementAction;
-	friend class BotDummyMovementAction;
-	friend class BotMoveOnLadderMovementAction;
-	friend class BotHandleTriggeredJumppadMovementAction;
-	friend class BotLandOnSavedAreasMovementAction;
-	friend class BotRidePlatformMovementAction;
-	friend class BotSwimMovementAction;
-	friend class BotFlyUntilLandingMovementAction;
-	friend class BotCampASpotMovementAction;
-	friend class BotWalkCarefullyMovementAction;
-	friend class BotGenericRunBunnyingMovementAction;
-	friend class BotBunnyStraighteningReachChainMovementAction;
-	friend class BotBunnyToBestShortcutAreaMovementAction;
-	friend class BotBunnyToBestFloorClusterPointMovementAction;
-	friend class BotBunnyInterpolatingReachChainMovementAction;
-	friend class BotWalkOrSlideInterpolatingReachChainMovementAction;
-	friend class BotCombatDodgeSemiRandomlyToTargetMovementAction;
+	friend class MovementPredictionContext;
+	friend class BaseMovementAction;
+	friend class FallbackMovementAction;
+	friend class HandleTriggeredJumppadAction;
+	friend class LandOnSavedAreasAction;
+	friend class RidePlatformAction;
+	friend class SwimMovementAction;
+	friend class FlyUntilLandingAction;
+	friend class CampASpotMovementAction;
+	friend class WalkCarefullyAction;
+	friend class GenericRunBunnyingAction;
+	friend class BunnyStraighteningReachChainAction;
+	friend class BunnyToBestShortcutAreaAction;
+	friend class BunnyToBestFloorClusterPointAction;
+	friend class BunnyInterpolatingReachChainAction;
+	friend class WalkOrSlideInterpolatingReachChainAction;
+	friend class CombatDodgeSemiRandomlyToTargetAction;
 
-	friend class BotGenericGroundMovementFallback;
-	friend class BotUseWalkableNodeMovementFallback;
-	friend class BotUseRampExitMovementFallback;
-	friend class BotUseStairsExitMovementFallback;
-	friend class BotUseWalkableTriggerMovementFallback;
-	friend class BotFallDownMovementFallback;
-	friend class BotJumpOverBarrierMovementFallback;
+	friend class GenericGroundMovementFallback;
+	friend class UseWalkableNodeFallback;
+	friend class UseRampExitFallback;
+	friend class UseStairsExitFallback;
+	friend class UseWalkableTriggerFallback;
+	friend class FallDownFallback;
+	friend class JumpOverBarrierFallback;
 
 	friend class CachedTravelTimesMatrix;
 public:
@@ -329,7 +328,7 @@ public:
 		return entityPhysicsState;
 	}
 
-	bool TestWhetherCanSafelyKeepHighSpeed( BotMovementPredictionContext *context = nullptr );
+	bool TestWhetherCanSafelyKeepHighSpeed( MovementPredictionContext *context = nullptr );
 
 	// The movement code should use this method if there really are no
 	// feasible ways to continue traveling to the nav target.
@@ -422,37 +421,37 @@ private:
 	BotStopLostEnemyPursuitAction stopLostEnemyPursuitAction;
 
 	// Must be initialized before any of movement actions constructors is called
-	StaticVector<BotBaseMovementAction *, 16> movementActions;
+	StaticVector<BaseMovementAction *, 16> movementActions;
 
-	BotDummyMovementAction dummyMovementAction;
-	BotHandleTriggeredJumppadMovementAction handleTriggeredJumppadMovementAction;
-	BotLandOnSavedAreasMovementAction landOnSavedAreasSetMovementAction;
-	BotRidePlatformMovementAction ridePlatformMovementAction;
-	BotSwimMovementAction swimMovementAction;
-	BotFlyUntilLandingMovementAction flyUntilLandingMovementAction;
-	BotCampASpotMovementAction campASpotMovementAction;
-	BotWalkCarefullyMovementAction walkCarefullyMovementAction;
-	BotBunnyStraighteningReachChainMovementAction bunnyStraighteningReachChainMovementAction;
-	BotBunnyToBestShortcutAreaMovementAction bunnyToBestShortcutAreaMovementAction;
-	BotBunnyToBestFloorClusterPointMovementAction bunnyToBestFloorClusterPointMovementAction;
-	BotBunnyInterpolatingReachChainMovementAction bunnyInterpolatingReachChainMovementAction;
-	BotWalkOrSlideInterpolatingReachChainMovementAction walkOrSlideInterpolatingReachChainMovementAction;
-	BotCombatDodgeSemiRandomlyToTargetMovementAction combatDodgeSemiRandomlyToTargetMovementAction;
+	FallbackMovementAction fallbackMovementAction;
+	HandleTriggeredJumppadAction handleTriggeredJumppadAction;
+	LandOnSavedAreasAction landOnSavedAreasAction;
+	RidePlatformAction ridePlatformAction;
+	SwimMovementAction swimMovementAction;
+	FlyUntilLandingAction flyUntilLandingAction;
+	CampASpotMovementAction campASpotMovementAction;
+	WalkCarefullyAction walkCarefullyAction;
+	BunnyStraighteningReachChainAction bunnyStraighteningReachChainAction;
+	BunnyToBestShortcutAreaAction bunnyToBestShortcutAreaAction;
+	BunnyToBestFloorClusterPointAction bunnyToBestFloorClusterPointAction;
+	BunnyInterpolatingReachChainAction bunnyInterpolatingReachChainAction;
+	WalkOrSlideInterpolatingReachChainAction walkOrSlideInterpolatingReachChainAction;
+	CombatDodgeSemiRandomlyToTargetAction combatDodgeSemiRandomlyToTargetAction;
 
 	BotMovementState movementState;
 
-	BotMovementPredictionContext movementPredictionContext;
+	MovementPredictionContext movementPredictionContext;
 
-	BotUseWalkableNodeMovementFallback useWalkableNodeMovementFallback;
-	BotUseRampExitMovementFallback useRampExitMovementFallback;
-	BotUseStairsExitMovementFallback useStairsExitMovementFallback;
-	BotUseWalkableTriggerMovementFallback useWalkableTriggerMovementFallback;
+	UseWalkableNodeFallback useWalkableNodeFallback;
+	UseRampExitFallback useRampExitFallback;
+	UseStairsExitFallback useStairsExitFallback;
+	UseWalkableTriggerFallback useWalkableTriggerFallback;
 
-	BotJumpToSpotMovementFallback jumpToSpotMovementFallback;
-	BotFallDownMovementFallback fallDownMovementFallback;
-	BotJumpOverBarrierMovementFallback jumpOverBarrierMovementFallback;
+	JumpToSpotFallback jumpToSpotFallback;
+	FallDownFallback fallDownFallback;
+	JumpOverBarrierFallback jumpOverBarrierFallback;
 
-	BotMovementFallback *activeMovementFallback;
+	MovementFallback *activeMovementFallback;
 
 	int64_t vsayTimeout;
 
@@ -625,15 +624,15 @@ public:
 
 	void OnRespawn();
 
-	void ApplyPendingTurnToLookAtPoint( BotInput *input, BotMovementPredictionContext *context = nullptr ) const;
-	void ApplyInput( BotInput *input, BotMovementPredictionContext *context = nullptr );
+	void ApplyPendingTurnToLookAtPoint( BotInput *input, MovementPredictionContext *context = nullptr ) const;
+	void ApplyInput( BotInput *input, MovementPredictionContext *context = nullptr );
 
 	void CheckBlockingDueToInputRotation();
 
-	inline void InvertInput( BotInput *input, BotMovementPredictionContext *context = nullptr );
-	inline void TurnInputToSide( vec3_t sideDir, int sign, BotInput *input, BotMovementPredictionContext *context = nullptr );
+	inline void InvertInput( BotInput *input, MovementPredictionContext *context = nullptr );
+	inline void TurnInputToSide( vec3_t sideDir, int sign, BotInput *input, MovementPredictionContext *context = nullptr );
 
-	inline bool TryRotateInput( BotInput *input, BotMovementPredictionContext *context = nullptr );
+	inline bool TryRotateInput( BotInput *input, MovementPredictionContext *context = nullptr );
 
 	inline bool HasEnemy() const { return selectedEnemies.AreValid(); }
 	/*
@@ -649,7 +648,7 @@ public:
 	inline Vec3 EnemyMins() const { return selectedEnemies.Mins(); }
 	inline Vec3 EnemyMaxs() const { return selectedEnemies.Maxs(); }*/
 
-	static constexpr unsigned MAX_SAVED_AREAS = BotMovementPredictionContext::MAX_SAVED_LANDING_AREAS;
+	static constexpr unsigned MAX_SAVED_AREAS = MovementPredictionContext::MAX_SAVED_LANDING_AREAS;
 	StaticVector<int, MAX_SAVED_AREAS> savedLandingAreas;
 	StaticVector<int, MAX_SAVED_AREAS> savedPlatformAreas;
 

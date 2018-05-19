@@ -60,28 +60,28 @@ Bot::Bot( edict_t *self_, float skillLevel_ )
 	, turnToLostEnemyAction( this )
 	, startLostEnemyPursuitAction( this )
 	, stopLostEnemyPursuitAction( this )
-	, dummyMovementAction( this )
-	, handleTriggeredJumppadMovementAction( this )
-	, landOnSavedAreasSetMovementAction( this )
-	, ridePlatformMovementAction( this )
+	, fallbackMovementAction( this )
+	, handleTriggeredJumppadAction( this )
+	, landOnSavedAreasAction( this )
+	, ridePlatformAction( this )
 	, swimMovementAction( this )
-	, flyUntilLandingMovementAction( this )
+	, flyUntilLandingAction( this )
 	, campASpotMovementAction( this )
-	, walkCarefullyMovementAction( this )
-	, bunnyStraighteningReachChainMovementAction( this )
-	, bunnyToBestShortcutAreaMovementAction( this )
-	, bunnyToBestFloorClusterPointMovementAction( this )
-	, bunnyInterpolatingReachChainMovementAction( this )
-	, walkOrSlideInterpolatingReachChainMovementAction( this )
-	, combatDodgeSemiRandomlyToTargetMovementAction( this )
+	, walkCarefullyAction( this )
+	, bunnyStraighteningReachChainAction( this )
+	, bunnyToBestShortcutAreaAction( this )
+	, bunnyToBestFloorClusterPointAction( this )
+	, bunnyInterpolatingReachChainAction( this )
+	, walkOrSlideInterpolatingReachChainAction( this )
+	, combatDodgeSemiRandomlyToTargetAction( this )
 	, movementPredictionContext( self_ )
-	, useWalkableNodeMovementFallback( self_ )
-	, useRampExitMovementFallback( self_ )
-	, useStairsExitMovementFallback( self_ )
-	, useWalkableTriggerMovementFallback( self_ )
-	, jumpToSpotMovementFallback( self_ )
-	, fallDownMovementFallback( self_ )
-	, jumpOverBarrierMovementFallback( self_ )
+	, useWalkableNodeFallback( self_ )
+	, useRampExitFallback( self_ )
+	, useStairsExitFallback( self_ )
+	, useWalkableTriggerFallback( self_ )
+	, jumpToSpotFallback( self_ )
+	, fallDownFallback( self_ )
+	, jumpOverBarrierFallback( self_ )
 	, activeMovementFallback( nullptr )
 	, vsayTimeout( level.time + 10000 )
 	, lastTouchedTeleportAt( 0 )
@@ -118,7 +118,7 @@ Bot::~Bot() {
 	}
 }
 
-void Bot::ApplyPendingTurnToLookAtPoint( BotInput *botInput, BotMovementPredictionContext *context ) const {
+void Bot::ApplyPendingTurnToLookAtPoint( BotInput *botInput, MovementPredictionContext *context ) const {
 	BotPendingLookAtPointState *pendingLookAtPointState;
 	AiEntityPhysicsState *entityPhysicsState_;
 	unsigned frameTime;
@@ -152,7 +152,7 @@ void Bot::ApplyPendingTurnToLookAtPoint( BotInput *botInput, BotMovementPredicti
 	botInput->canOverridePitch = false;
 }
 
-void Bot::ApplyInput( BotInput *input, BotMovementPredictionContext *context ) {
+void Bot::ApplyInput( BotInput *input, MovementPredictionContext *context ) {
 	// It is legal (there are no enemies and no nav targets in some moments))
 	if( !input->isLookDirSet ) {
 		//const float *origin = entityPhysicsState ? entityPhysicsState->Origin() : self->s.origin;
@@ -185,7 +185,7 @@ void Bot::ApplyInput( BotInput *input, BotMovementPredictionContext *context ) {
 	}
 }
 
-bool Bot::TryRotateInput( BotInput *input, BotMovementPredictionContext *context ) {
+bool Bot::TryRotateInput( BotInput *input, MovementPredictionContext *context ) {
 
 	const float *botOrigin;
 	BotInputRotation *prevRotation;
@@ -270,7 +270,7 @@ static inline void SetupInputForTransition( BotInput *input, const edict_t *grou
 	}
 }
 
-inline void Bot::InvertInput( BotInput *input, BotMovementPredictionContext *context ) {
+inline void Bot::InvertInput( BotInput *input, MovementPredictionContext *context ) {
 	input->SetForwardMovement( -input->ForwardMovement() );
 	input->SetRightMovement( -input->RightMovement() );
 
@@ -301,7 +301,7 @@ inline void Bot::InvertInput( BotInput *input, BotMovementPredictionContext *con
 	input->SetForwardMovement( -1 );
 }
 
-void Bot::TurnInputToSide( vec3_t sideDir, int sign, BotInput *input, BotMovementPredictionContext *context ) {
+void Bot::TurnInputToSide( vec3_t sideDir, int sign, BotInput *input, MovementPredictionContext *context ) {
 	VectorScale( sideDir, sign, sideDir );
 
 	const edict_t *groundEntity;
@@ -475,6 +475,23 @@ bool Bot::HasJustPickedGoalItem() const {
 		return false;
 	}
 	return true;
+}
+
+void Bot::CheckTargetProximity() {
+	if( !NavTargetAasAreaNum() ) {
+		return;
+	}
+
+	if( !IsCloseToNavTarget( 128.0f ) ) {
+		return;
+	}
+
+	// Save the origin for the roaming manager to avoid its occasional modification in the code below
+	if( !TryReachNavTargetByProximity() ) {
+		return;
+	}
+
+	OnNavTargetTouchHandled();
 }
 
 const SelectedNavEntity &Bot::GetOrUpdateSelectedNavEntity() {
