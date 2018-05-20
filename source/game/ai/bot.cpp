@@ -4,7 +4,7 @@
 #include <algorithm>
 
 #ifndef _MSC_VER
-// Allow getting an address of not initialized yet field movementState.entityPhysicsState.
+// Allow getting an address of not initialized yet field movementModule.movementState.entityPhysicsState.
 // Saving this address for further use is legal, the field is not going to be used right now.
 #pragma GCC diagnostic push
 #pragma GCC diagnostic ignored "-Wuninitialized"
@@ -14,7 +14,7 @@ Bot::Bot( edict_t *self_, float skillLevel_ )
 	: Ai( self_
 		, &botPlanner
 		, AiAasRouteCache::NewInstance( &travelFlags[0] )
-		, &movementState.entityPhysicsState
+		, &movementModule.movementState.entityPhysicsState
 		, PREFERRED_TRAVEL_FLAGS
 		, ALLOWED_TRAVEL_FLAGS )
 	, weightConfig( self_ )
@@ -60,29 +60,7 @@ Bot::Bot( edict_t *self_, float skillLevel_ )
 	, turnToLostEnemyAction( this )
 	, startLostEnemyPursuitAction( this )
 	, stopLostEnemyPursuitAction( this )
-	, fallbackMovementAction( this )
-	, handleTriggeredJumppadAction( this )
-	, landOnSavedAreasAction( this )
-	, ridePlatformAction( this )
-	, swimMovementAction( this )
-	, flyUntilLandingAction( this )
-	, campASpotMovementAction( this )
-	, walkCarefullyAction( this )
-	, bunnyStraighteningReachChainAction( this )
-	, bunnyToBestShortcutAreaAction( this )
-	, bunnyToBestFloorClusterPointAction( this )
-	, bunnyInterpolatingReachChainAction( this )
-	, walkOrSlideInterpolatingReachChainAction( this )
-	, combatDodgeSemiRandomlyToTargetAction( this )
-	, movementPredictionContext( self_ )
-	, useWalkableNodeFallback( self_ )
-	, useRampExitFallback( self_ )
-	, useStairsExitFallback( self_ )
-	, useWalkableTriggerFallback( self_ )
-	, jumpToSpotFallback( self_ )
-	, fallDownFallback( self_ )
-	, jumpOverBarrierFallback( self_ )
-	, activeMovementFallback( nullptr )
+	, movementModule( this )
 	, vsayTimeout( level.time + 10000 )
 	, lastTouchedTeleportAt( 0 )
 	, lastTouchedJumppadAt( 0 )
@@ -93,9 +71,6 @@ Bot::Bot( edict_t *self_, float skillLevel_ )
 	, noItemAvailableSince( 0 )
 	, lastBlockedNavTargetReportedAt( 0 )
 	, keptInFovPoint( self_ )
-	, nextRotateInputAttemptAt( 0 )
-	, inputRotationBlockingTimer( 0 )
-	, lastInputRotationFailureAt( 0 )
 	, lastChosenLostOrHiddenEnemy( nullptr )
 	, lastChosenLostOrHiddenEnemyInstanceId( 0 )
 	, selectedNavEntity( nullptr, 0, 0, 0 )
@@ -118,256 +93,7 @@ Bot::~Bot() {
 	}
 }
 
-void Bot::ApplyPendingTurnToLookAtPoint( BotInput *botInput, MovementPredictionContext *context ) const {
-	BotPendingLookAtPointState *pendingLookAtPointState;
-	AiEntityPhysicsState *entityPhysicsState_;
-	unsigned frameTime;
-	if( context ) {
-		pendingLookAtPointState = &context->movementState->pendingLookAtPointState;
-		entityPhysicsState_ = &context->movementState->entityPhysicsState;
-		frameTime = context->predictionStepMillis;
-	} else {
-		pendingLookAtPointState = &self->ai->botRef->movementState.pendingLookAtPointState;
-		entityPhysicsState_ = &self->ai->botRef->movementState.entityPhysicsState;
-		frameTime = game.frametime;
-	}
 
-	if( !pendingLookAtPointState->IsActive() ) {
-		return;
-	}
-
-	const AiPendingLookAtPoint &pendingLookAtPoint = pendingLookAtPointState->pendingLookAtPoint;
-	Vec3 toPointDir( pendingLookAtPoint.Origin() );
-	toPointDir -= entityPhysicsState_->Origin();
-	toPointDir.NormalizeFast();
-
-	botInput->SetIntendedLookDir( toPointDir, true );
-	botInput->isLookDirSet = true;
-
-	float turnSpeedMultiplier = pendingLookAtPoint.TurnSpeedMultiplier();
-	Vec3 newAngles = GetNewViewAngles( entityPhysicsState_->Angles().Data(), toPointDir, frameTime, turnSpeedMultiplier );
-	botInput->SetAlreadyComputedAngles( newAngles );
-
-	botInput->canOverrideLookVec = false;
-	botInput->canOverridePitch = false;
-}
-
-void Bot::ApplyInput( BotInput *input, MovementPredictionContext *context ) {
-	// It is legal (there are no enemies and no nav targets in some moments))
-	if( !input->isLookDirSet ) {
-		//const float *origin = entityPhysicsState ? entityPhysicsState->Origin() : self->s.origin;
-		//AITools_DrawColorLine(origin, (Vec3(-32, +32, -32) + origin).Data(), COLOR_RGB(192, 0, 0), 0);
-		return;
-	}
-	if( !input->isUcmdSet ) {
-		//const float *origin = entityPhysicsState ? entityPhysicsState->Origin() : self->s.origin;
-		//AITools_DrawColorLine(origin, (Vec3(+32, -32, +32) + origin).Data(), COLOR_RGB(192, 0, 192), 0);
-		return;
-	}
-
-	if( context ) {
-		auto *entityPhysicsState_ = &context->movementState->entityPhysicsState;
-		if( !input->hasAlreadyComputedAngles ) {
-			TryRotateInput( input, context );
-			Vec3 newAngles( GetNewViewAngles( entityPhysicsState_->Angles().Data(), input->IntendedLookDir(),
-											  context->predictionStepMillis, input->TurnSpeedMultiplier() ) );
-			input->SetAlreadyComputedAngles( newAngles );
-		}
-		entityPhysicsState_->SetAngles( input->AlreadyComputedAngles() );
-	} else {
-		if( !input->hasAlreadyComputedAngles ) {
-			TryRotateInput( input, context );
-			Vec3 newAngles( GetNewViewAngles( self->s.angles, input->IntendedLookDir(),
-											  game.frametime, input->TurnSpeedMultiplier() ) );
-			input->SetAlreadyComputedAngles( newAngles );
-		}
-		input->AlreadyComputedAngles().CopyTo( self->s.angles );
-	}
-}
-
-bool Bot::TryRotateInput( BotInput *input, MovementPredictionContext *context ) {
-
-	const float *botOrigin;
-	BotInputRotation *prevRotation;
-
-	if( context ) {
-		botOrigin = context->movementState->entityPhysicsState.Origin();
-		prevRotation = &context->movementState->inputRotation;
-	} else {
-		botOrigin = self->s.origin;
-		prevRotation = &self->ai->botRef->movementState.inputRotation;
-	}
-
-	if( !keptInFovPoint.IsActive() || nextRotateInputAttemptAt > level.time ) {
-		*prevRotation = BotInputRotation::NONE;
-		return false;
-	}
-
-	// Cut off an expensive PVS call early
-	if( input->IsRotationAllowed( BotInputRotation::ALL_KINDS_MASK ) ) {
-		// We do not utilize PVS cache since it might produce different results for predicted and actual bot origin
-		if( !trap_inPVS( keptInFovPoint.Origin().Data(), botOrigin ) ) {
-			*prevRotation = BotInputRotation::NONE;
-			return false;
-		}
-	}
-
-	Vec3 selfToPoint( keptInFovPoint.Origin() );
-	selfToPoint -= botOrigin;
-	selfToPoint.NormalizeFast();
-
-	if( input->IsRotationAllowed( BotInputRotation::BACK ) ) {
-		float backDotThreshold = ( *prevRotation == BotInputRotation::BACK ) ? -0.3f : -0.5f;
-		if( selfToPoint.Dot( input->IntendedLookDir() ) < backDotThreshold ) {
-			*prevRotation = BotInputRotation::BACK;
-			InvertInput( input, context );
-			return true;
-		}
-	}
-
-	if( input->IsRotationAllowed( BotInputRotation::SIDE_KINDS_MASK ) ) {
-		vec3_t intendedRightDir, intendedUpDir;
-		MakeNormalVectors( input->IntendedLookDir().Data(), intendedRightDir, intendedUpDir );
-		const float dotRight = selfToPoint.Dot( intendedRightDir );
-
-		if( input->IsRotationAllowed( BotInputRotation::RIGHT ) ) {
-			const float rightDotThreshold = ( *prevRotation == BotInputRotation::RIGHT ) ? 0.6f : 0.7f;
-			if( dotRight > rightDotThreshold ) {
-				*prevRotation = BotInputRotation::RIGHT;
-				TurnInputToSide( intendedRightDir, +1, input, context );
-				return true;
-			}
-		}
-
-		if( input->IsRotationAllowed( BotInputRotation::LEFT ) ) {
-			const float leftDotThreshold = ( *prevRotation == BotInputRotation::LEFT ) ? -0.6f : -0.7f;
-			if( dotRight < leftDotThreshold ) {
-				*prevRotation = BotInputRotation::LEFT;
-				TurnInputToSide( intendedRightDir, -1, input, context );
-				return true;
-			}
-		}
-	}
-
-	*prevRotation = BotInputRotation::NONE;
-	return false;
-}
-
-static inline void SetupInputForTransition( BotInput *input, const edict_t *groundEntity, const vec3_t intendedForwardDir ) {
-	// If actual input is not inverted, release keys/clear special button while starting a transition
-	float intendedDotForward = input->IntendedLookDir().Dot( intendedForwardDir );
-	if( intendedDotForward < 0 ) {
-		if( groundEntity ) {
-			input->SetSpecialButton( false );
-		}
-		input->ClearMovementDirections();
-		input->SetTurnSpeedMultiplier( 2.0f - 5.0f * intendedDotForward );
-	} else if( intendedDotForward < 0.3f ) {
-		if( groundEntity ) {
-			input->SetSpecialButton( false );
-		}
-		input->SetTurnSpeedMultiplier( 2.0f );
-	}
-}
-
-inline void Bot::InvertInput( BotInput *input, MovementPredictionContext *context ) {
-	input->SetForwardMovement( -input->ForwardMovement() );
-	input->SetRightMovement( -input->RightMovement() );
-
-	input->SetIntendedLookDir( -input->IntendedLookDir(), true );
-
-	const edict_t *groundEntity;
-	vec3_t forwardDir;
-	if( context ) {
-		context->movementState->entityPhysicsState.ForwardDir().CopyTo( forwardDir );
-		groundEntity = context->movementState->entityPhysicsState.GroundEntity();
-	} else {
-		self->ai->botRef->movementState.entityPhysicsState.ForwardDir().CopyTo( forwardDir );
-		groundEntity = self->groundentity;
-	}
-
-	SetupInputForTransition( input, groundEntity, forwardDir );
-
-	// Prevent doing a forward dash if all direction keys are clear.
-
-	if( !input->IsSpecialButtonSet() || !groundEntity ) {
-		return;
-	}
-
-	if( input->ForwardMovement() || input->RightMovement() ) {
-		return;
-	}
-
-	input->SetForwardMovement( -1 );
-}
-
-void Bot::TurnInputToSide( vec3_t sideDir, int sign, BotInput *input, MovementPredictionContext *context ) {
-	VectorScale( sideDir, sign, sideDir );
-
-	const edict_t *groundEntity;
-	vec3_t forwardDir;
-	if( context ) {
-		context->movementState->entityPhysicsState.ForwardDir().CopyTo( forwardDir );
-		groundEntity = context->movementState->entityPhysicsState.GroundEntity();
-	} else {
-		self->ai->botRef->movementState.entityPhysicsState.ForwardDir().CopyTo( forwardDir );
-		groundEntity = self->groundentity;
-	}
-
-	// Rotate input
-	input->SetIntendedLookDir( sideDir, true );
-
-	// If flying, release side keys to prevent unintended aircontrol usage
-	if( !groundEntity ) {
-		input->SetForwardMovement( 0 );
-		input->SetRightMovement( 0 );
-	} else {
-		int oldForwardMovement = input->ForwardMovement();
-		int oldRightMovement = input->RightMovement();
-		input->SetForwardMovement( sign * oldRightMovement );
-		input->SetRightMovement( sign * oldForwardMovement );
-		input->SetSpecialButton( false );
-	}
-
-	SetupInputForTransition( input, groundEntity, sideDir );
-}
-
-void Bot::CheckBlockingDueToInputRotation() {
-	if( movementState.campingSpotState.IsActive() ) {
-		return;
-	}
-	if( movementState.inputRotation == BotInputRotation::NONE ) {
-		return;
-	}
-	if( !self->groundentity ) {
-		return;
-	}
-
-	float threshold = self->r.client->ps.stats[PM_STAT_MAXSPEED] - 30.0f;
-	if( threshold < 0 ) {
-		threshold = DEFAULT_PLAYERSPEED - 30.0f;
-	}
-
-	if( self->velocity[0] * self->velocity[0] + self->velocity[1] * self->velocity[1] > threshold * threshold ) {
-		nextRotateInputAttemptAt = 0;
-		inputRotationBlockingTimer = 0;
-		lastInputRotationFailureAt = 0;
-		return;
-	}
-
-	inputRotationBlockingTimer += game.frametime;
-	if( inputRotationBlockingTimer > 200 ) {
-		int64_t millisSinceLastFailure = level.time - lastInputRotationFailureAt;
-		assert( millisSinceLastFailure >= 0 );
-		if( millisSinceLastFailure >= 10000 ) {
-			nextRotateInputAttemptAt = level.time + 400;
-		} else {
-			nextRotateInputAttemptAt = level.time + 2000 - 400 * ( millisSinceLastFailure / 2500 );
-			assert( nextRotateInputAttemptAt > level.time + 400 );
-		}
-		lastInputRotationFailureAt = level.time;
-	}
-}
 
 void Bot::UpdateKeptInFovPoint() {
 	if( GetMiscTactics().shouldRushHeadless ) {
@@ -449,7 +175,7 @@ void Bot::TouchedOtherEntity( const edict_t *entity ) {
 
 	if( !Q_stricmp( entity->classname, "trigger_push" ) ) {
 		lastTouchedJumppadAt = level.time;
-		movementState.jumppadMovementState.Activate( entity );
+		movementModule.ActivateJumppadState( entity );
 		return;
 	}
 
@@ -637,18 +363,6 @@ void Bot::CheckAlertSpots( const StaticVector<uint16_t, MAX_CLIENTS> &visibleTar
 	}
 }
 
-bool Bot::CanChangeWeapons() const {
-	if( !movementState.weaponJumpMovementState.IsActive() ) {
-		return true;
-	}
-
-	if( movementState.weaponJumpMovementState.hasTriggeredRocketJump ) {
-		return true;
-	}
-
-	return false;
-}
-
 void Bot::ChangeWeapons( const SelectedWeapons &selectedWeapons_ ) {
 	if( selectedWeapons_.BuiltinFireDef() != nullptr ) {
 		self->r.client->ps.stats[STAT_PENDING_WEAPON] = selectedWeapons_.BuiltinWeaponNum();
@@ -773,8 +487,7 @@ void Bot::GhostingFrame() {
 
 	botPlanner.ClearGoalAndPlan();
 
-	movementState.Reset();
-	activeMovementFallback = nullptr;
+	movementModule.Reset();
 
 	blockedTimeoutAt = level.time + BLOCKED_TIMEOUT;
 	self->nextThink = level.time + 100;
@@ -871,8 +584,6 @@ void Bot::ActiveFrame() {
 		G_Match_Ready( self );
 	}
 
-	CheckBlockingDueToInputRotation();
-
 	// Always calls Frame() and calls Think() if needed
 	perceptionManager.Update();
 	// Same as for the perception manager
@@ -882,16 +593,18 @@ void Bot::ActiveFrame() {
 
 	BotInput botInput;
 	// Might modify botInput
-	ApplyPendingTurnToLookAtPoint( &botInput );
-	// Might modify botInput
-	MovementFrame( &botInput );
+	movementModule.Frame( &botInput );
+
+	roamingManager.CheckSpotsProximity();
+	CheckTargetProximity();
+
 	// Might modify botInput
 	if( ShouldAttack() ) {
 		weaponsUsageModule.TryFire( &botInput );
 	}
 
 	// Apply modified botInput
-	ApplyInput( &botInput );
+	movementModule.ApplyInput( &botInput );
 	CallActiveClientThink( botInput );
 
 	SayVoiceMessages();

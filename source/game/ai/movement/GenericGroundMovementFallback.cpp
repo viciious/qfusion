@@ -8,16 +8,13 @@ bool GenericGroundMovementFallback::TryDeactivate( Context *context ) {
 	// Deactivate the action with success if the bot has touched a trigger
 	// (was the bot targeting at it does not matter)
 
-	const auto *bot = self->ai->botRef;
-	for( auto touchTime: { bot->lastTouchedTeleportAt, bot->lastTouchedJumppadAt, bot->lastTouchedElevatorAt } ) {
-		if( level.time - touchTime < 64 ) {
-			// Consider the completion successful
-			status = COMPLETED;
-			return true;
-		}
+	if( level.time - bot->LastTriggerTouchTime() < 64 ) {
+		// Consider the completion successful
+		status = COMPLETED;
+		return true;
 	}
 
-	if( level.time - bot->lastKnockbackAt < 64 ) {
+	if( level.time - bot->LastKnockbackAt() < 64 ) {
 		// Consider the action failed
 		status = INVALID;
 		return true;
@@ -31,7 +28,7 @@ bool GenericGroundMovementFallback::ShouldSkipTests( Context *context ) {
 		return !context->movementState->entityPhysicsState.GroundEntity();
 	}
 
-	return !self->groundentity;
+	return !game.edicts[bot->EntNum()].groundentity;
 }
 
 int GenericGroundMovementFallback::GetCurrBotAreas( int *areaNums, Context *context ) {
@@ -39,13 +36,13 @@ int GenericGroundMovementFallback::GetCurrBotAreas( int *areaNums, Context *cont
 		return context->movementState->entityPhysicsState.PrepareRoutingStartAreas( areaNums );
 	}
 
-	return self->ai->botRef->EntityPhysicsState()->PrepareRoutingStartAreas( areaNums );
+	return bot->EntityPhysicsState()->PrepareRoutingStartAreas( areaNums );
 }
 
 void GenericGroundMovementFallback::SetupMovement( Context *context ) {
 	const auto &entityPhysicsState = context->movementState->entityPhysicsState;
 	auto *botInput = &context->record->botInput;
-	const auto &miscTactics = self->ai->botRef->GetMiscTactics();
+	const auto &miscTactics = bot->GetMiscTactics();
 	const auto *pmStats = context->currPlayerState->pmove.stats;
 
 	vec3_t steeringTarget;
@@ -146,10 +143,10 @@ bool GenericGroundMovementFallback::TestActualWalkability( int targetAreaNum, co
 	if( context ) {
 		entityPhysicsState = &context->movementState->entityPhysicsState;
 	} else {
-		entityPhysicsState = self->ai->botRef->EntityPhysicsState();
+		entityPhysicsState = bot->EntityPhysicsState();
 	}
 
-	const auto &routeCache = self->ai->botRef->routeCache;
+	const auto &routeCache = bot->RouteCache();
 	int fromAreaNums[2];
 	const int numFromAreas = entityPhysicsState->PrepareRoutingStartAreas( fromAreaNums );
 	int travelTimeToTarget = 0;
@@ -178,7 +175,7 @@ bool GenericGroundMovementFallback::TestActualWalkability( int targetAreaNum, co
 	TacticalSpotsRegistry::GetSpotsWalkabilityTraceBounds( traceMins, traceMaxs );
 	float *start = const_cast<float *>( entityPhysicsState->Origin() );
 	float *end = const_cast<float *>( targetOrigin );
-	edict_t *skip = const_cast<edict_t *>( self );
+	edict_t *skip = game.edicts + bot->EntNum();
 	// Allow hitting triggers (for "walk to a trigger" fallbacks)
 	// Otherwise a trace hits at a solid brush behind a trigger and we witness a false negative.
 	G_Trace( &trace, start, traceMins, traceMaxs, end, skip, MASK_PLAYERSOLID | CONTENTS_TRIGGER );

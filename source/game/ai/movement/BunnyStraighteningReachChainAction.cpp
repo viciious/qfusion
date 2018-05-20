@@ -3,11 +3,11 @@
 #include "SameFloorClusterAreasCache.h"
 #include "../ai_manager.h"
 
-BunnyStraighteningReachChainAction::BunnyStraighteningReachChainAction( Bot *bot_ )
-	: BotBunnyTestingMultipleLookDirsAction( bot_, NAME, COLOR_RGB( 0, 192, 0 ) ) {
+BunnyStraighteningReachChainAction::BunnyStraighteningReachChainAction( BotMovementModule *module_ )
+	: BotBunnyTestingMultipleLookDirsAction( module_, NAME, COLOR_RGB( 0, 192, 0 ) ) {
 	supportsObstacleAvoidance = true;
 	// The constructor cannot be defined in the header due to this bot member access
-	suggestedAction = &bot_->bunnyToBestShortcutAreaAction;
+	suggestedAction = &module->bunnyToBestShortcutAreaAction;
 }
 
 void BunnyStraighteningReachChainAction::SaveSuggestedLookDirs( Context *context ) {
@@ -34,19 +34,19 @@ void BunnyStraighteningReachChainAction::SaveSuggestedLookDirs( Context *context
 	}
 
 	// Make sure the action is dependent of this action
-	Assert( suggestedAction == &self->ai->botRef->bunnyToBestShortcutAreaAction );
+	Assert( suggestedAction == &module->bunnyToBestShortcutAreaAction );
 	// * Quotas are allowed to request only once per frame,
 	// and subsequent calls for the same client fail (return with false).
 	// Set suggested look dirs for both actions, otherwise the second one (almost) never gets a quota.
 	// * Never try to acquire a quota here if a bot is really blocked.
 	// These predicted actions are very likely to fail again,
 	// and fallbacks do not get their quotas leading to blocking to bot suicide.
-	if( self->ai->botRef->MillisInBlockedState() < 100 && AiManager::Instance()->TryGetExpensiveComputationQuota( self ) ) {
+	if( bot->MillisInBlockedState() < 100 && AiManager::Instance()->TryGetExpensiveComputationQuota( bot ) ) {
 		this->maxSuggestedLookDirs = 11;
-		self->ai->botRef->bunnyToBestShortcutAreaAction.maxSuggestedLookDirs = 5;
+		module->bunnyToBestShortcutAreaAction.maxSuggestedLookDirs = 5;
 	} else {
 		this->maxSuggestedLookDirs = 2;
-		self->ai->botRef->bunnyToBestShortcutAreaAction.maxSuggestedLookDirs = 2;
+		module->bunnyToBestShortcutAreaAction.maxSuggestedLookDirs = 2;
 	}
 
 	const AiAasWorld *aasWorld = AiAasWorld::Instance();
@@ -118,9 +118,9 @@ AreaAndScore *BunnyStraighteningReachChainAction::SelectCandidateAreas( Context 
 	const auto *aasAreaStairsClusterNums = aasWorld->AreaStairsClusterNums();
 	const int navTargetAasAreaNum = context->NavTargetAasAreaNum();
 
-	const auto *dangerToEvade = self->ai->botRef->perceptionManager.PrimaryDanger();
+	const auto *dangerToEvade = bot->PrimaryHazard();
 	// Reduce branching in the loop below
-	if( self->ai->botRef->ShouldRushHeadless() || ( dangerToEvade && !dangerToEvade->SupportsImpactTests() ) ) {
+	if( bot->ShouldRushHeadless() || ( dangerToEvade && !dangerToEvade->SupportsImpactTests() ) ) {
 		dangerToEvade = nullptr;
 	}
 
@@ -133,7 +133,7 @@ AreaAndScore *BunnyStraighteningReachChainAction::SelectCandidateAreas( Context 
 	}
 
 	// Do not make it speed-depended, it leads to looping/jitter!
-	const float distanceThreshold = 256.0f + 512.0f * self->ai->botRef->Skill();
+	const float distanceThreshold = 256.0f + 512.0f * bot->Skill();
 
 	AreaAndScore *candidatesPtr = candidatesBegin;
 	float minScore = 0.0f;

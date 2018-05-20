@@ -702,10 +702,8 @@ void AiManager::UpdateCpuQuotaOwner() {
 	// This means a bot always gets a quota if there is no other active bots in game.
 }
 
-bool AiManager::TryGetExpensiveComputationQuota( const edict_t *ent ) {
-	if( !ent->ai ) {
-		return false;
-	}
+bool AiManager::TryGetExpensiveComputationQuota( const Bot *bot ) {
+	const edict_t *ent = game.edicts + bot->EntNum();
 
 	if( ent->ai != cpuQuotaOwner ) {
 		return false;

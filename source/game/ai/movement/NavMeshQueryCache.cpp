@@ -3,8 +3,8 @@
 #include "../combat/TacticalSpotsRegistry.h"
 #include "../navigation/NavMeshManager.h"
 
-BotNavMeshQueryCache::BotNavMeshQueryCache( edict_t *self_ )
-	: self( self_ )
+BotNavMeshQueryCache::BotNavMeshQueryCache( Bot *bot_ )
+	: bot( bot_ )
 	, aasWorld( AiAasWorld::Instance() )
 	, computedAt( 0 )
 	, startOrigin( 0, 0, 0 ) {
@@ -186,13 +186,13 @@ bool BotNavMeshQueryCache::TryNavMeshWalkabilityTests( Context *context, int las
 		startOrigin.Z() -= heightOverGround;
 	}
 
-	if( !self->ai->botRef->navMeshQuery ) {
-		if( !( self->ai->botRef->navMeshQuery = AiNavMeshManager::Instance()->AllocQuery( self->r.client ) ) ) {
+	if( !bot->navMeshQuery ) {
+		if( !( bot->navMeshQuery = AiNavMeshManager::Instance()->AllocQuery( game.edicts[bot->EntNum()].r.client ) ) ) {
 			return false;
 		}
 	}
 
-	auto *query = self->ai->botRef->navMeshQuery;
+	auto *query = bot->navMeshQuery;
 	const uint32_t startPolyRef = query->FindNearestPoly( startAbsMins.Data(), startAbsMaxs.Data() );
 	if( !startPolyRef ) {
 		return false;

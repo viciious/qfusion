@@ -9,8 +9,8 @@ class UseWalkableTriggerFallback: public GenericGroundMovementFallback
 
 	void GetSteeringTarget( vec3_t target ) override;
 public:
-	explicit UseWalkableTriggerFallback( const edict_t *self_ )
-		: GenericGroundMovementFallback( self_, COLOR_RGB( 192, 0, 192 ) ), trigger( nullptr ) {}
+	explicit UseWalkableTriggerFallback( const Bot *bot_, BotMovementModule *module_ )
+		: GenericGroundMovementFallback( bot_, module_, COLOR_RGB( 192, 0, 192 ) ), trigger( nullptr ) {}
 
 	void Activate( const edict_t *trigger_ ) {
 		this->trigger = trigger_;

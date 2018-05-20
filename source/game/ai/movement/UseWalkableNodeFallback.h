@@ -15,8 +15,8 @@ protected:
 		VectorCopy( nodeOrigin, target );
 	}
 public:
-	explicit UseWalkableNodeFallback( const edict_t *self_ )
-		: GenericGroundMovementFallback( self_, COLOR_RGB( 0, 192, 0 ) ) {}
+	explicit UseWalkableNodeFallback( const Bot *bot_, BotMovementModule *module_ )
+		: GenericGroundMovementFallback( bot_, module_, COLOR_RGB( 0, 192, 0 ) ) {}
 
 	const vec3_t &NodeOrigin() const { return nodeOrigin; }
 	int NodeAreaNum() const { return nodeAasAreaNum; }

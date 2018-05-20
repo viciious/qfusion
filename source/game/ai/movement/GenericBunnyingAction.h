@@ -58,8 +58,8 @@ protected:
 	bool IsMovingIntoNavEntity( MovementPredictionContext *context ) const;
 
 public:
-	GenericRunBunnyingAction( class Bot *bot_, const char *name_, int debugColor_ = 0 )
-		: BaseMovementAction( bot_, name_, debugColor_ )
+	GenericRunBunnyingAction( BotMovementModule *module_, const char *name_, int debugColor_ = 0 )
+		: BaseMovementAction( module_, name_, debugColor_ )
 		, minTravelTimeToNavTargetSoFar( 0 )
 		, minTravelTimeAreaNumSoFar( 0 )
 		, minTravelTimeAreaGroundZ( 0 )
@@ -83,6 +83,6 @@ public:
 };
 
 #define DECLARE_BUNNYING_MOVEMENT_ACTION_CONSTRUCTOR( name, debugColor_ ) \
-	name( class Bot *bot_ ) : GenericRunBunnyingAction( bot_, #name, debugColor_ )
+	name( BotMovementModule *module_ ) : GenericRunBunnyingAction( module_, #name, debugColor_ )
 
 #endif

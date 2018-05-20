@@ -28,7 +28,7 @@ void RidePlatformAction::CheckPredictionStepResults( Context *context ) {
 	}
 
 	const auto &entityPhysicsState = context->movementState->entityPhysicsState;
-	const int targetAreaNum = self->ai->botRef->savedPlatformAreas[currTestedAreaIndex];
+	const int targetAreaNum = module->savedPlatformAreas[currTestedAreaIndex];
 	const int currAreaNum = entityPhysicsState.CurrAasAreaNum();
 	const int droppedToFloorAreaNum = entityPhysicsState.DroppedToFloorAasAreaNum();
 	if( currAreaNum == targetAreaNum || droppedToFloorAreaNum == targetAreaNum ) {
@@ -91,7 +91,7 @@ void RidePlatformAction::SetupIdleRidingPlatformMovement( Context *context, cons
 	context->isCompleted = true;
 
 	// We are sure the platform has not arrived to the top, otherwise this method does not get called
-	if( VectorCompare( vec3_origin, platform->velocity ) && self->ai->botRef->MillisInBlockedState() > 500 ) {
+	if( VectorCompare( vec3_origin, platform->velocity ) && bot->MillisInBlockedState() > 500 ) {
 		// A rare but possible situation that happens e.g. on wdm1 near the GA
 		// A bot stands still and the platform is considered its groundentity but it does not move
 
@@ -119,8 +119,8 @@ void RidePlatformAction::SetupIdleRidingPlatformMovement( Context *context, cons
 
 	// The bot remains staying still on a platform in all other cases
 
-	if( self->ai->botRef->HasEnemy() ) {
-		Vec3 toEnemy( self->ai->botRef->EnemyOrigin() );
+	if( bot->GetSelectedEnemies().AreValid() ) {
+		Vec3 toEnemy( bot->GetSelectedEnemies().LastSeenOrigin() );
 		toEnemy -= context->movementState->entityPhysicsState.Origin();
 		botInput->SetIntendedLookDir( toEnemy, false );
 		return;
@@ -129,8 +129,8 @@ void RidePlatformAction::SetupIdleRidingPlatformMovement( Context *context, cons
 	float height = platform->moveinfo.start_origin[2] - platform->moveinfo.end_origin[2];
 	float frac = ( platform->s.origin[2] - platform->moveinfo.end_origin[2] ) / height;
 	// If the bot is fairly close to the destination and there are saved areas, start looking at the first one
-	if( frac > 0.5f && !self->ai->botRef->savedPlatformAreas.empty() ) {
-		const auto &area = AiAasWorld::Instance()->Areas()[self->ai->botRef->savedPlatformAreas.front()];
+	if( frac > 0.5f && !module->savedPlatformAreas.empty() ) {
+		const auto &area = AiAasWorld::Instance()->Areas()[module->savedPlatformAreas.front()];
 		Vec3 lookVec( area.center );
 		lookVec -= context->movementState->entityPhysicsState.Origin();
 		botInput->SetIntendedLookDir( lookVec, false );
@@ -199,7 +199,8 @@ const edict_t *RidePlatformAction::GetPlatform( Context *context ) const {
 	Vec3 endPoint( entityPhysicsState.Origin() );
 	endPoint.Z() += playerbox_stand_mins[2];
 	endPoint.Z() -= 32.0f;
-	G_Trace( &trace, startPoint.Data(), playerbox_stand_mins, playerbox_stand_maxs, endPoint.Data(), self, MASK_ALL );
+	edict_t *const ignore = game.edicts + bot->EntNum();
+	G_Trace( &trace, startPoint.Data(), playerbox_stand_mins, playerbox_stand_maxs, endPoint.Data(), ignore, MASK_ALL );
 	if( trace.ent != -1 ) {
 		groundEntity = game.edicts + trace.ent;
 		if( groundEntity->use == Use_Plat ) {
@@ -211,13 +212,13 @@ const edict_t *RidePlatformAction::GetPlatform( Context *context ) const {
 }
 
 void RidePlatformAction::TrySaveExitAreas( Context *context, const edict_t *platform ) {
-	auto &savedAreas = self->ai->botRef->savedPlatformAreas;
+	auto &savedAreas = module->savedPlatformAreas;
 	// Don't overwrite already present areas
 	if( !savedAreas.empty() ) {
 		return;
 	}
 
-	int navTargetAreaNum = self->ai->botRef->NavTargetAasAreaNum();
+	int navTargetAreaNum = bot->NavTargetAasAreaNum();
 	// Skip if there is no nav target.
 	// SetupExitAreaMovement() handles the case when there is no exit areas.
 	if( !navTargetAreaNum ) {
@@ -226,8 +227,8 @@ void RidePlatformAction::TrySaveExitAreas( Context *context, const edict_t *plat
 
 	FindExitAreas( context, platform, tmpExitAreas );
 
-	const auto *routeCache = self->ai->botRef->routeCache;
-	const int travelFlags = self->ai->botRef->AllowedTravelFlags();
+	const auto *routeCache = bot->RouteCache();
+	const int travelFlags = bot->AllowedTravelFlags();
 
 	int areaTravelTimes[MAX_SAVED_AREAS];
 	for( unsigned i = 0, end = tmpExitAreas.size(); i < end; ++i ) {
@@ -258,15 +259,15 @@ void RidePlatformAction::TrySaveExitAreas( Context *context, const edict_t *plat
 typedef RidePlatformAction::ExitAreasVector ExitAreasVector;
 
 const ExitAreasVector &RidePlatformAction::SuggestExitAreas( Context *context, const edict_t *platform ) {
-	if( !self->ai->botRef->savedPlatformAreas.empty() ) {
-		return self->ai->botRef->savedPlatformAreas;
+	if( !module->savedPlatformAreas.empty() ) {
+		return module->savedPlatformAreas;
 	}
 
 	FindExitAreas( context, platform, tmpExitAreas );
 
 	// Save found areas to avoid repeated FindExitAreas() calls while testing next area after rollback
 	for( int areaNum: tmpExitAreas )
-		self->ai->botRef->savedPlatformAreas.push_back( areaNum );
+		module->savedPlatformAreas.push_back( areaNum );
 
 	return tmpExitAreas;
 };
@@ -276,7 +277,9 @@ void RidePlatformAction::FindExitAreas( Context *context, const edict_t *platfor
 	const auto *aasAreas = aasWorld->Areas();
 	const auto *aasAreaSettings = aasWorld->AreaSettings();
 
-	const BotMovementState &movementState = context ? *context->movementState : self->ai->botRef->movementState;
+	edict_t *const ignore = game.edicts + bot->EntNum();
+
+	const BotMovementState &movementState = context ? *context->movementState : module->movementState;
 
 	exitAreas.clear();
 
@@ -316,7 +319,7 @@ void RidePlatformAction::FindExitAreas( Context *context, const edict_t *platfor
 		areaPoint.Z() = area.mins[2] + 8.0f;
 
 		// Do not use player box as trace mins/maxs (it leads to blocking when a bot rides a platform near a wall)
-		G_Trace( &trace, finalBotOrigin.Data(), nullptr, nullptr, areaPoint.Data(), self, MASK_ALL );
+		G_Trace( &trace, finalBotOrigin.Data(), nullptr, nullptr, areaPoint.Data(), ignore, MASK_ALL );
 		if( trace.fraction != 1.0f ) {
 			continue;
 		}

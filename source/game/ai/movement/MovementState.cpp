@@ -81,10 +81,12 @@ AiPendingLookAtPoint BotCampingSpotState::GetOrUpdateRandomLookAtPoint() const {
 	{                                                                                                  \
 		result = false;                                                                                \
 		if( logFunc ) {                                                                                \
-			logFunc( format, Nick( owner ), #state ".IsActive()", (unsigned)state.IsActive() ); }      \
+			const edict_t *owner = game.edicts + bot->EntNum();                                        \
+			logFunc( format, Nick( owner ), #state ".IsActive()", (unsigned)state.IsActive() );        \
+		}     																						   \
 	}
 
-bool BotMovementState::TestActualStatesForExpectedMask( unsigned expectedStatesMask, const edict_t *owner ) const {
+bool BotMovementState::TestActualStatesForExpectedMask( unsigned expectedStatesMask, const Bot *bot ) const {
 	// Might be set to null if verbose logging is not needed
 #ifdef ENABLE_MOVEMENT_DEBUG_OUTPUT
 	void ( *logFunc )( const char *format, ... ) = G_Printf;

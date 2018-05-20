@@ -12,8 +12,8 @@ class UseRampExitFallback: public GenericGroundMovementFallback
 		return GetAreaMidGroundPoint( exitAreaNum, target );
 	}
 public:
-	UseRampExitFallback( const edict_t *self_ )
-		: GenericGroundMovementFallback( self_, COLOR_RGB( 192, 0, 0 ) ), rampAreaNum( 0 ), exitAreaNum( 0 ) {}
+	UseRampExitFallback( const Bot *bot_, BotMovementModule *module_ )
+		: GenericGroundMovementFallback( bot_, module_, COLOR_RGB( 192, 0, 0 ) ), rampAreaNum( 0 ), exitAreaNum( 0 ) {}
 
 	void Activate( int rampAreaNum_, int exitAreaNum_ ) {
 		this->rampAreaNum = rampAreaNum_;

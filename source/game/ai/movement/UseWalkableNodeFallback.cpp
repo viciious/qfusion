@@ -19,7 +19,7 @@ bool UseWalkableNodeFallback::TryDeactivate( Context *context ) {
 	}
 
 	// If the spot can be reached by radius
-	const float *botOrigin = context ? context->movementState->entityPhysicsState.Origin() : self->s.origin;
+	const float *botOrigin = context ? context->movementState->entityPhysicsState.Origin() : bot->Origin();
 	if( Distance2DSquared( botOrigin, nodeOrigin ) < SQUARE( reachRadius ) ) {
 		status = COMPLETED;
 		return true;
@@ -61,7 +61,7 @@ MovementFallback *FallbackMovementAction::TryFindWalkReachFallback( Context *con
 		return fallback;
 	}
 
-	auto *fallback = &self->ai->botRef->useWalkableNodeFallback;
+	auto *fallback = &module->useWalkableNodeFallback;
 	unsigned timeout = (unsigned)( 1000.0f * sqrtf( squareDistance ) / context->GetRunSpeed() );
 	// Note: We have to add several units to the target Z, otherwise a collision test
 	// on next frame is very likely to immediately deactivate it
@@ -99,7 +99,7 @@ MovementFallback *FallbackMovementAction::TryFindNearbyRampAreasFallback( Contex
 			const auto &bestArea = aasWorld->Areas()[*areaNum];
 			Vec3 areaPoint( bestArea.center );
 			areaPoint.Z() = bestArea.mins[2] + 1.0f + -playerbox_stand_mins[2];
-			auto *fallback = &self->ai->botRef->useWalkableNodeFallback;
+			auto *fallback = &module->useWalkableNodeFallback;
 			fallback->Activate( areaPoint.Data(), 32.0f, *areaNum );
 			return fallback;
 		}

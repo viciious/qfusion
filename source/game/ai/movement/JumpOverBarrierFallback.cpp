@@ -14,7 +14,7 @@ bool JumpOverBarrierFallback::TryDeactivate( Context *context ) {
 	if( context ) {
 		entityPhysicsState = &context->movementState->entityPhysicsState;
 	} else {
-		entityPhysicsState = self->ai->botRef->EntityPhysicsState();
+		entityPhysicsState = bot->EntityPhysicsState();
 	}
 
 	// Wait for touching any ground
@@ -32,7 +32,7 @@ void JumpOverBarrierFallback::SetupMovement( Context *context ) {
 	// View Z really matters a lot in this case, don't use the entity origin as-is.
 	// Don't forget to negate the vector after target subtraction.
 	Vec3 intendedLookDir( entityPhysicsState.Origin() );
-	intendedLookDir.Z() += self->viewheight;
+	intendedLookDir.Z() += game.edicts[bot->EntNum()].viewheight;
 
 	if( !hasReachedStart ) {
 		float squareDistance = Distance2DSquared( start, entityPhysicsState.Origin() );
@@ -51,7 +51,7 @@ void JumpOverBarrierFallback::SetupMovement( Context *context ) {
 			botInput->SetForwardMovement( 1 );
 
 			// Try dashing in case when the distance is significant (this should be a rare case)
-			if( self->ai->botRef->ShouldMoveCarefully() || self->ai->botRef->ShouldBeSilent() ) {
+			if( bot->ShouldMoveCarefully() || bot->ShouldBeSilent() ) {
 				return;
 			}
 			// Note that the distance threshold is lower than usual for fallbacks,

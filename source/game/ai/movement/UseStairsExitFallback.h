@@ -12,8 +12,8 @@ class UseStairsExitFallback: public GenericGroundMovementFallback
 		GetAreaMidGroundPoint( exitAreaNum, target );
 	}
 public:
-	UseStairsExitFallback( const edict_t *self_ )
-		: GenericGroundMovementFallback( self_, COLOR_RGB( 0, 0, 192 ) ), stairsClusterNum( 0 ), exitAreaNum( 0 ) {}
+	UseStairsExitFallback( const Bot *bot_, BotMovementModule *module_ )
+		: GenericGroundMovementFallback( bot_, module_, COLOR_RGB( 0, 0, 192 ) ), stairsClusterNum( 0 ), exitAreaNum( 0 ) {}
 
 	void Activate( int stairsClusterNum_, int stairsExitAreaNum_ ) {
 		this->stairsClusterNum = stairsClusterNum_;

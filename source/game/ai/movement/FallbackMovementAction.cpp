@@ -47,7 +47,7 @@ int TriggerAreaNumsCache::GetAreaNum( int entNum ) const {
 
 void FallbackMovementAction::PlanPredictionStep( Context *context ) {
 	bool handledSpecialMovement = false;
-	if( auto *fallback = self->ai->botRef->activeMovementFallback ) {
+	if( auto *fallback = module->activeMovementFallback ) {
 		fallback->SetupMovement( context );
 		handledSpecialMovement = true;
 	} else if( context->IsInNavTargetArea() ) {
@@ -74,15 +74,15 @@ void FallbackMovementAction::PlanPredictionStep( Context *context ) {
 			// Fallback path movement is the last hope action, wait for landing
 			SetupLostNavTargetMovement( context );
 		} else if( auto *fallback = TryFindMovementFallback( context ) ) {
-			self->ai->botRef->activeMovementFallback = fallback;
+			module->activeMovementFallback = fallback;
 			fallback->SetupMovement( context );
 			handledSpecialMovement = true;
 			botInput->SetAllowedRotationMask( BotInputRotation::NONE );
 		} else {
 			// This often leads to bot blocking and suicide. TODO: Invesigate what else can be done.
 			botInput->Clear();
-			if( self->ai->botRef->keptInFovPoint.IsActive() ) {
-				Vec3 intendedLookVec( self->ai->botRef->keptInFovPoint.Origin() );
+			if( bot->keptInFovPoint.IsActive() ) {
+				Vec3 intendedLookVec( bot->keptInFovPoint.Origin() );
 				intendedLookVec -= entityPhysicsState.Origin();
 				botInput->SetIntendedLookDir( intendedLookVec, false );
 			}
@@ -107,7 +107,7 @@ void FallbackMovementAction::SetupNavTargetAreaMovement( Context *context ) {
 
 	if( entityPhysicsState.GroundEntity() ) {
 		botInput->SetForwardMovement( true );
-		if( self->ai->botRef->ShouldMoveCarefully() ) {
+		if( bot->ShouldMoveCarefully() ) {
 			botInput->SetWalkButton( true );
 		} else if( context->IsCloseToNavTarget() ) {
 			botInput->SetWalkButton( true );
@@ -178,7 +178,7 @@ MovementFallback *FallbackMovementAction::TryFindMovementFallback( Context *cont
 
 	// All the following checks require a valid nav target
 	if( !context->NavTargetAasAreaNum() ) {
-		if( self->ai->botRef->MillisInBlockedState() > 500 ) {
+		if( bot->MillisInBlockedState() > 500 ) {
 			if( auto *fallback = TryFindLostNavTargetFallback( context ) ) {
 				return fallback;
 			}
@@ -218,7 +218,7 @@ MovementFallback *FallbackMovementAction::TryFindMovementFallback( Context *cont
 
 	if( auto *fallback = TryNodeBasedFallbacksLeft( context ) ) {
 		// Check whether its really a node based fallback
-		auto *const nodeBasedFallback = &self->ai->botRef->useWalkableNodeFallback;
+		auto *const nodeBasedFallback = &module->useWalkableNodeFallback;
 		if( fallback == nodeBasedFallback ) {
 			const vec3_t &origin = nodeBasedFallback->NodeOrigin();
 			const int areaNum = nodeBasedFallback->NodeAreaNum();
@@ -239,8 +239,8 @@ MovementFallback *FallbackMovementAction::TryFindMovementFallback( Context *cont
 MovementFallback *FallbackMovementAction::TryNodeBasedFallbacksLeft( Context *context ) {
 	const auto &entityPhysicsState = context->movementState->entityPhysicsState;
 
-	const unsigned millisInBlockedState = self->ai->botRef->MillisInBlockedState();
-	const bool isBotEasy = self->ai->botRef->Skill() < 0.33f;
+	const unsigned millisInBlockedState = bot->MillisInBlockedState();
+	const bool isBotEasy = bot->Skill() < 0.33f;
 	// This is a very conservative condition that however should prevent looping these node-based fallbacks are prone to.
 	// Prefer jumping fallbacks that are almost seamless to the bunnying movement.
 	// Note: threshold values are significanly lower for easy bots since they almost never use bunnying movement.
@@ -250,7 +250,7 @@ MovementFallback *FallbackMovementAction::TryNodeBasedFallbacksLeft( Context *co
 
 	// Try using the nav target as a fallback movement target
 	Assert( context->NavTargetAasAreaNum() );
-	auto *nodeFallback = &self->ai->botRef->useWalkableNodeFallback;
+	auto *nodeFallback = &module->useWalkableNodeFallback;
 	if( context->NavTargetOrigin().SquareDistanceTo( entityPhysicsState.Origin() ) < SQUARE( 384.0f ) ) {
 		Vec3 target( context->NavTargetOrigin() );
 		target.Z() += -playerbox_stand_mins[2];
@@ -281,7 +281,7 @@ MovementFallback *FallbackMovementAction::TryNodeBasedFallbacksLeft( Context *co
 
 		if( millisInBlockedState > ( isBotEasy ? 1250 : 2500 ) ) {
 			// Notify the nav target selection code
-			self->ai->botRef->OnMovementToNavTargetBlocked();
+			bot->OnMovementToNavTargetBlocked();
 		}
 	}
 
@@ -303,7 +303,7 @@ MovementFallback *FallbackMovementAction::TryFindAasBasedFallback( Context *cont
 
 	if( traveltype == TRAVEL_JUMPPAD || traveltype == TRAVEL_TELEPORT || traveltype == TRAVEL_ELEVATOR ) {
 		// Always follow these reachabilities
-		auto *fallback = &self->ai->botRef->useWalkableNodeFallback;
+		auto *fallback = &module->useWalkableNodeFallback;
 		// Note: We have to add several units to the target Z, otherwise a collision test
 		// on next frame is very likely to immediately deactivate it
 		fallback->Activate( ( Vec3( 0, 0, -playerbox_stand_mins[2] ) + nextReach.start ).Data(), 16.0f );
@@ -319,7 +319,7 @@ MovementFallback *FallbackMovementAction::TryFindAasBasedFallback( Context *cont
 	}
 
 	// The only possible fallback left
-	auto *fallback = &self->ai->botRef->jumpOverBarrierFallback;
+	auto *fallback = &module->jumpOverBarrierFallback;
 	if( traveltype == TRAVEL_BARRIERJUMP || traveltype == TRAVEL_WATERJUMP ) {
 		fallback->Activate( nextReach.start, nextReach.end );
 		return fallback;

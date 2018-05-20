@@ -155,7 +155,7 @@ MovementFallback *FallbackMovementAction::TryFindRampFallback( Context *context,
 		}
 	}
 
-	auto *fallback = &self->ai->botRef->useRampExitFallback;
+	auto *fallback = &module->useRampExitFallback;
 	fallback->Activate( rampAreaNum, *bestExitAreaNum );
 	return fallback;
 }

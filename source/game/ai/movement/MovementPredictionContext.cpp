@@ -6,7 +6,7 @@ bool MovementPredictionContext::CanSafelyKeepHighSpeed() {
 		return *cachedValue;
 	}
 
-	bool result = self->ai->botRef->TestWhetherCanSafelyKeepHighSpeed( this );
+	bool result = module->TestWhetherCanSafelyKeepHighSpeed( this );
 	canSafelyKeepHighSpeedCachesStack.SetCachedValue( result );
 	return result;
 }
@@ -23,7 +23,7 @@ void MovementPredictionContext::NextReachNumAndTravelTimeToNavTarget( int *reach
 		return;
 	}
 
-	const auto *routeCache = self->ai->botRef->routeCache;
+	const auto *routeCache = bot->RouteCache();
 
 	int fromAreaNums[2];
 	int numFromAreas = movementState->entityPhysicsState.PrepareRoutingStartAreas( fromAreaNums );
@@ -49,6 +49,8 @@ BaseMovementAction *MovementPredictionContext::GetCachedActionAndRecordForCurrTi
 		return nullptr;
 	}
 
+	const auto *self = game.edicts + bot->EntNum();
+
 	if( !prevPredictedAction ) {
 		// If there were no activated actions, the next state must be recently computed for current level time.
 		Assert( nextPredictedAction->timestamp == levelTime );
@@ -64,9 +66,9 @@ BaseMovementAction *MovementPredictionContext::GetCachedActionAndRecordForCurrTi
 	Assert( prevPredictedAction->timestamp + prevPredictedAction->stepMillis == nextPredictedAction->timestamp );
 
 	// Fail prediction if both previous and next predicted movement states mask mismatch the current movement state
-	const auto &actualMovementState = self->ai->botRef->movementState;
-	if( !actualMovementState.TestActualStatesForExpectedMask( prevPredictedAction->movementStatesMask, self ) ) {
-		if( !actualMovementState.TestActualStatesForExpectedMask( nextPredictedAction->movementStatesMask, self ) ) {
+	const auto &actualMovementState = module->movementState;
+	if( !actualMovementState.TestActualStatesForExpectedMask( prevPredictedAction->movementStatesMask, bot ) ) {
+		if( !actualMovementState.TestActualStatesForExpectedMask( nextPredictedAction->movementStatesMask, bot ) ) {
 			return nullptr;
 		}
 	}
@@ -85,7 +87,7 @@ BaseMovementAction *MovementPredictionContext::GetCachedActionAndRecordForCurrTi
 
 	// Prevent cache invalidation on each frame if bot is being hit by a continuous fire weapon and knocked back.
 	// Perform misprediction test only on the 3rd frame after a last knockback timestamp.
-	if( level.time - self->ai->botRef->lastKnockbackAt > 32 ) {
+	if( level.time - bot->lastKnockbackAt > 32 ) {
 		vec3_t expectedOrigin;
 		VectorLerp( prevPhysicsState.Origin(), stateLerpFrac, nextPhysicsState.Origin(), expectedOrigin );
 		float squaredDistanceMismatch = DistanceSquared( self->s.origin, expectedOrigin );
@@ -97,7 +99,7 @@ BaseMovementAction *MovementPredictionContext::GetCachedActionAndRecordForCurrTi
 		}
 
 		float expectedSpeed = ( 1.0f - stateLerpFrac ) * prevPhysicsState.Speed() + stateLerpFrac * nextPhysicsState.Speed();
-		float actualSpeed = self->ai->botRef->entityPhysicsState->Speed();
+		float actualSpeed = bot->EntityPhysicsState()->Speed();
 		float speedMismatch = fabsf( actualSpeed - expectedSpeed );
 		if( speedMismatch > 0.005f * expectedSpeed ) {
 			Debug( "Expected speed: %.1f, actual speed: %.1f, speed mismatch: %.1f\n", expectedSpeed, actualSpeed,
@@ -139,7 +141,7 @@ BaseMovementAction *MovementPredictionContext::GetCachedActionAndRecordForCurrTi
 
 			vec3_t expectedLookDir;
 			AngleVectors( expectedAngles, expectedLookDir, nullptr, nullptr );
-			float cosine = self->ai->botRef->entityPhysicsState->ForwardDir().Dot( expectedLookDir );
+			float cosine = bot->EntityPhysicsState()->ForwardDir().Dot( expectedLookDir );
 			static const float MIN_COSINE = cosf( (float) DEG2RAD( 5.0f ) );
 			if( cosine < MIN_COSINE ) {
 				Debug( "An angle between and actual look directions is %f degrees\n", (float) RAD2DEG( acosf( cosine ) ) );
@@ -166,7 +168,7 @@ BaseMovementAction *MovementPredictionContext::GetCachedActionAndRecordForCurrTi
 	// Prevent applying a modified velocity from the new state
 	record_->hasModifiedVelocity = false;
 	if( !record_->botInput.canOverrideLookVec ) {
-		Vec3 actualLookDir( self->ai->botRef->entityPhysicsState->ForwardDir() );
+		Vec3 actualLookDir( bot->EntityPhysicsState()->ForwardDir() );
 		Vec3 intendedLookVec( record_->botInput.IntendedLookDir() );
 		VectorLerp( actualLookDir.Data(), inputLerpFrac, intendedLookVec.Data(), intendedLookVec.Data() );
 		record_->botInput.SetIntendedLookDir( intendedLookVec );
@@ -216,7 +218,7 @@ const Ai::ReachChainVector &MovementPredictionContext::NextReachChain() {
 	}
 
 	auto *newReachChain = new( reachChainsCachesStack.GetUnsafeBufferForCachedValue() ) Ai::ReachChainVector;
-	self->ai->botRef->UpdateReachChain( *oldReachChain, newReachChain, movementState->entityPhysicsState );
+	bot->UpdateReachChain( *oldReachChain, newReachChain, movementState->entityPhysicsState );
 	return *newReachChain;
 };
 
@@ -470,13 +472,15 @@ void MovementPredictionContext::SetupStackForStep() {
 		canSafelyKeepHighSpeedCachesStack.PopToSize( 0 );
 		environmentTestResultsStack.clear();
 
+		const edict_t *self = game.edicts + bot->EntNum();
+
 		topOfStack = new( predictedMovementActions.unsafe_grow_back() )PredictedMovementAction;
 		// Push the actual bot player state onto top of the stack
 		oldPlayerState = &self->r.client->ps;
 		playerStatesStack.push_back( *oldPlayerState );
 		currPlayerState = &playerStatesStack.back();
 		// Push the actual bot movement state onto top of the stack
-		botMovementStatesStack.push_back( self->ai->botRef->movementState );
+		botMovementStatesStack.push_back( module->movementState );
 		pendingWeaponsStack.push_back( (signed char)oldPlayerState->stats[STAT_PENDING_WEAPON] );
 
 		oldStepMillis = game.frametime;
@@ -487,7 +491,7 @@ void MovementPredictionContext::SetupStackForStep() {
 
 	movementState = &botMovementStatesStack.back();
 	// Provide a predicted movement state for Ai base class
-	self->ai->botRef->entityPhysicsState = &movementState->entityPhysicsState;
+	bot->entityPhysicsState = &movementState->entityPhysicsState;
 
 	// Set the current action record
 	this->record = &topOfStack->record;
@@ -519,16 +523,16 @@ inline BaseMovementAction *MovementPredictionContext::SuggestAnyAction() {
 
 	// If no action has been suggested, use a default/dummy one.
 	// We have to check the combat action since it might be disabled due to planning stack overflow.
-	if( self->ai->botRef->ShouldAttack() && self->ai->botRef->ShouldKeepXhairOnEnemy() ) {
-		const auto &selectedEnemies = self->ai->botRef->selectedEnemies;
+	if( bot->ShouldAttack() && bot->ShouldKeepXhairOnEnemy() ) {
+		const auto &selectedEnemies = bot->GetSelectedEnemies();
 		if( selectedEnemies.AreValid() && selectedEnemies.ArePotentiallyHittable() ) {
-			if( !self->ai->botRef->combatDodgeSemiRandomlyToTargetAction.IsDisabledForPlanning() ) {
-				return &self->ai->botRef->combatDodgeSemiRandomlyToTargetAction;
+			if( !module->combatDodgeSemiRandomlyToTargetAction.IsDisabledForPlanning() ) {
+				return &module->combatDodgeSemiRandomlyToTargetAction;
 			}
 		}
 	}
 
-	return &self->ai->botRef->fallbackMovementAction;
+	return &module->fallbackMovementAction;
 }
 
 BaseMovementAction *MovementPredictionContext::SuggestSuitableAction() {
@@ -537,23 +541,23 @@ BaseMovementAction *MovementPredictionContext::SuggestSuitableAction() {
 	const auto &entityPhysicsState = this->movementState->entityPhysicsState;
 
 	if( entityPhysicsState.waterLevel > 1 ) {
-		return &self->ai->botRef->swimMovementAction;
+		return &module->swimMovementAction;
 	}
 
 	if( movementState->jumppadMovementState.hasTouchedJumppad ) {
 		if( movementState->jumppadMovementState.hasEnteredJumppad ) {
 			if( movementState->flyUntilLandingMovementState.IsActive() ) {
 				if( movementState->flyUntilLandingMovementState.CheckForLanding( this ) ) {
-					return &self->ai->botRef->landOnSavedAreasAction;
+					return &module->landOnSavedAreasAction;
 				}
 
-				return &self->ai->botRef->flyUntilLandingAction;
+				return &module->flyUntilLandingAction;
 			}
 			// Fly until landing movement state has been deactivate,
 			// switch to bunnying (and, implicitly, to a dummy action if it fails)
-			return &self->ai->botRef->walkCarefullyAction;
+			return &module->walkCarefullyAction;
 		}
-		return &self->ai->botRef->handleTriggeredJumppadAction;
+		return &module->handleTriggeredJumppadAction;
 	}
 
 	if( const edict_t *groundEntity = entityPhysicsState.GroundEntity() ) {
@@ -563,24 +567,22 @@ BaseMovementAction *MovementPredictionContext::SuggestSuitableAction() {
 			const auto &maxs = groundEntity->r.absmax;
 			if( mins[0] <= entityPhysicsState.Origin()[0] && maxs[0] >= entityPhysicsState.Origin()[0] ) {
 				if( mins[1] <= entityPhysicsState.Origin()[1] && maxs[1] >= entityPhysicsState.Origin()[1] ) {
-					return &self->ai->botRef->ridePlatformAction;
+					return &module->ridePlatformAction;
 				}
 			}
 		}
 	}
 
 	if( movementState->campingSpotState.IsActive() ) {
-		return &self->ai->botRef->campASpotMovementAction;
+		return &module->campASpotMovementAction;
 	}
 
 	// The dummy movement action handles escaping using the movement fallback
-	if( self->ai->botRef->activeMovementFallback ) {
-		return &self->ai->botRef->fallbackMovementAction;
+	if( module->activeMovementFallback ) {
+		return &module->fallbackMovementAction;
 	}
-	return &self->ai->botRef->walkCarefullyAction;
+	return &module->walkCarefullyAction;
 }
-
-
 
 bool MovementPredictionContext::NextPredictionStep() {
 	SetupStackForStep();
@@ -589,7 +591,7 @@ bool MovementPredictionContext::NextPredictionStep() {
 	// Actions might set their custom step value (otherwise it will be set to a default one).
 	this->predictionStepMillis = 0;
 #ifdef CHECK_ACTION_SUGGESTION_LOOPS
-	Assert( self->ai->botRef->movementActions.size() < 32 );
+	Assert( module->movementActions.size() < 32 );
 	uint32_t testedActionsMask = 0;
 	StaticVector<BaseMovementAction *, 32> testedActionsList;
 #endif
@@ -755,7 +757,7 @@ bool MovementPredictionContext::NextPredictionStep() {
 }
 
 void MovementPredictionContext::BuildPlan() {
-	for( auto *movementAction: self->ai->botRef->movementActions )
+	for( auto *movementAction: module->movementActions )
 		movementAction->BeforePlanning();
 
 	// Intercept these calls implicitly performed by PMove()
@@ -764,6 +766,8 @@ void MovementPredictionContext::BuildPlan() {
 
 	module_PMoveTouchTriggers = &Intercepted_PMoveTouchTriggers;
 	module_PredictedEvent = &Intercepted_PredictedEvent;
+
+	edict_t *const self = game.edicts + bot->EntNum();
 
 	// The entity state might be modified by Intercepted_PMoveTouchTriggers(), so we have to save it
 	const Vec3 origin( self->s.origin );
@@ -780,9 +784,9 @@ void MovementPredictionContext::BuildPlan() {
 	auto savedPlayerState = self->r.client->ps;
 	auto savedPMove = self->r.client->old_pmove;
 
-	Assert( self->ai->botRef->entityPhysicsState == &self->ai->botRef->movementState.entityPhysicsState );
+	Assert( self->ai->botRef->entityPhysicsState == &module->movementState.entityPhysicsState );
 	// Save current entity physics state (it will be modified even for a single prediction step)
-	const AiEntityPhysicsState currEntityPhysicsState = self->ai->botRef->movementState.entityPhysicsState;
+	const AiEntityPhysicsState currEntityPhysicsState = module->movementState.entityPhysicsState;
 
 	// Remember to reset these values before each planning session
 	this->totalMillisAhead = 0;
@@ -841,11 +845,11 @@ void MovementPredictionContext::BuildPlan() {
 	self->r.client->old_pmove = savedPMove;
 
 	// Set first predicted movement state as the current bot movement state
-	self->ai->botRef->movementState = botMovementStatesStack[0];
+	module->movementState = botMovementStatesStack[0];
 	// Even the first predicted movement state usually has modified physics state, restore it to a saved value
-	self->ai->botRef->movementState.entityPhysicsState = currEntityPhysicsState;
+	module->movementState.entityPhysicsState = currEntityPhysicsState;
 	// Restore the current entity physics state reference in Ai subclass
-	self->ai->botRef->entityPhysicsState = &self->ai->botRef->movementState.entityPhysicsState;
+	self->ai->botRef->entityPhysicsState = &module->movementState.entityPhysicsState;
 	// These assertions helped to find an annoying bug during development
 	Assert( VectorCompare( self->s.origin, self->ai->botRef->entityPhysicsState->Origin() ) );
 	Assert( VectorCompare( self->velocity, self->ai->botRef->entityPhysicsState->Velocity() ) );
@@ -853,7 +857,7 @@ void MovementPredictionContext::BuildPlan() {
 	module_PMoveTouchTriggers = general_PMoveTouchTriggers;
 	module_PredictedEvent = general_PredictedEvent;
 
-	for( auto *movementAction: self->ai->botRef->movementActions )
+	for( auto *movementAction: module->movementActions )
 		movementAction->AfterPlanning();
 }
 
@@ -864,17 +868,19 @@ void MovementPredictionContext::NextMovementStep() {
 	// Make sure we're modify botInput/entityPhysicsState before copying to ucmd
 
 	// Corresponds to Bot::Think();
-	self->ai->botRef->ApplyPendingTurnToLookAtPoint( botInput, this );
-	// Corresponds to Bot::MovementFrame();
+	module->ApplyPendingTurnToLookAtPoint( botInput, this );
+	// Corresponds to module->Frame();
 	this->activeAction->ExecActionRecord( this->record, botInput, this );
 	// Corresponds to Bot::Think();
-	self->ai->botRef->ApplyInput( botInput, this );
+	module->ApplyInput( botInput, this );
 
 	// ExecActionRecord() call in SimulateMockBotFrame() might fail or complete the planning execution early.
 	// Do not call PMove() in these cases
 	if( this->cannotApplyAction || this->isCompleted ) {
 		return;
 	}
+
+	const edict_t *self = game.edicts + bot->EntNum();
 
 	// Prepare for PMove()
 	currPlayerState->POVnum = (unsigned)ENTNUM( self );
@@ -956,7 +962,7 @@ void MovementPredictionContext::Debug( const char *format, ... ) const {
 #endif
 
 	char tag[64];
-	Q_snprintfz( tag, 64, "^6MovementPredictionContext(%s)", Nick( self ) );
+	Q_snprintfz( tag, 64, "^6MovementPredictionContext(%s)", bot->Tag() );
 
 	va_list va;
 	va_start( va, format );
@@ -1050,7 +1056,7 @@ void MovementPredictionContext::SetDefaultBotInput() {
 }
 
 void MovementPredictionContext::CheatingAccelerate( float frac ) {
-	if( self->ai->botRef->ShouldMoveCarefully() ) {
+	if( bot->ShouldMoveCarefully() ) {
 		return;
 	}
 
@@ -1145,7 +1151,7 @@ void MovementPredictionContext::CheatingCorrectVelocity( float velocity2DDirDotT
 	// by the dot product to avoid a weird-looking cheating movement
 	float controlMultiplier = 0.05f + fabsf( velocity2DDirDotToTarget2DDir ) * 0.05f;
 	// Use lots of correction near items
-	if( self->ai->botRef->ShouldMoveCarefully() ) {
+	if( bot->ShouldMoveCarefully() ) {
 		controlMultiplier += 0.10f;
 	}
 

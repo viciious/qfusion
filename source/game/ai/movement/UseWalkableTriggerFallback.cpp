@@ -37,7 +37,7 @@ bool UseWalkableTriggerFallback::TryDeactivate( Context *context ) {
 
 MovementFallback *FallbackMovementAction::TryFindWalkableTriggerFallback( Context *context ) {
 	if( const edict_t *trigger = FindClosestToTargetTrigger( context ) ) {
-		auto *fallback = &self->ai->botRef->useWalkableTriggerFallback;
+		auto *fallback = &module->useWalkableTriggerFallback;
 		fallback->Activate( trigger );
 		return fallback;
 	}
@@ -64,7 +64,7 @@ typedef Context::NearbyTriggersCache NearbyTriggersCache;
 
 const edict_t *FallbackMovementAction::FindClosestToTargetTrigger( const ClosestTriggerProblemParams &problemParams,
 																   const NearbyTriggersCache &triggersCache ) {
-	const int allowedTravelFlags = self->ai->botRef->AllowedTravelFlags();
+	const int allowedTravelFlags = bot->AllowedTravelFlags();
 
 	const auto triggerTravelFlags = &triggersCache.triggerTravelFlags[0];
 	const auto triggerEntNums = &triggersCache.triggerEntNums[0];
@@ -94,7 +94,8 @@ const edict_t *FallbackMovementAction::FindClosestToTargetTrigger( const Closest
 	const int numFromAreas = problemParams.numFromAreas;
 	const int toAreaNum = problemParams.goalAreaNum;
 	const edict_t *gameEdicts = game.edicts;
-	const auto *routeCache = self->ai->botRef->routeCache;
+	const auto *routeCache = bot->RouteCache();
+	edict_t *const ignore = game.edicts + bot->EntNum();
 
 	int bestTravelTimeFromTrigger = std::numeric_limits<int>::max();
 	int bestTriggerIndex = -1;
@@ -139,7 +140,7 @@ const edict_t *FallbackMovementAction::FindClosestToTargetTrigger( const Closest
 
 		// We have to test against entities and not only solid world
 		// since this is a fallback action and any failure is critical
-		G_Trace( &trace, origin, traceMins, traceMaxs, entOrigin.Data(), self, MASK_PLAYERSOLID | CONTENTS_TRIGGER );
+		G_Trace( &trace, origin, traceMins, traceMaxs, entOrigin.Data(), ignore, MASK_PLAYERSOLID | CONTENTS_TRIGGER );
 		// We might hit a solid world aiming at the trigger origin.
 		// Check hit distance too, not only fraction for equality to 1.0f.
 		if( trace.fraction != 1.0f && trace.ent != triggerEntNums[i] ) {

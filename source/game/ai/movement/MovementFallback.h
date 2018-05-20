@@ -3,6 +3,8 @@
 
 #include "../ai_local.h"
 
+class Bot;
+class BotMovementModule;
 class MovementPredictionContext;
 
 class MovementFallback
@@ -15,7 +17,8 @@ public:
 	};
 
 protected:
-	const edict_t *const self;
+	const Bot *const bot;
+	BotMovementModule *const module;
 	int64_t activatedAt;
 	Status status;
 	int debugColor;
@@ -32,8 +35,8 @@ protected:
 		return true;
 	}
 public:
-	MovementFallback( const edict_t *self_, int debugColor_ )
-		: self( self_ ), activatedAt( 0 ), status( COMPLETED ), debugColor( debugColor_ ) {}
+	MovementFallback( const Bot *bot_, BotMovementModule *module_, int debugColor_ )
+		: bot( bot_ ), module( module_ ), activatedAt( 0 ), status( COMPLETED ), debugColor( debugColor_ ) {}
 
 	bool IsActive() const { return status == PENDING; }
 

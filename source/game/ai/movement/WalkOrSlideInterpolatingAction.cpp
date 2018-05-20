@@ -24,7 +24,7 @@ bool WalkOrSlideInterpolatingReachChainAction::TrySetupCrouchSliding( Context *c
 		return false;
 	}
 
-	if( self->ai->botRef->HasEnemy() ) {
+	if( bot->GetSelectedEnemies().AreValid() ) {
 		return false;
 	}
 
@@ -104,7 +104,7 @@ void WalkOrSlideInterpolatingReachChainAction::PlanPredictionStep( Context *cont
 		return;
 	}
 
-	const auto &miscTactics = self->ai->botRef->GetMiscTactics();
+	const auto &miscTactics = bot->GetMiscTactics();
 	if( !miscTactics.shouldBeSilent && !miscTactics.shouldMoveCarefully ) {
 		if( entityPhysicsState.Speed2D() > context->GetRunSpeed() ) {
 			// Check whether the bot is moving in a "proper" direction to prevent cycling in a loop around a reachability
@@ -130,7 +130,7 @@ void WalkOrSlideInterpolatingReachChainAction::PlanPredictionStep( Context *cont
 	auto *botInput = &context->record->botInput;
 	if( entityPhysicsState.GroundEntity() ) {
 		auto &environmentTraceCache = context->TraceCache();
-		if( self->ai->botRef->HasEnemy() ) {
+		if( bot->GetSelectedEnemies().AreValid() ) {
 			environmentTraceCache.MakeRandomizedKeyMovesToTarget( context, interpolator.Result(), keyMoves );
 		} else {
 			environmentTraceCache.MakeKeyMovesToTarget( context, interpolator.Result(), keyMoves );

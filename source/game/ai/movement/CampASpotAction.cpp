@@ -82,8 +82,8 @@ void CampASpotMovementAction::PlanPredictionStep( Context *context ) {
 
 	// A "pending look at point" and aiming for attacking are mutually exclusive for reasons described below.
 	// Check whether we should prefer attacking.
-	if( self->ai->botRef->GetSelectedEnemies().AreValid() ) {
-		if( self->ai->botRef->ShouldAttack() && self->ai->botRef->ShouldKeepXhairOnEnemy() ) {
+	if( bot->GetSelectedEnemies().AreValid() ) {
+		if( bot->ShouldAttack() && bot->ShouldKeepXhairOnEnemy() ) {
 			// Disallow setting already computed angles procuded by the pending look at point
 			context->movementState->pendingLookAtPointState.Deactivate();
 		}

@@ -225,27 +225,9 @@ void BotPlanner::PrepareCurrWorldState( WorldState *worldState ) {
 	cachedWorldState = *worldState;
 }
 
+// Cannot be defined in the header
 bool BotPlanner::ShouldSkipPlanning() const {
-	// Skip planning moving on a jumppad
-	if( self->ai->botRef->movementState.jumppadMovementState.IsActive() ) {
-		return true;
-	}
-
-	// Skip planning while preparing for a weaponjump / landing after it
-	if( self->ai->botRef->movementState.weaponJumpMovementState.IsActive() ) {
-		return true;
-	}
-
-	if( self->ai->botRef->movementState.flyUntilLandingMovementState.IsActive() ) {
-		return true;
-	}
-
-	// Skip planning moving on an elevator
-	if( self->groundentity && self->groundentity->use == Use_Plat && self->groundentity->moveinfo.state != STATE_TOP ) {
-		return true;
-	}
-
-	return false;
+	return !self->ai->botRef->CanInterruptMovement();
 }
 
 void BotPlanner::BeforePlanning() {

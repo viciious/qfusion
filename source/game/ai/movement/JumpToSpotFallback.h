@@ -20,8 +20,8 @@ public:
 	int desiredAasContents;
 	int desiredAasFlags;
 
-	JumpToSpotFallback( const edict_t *self_ )
-		: MovementFallback( self_, COLOR_RGB( 255, 0, 128 ) )
+	JumpToSpotFallback( const Bot *bot_, BotMovementModule *module_ )
+		: MovementFallback( bot_, module_, COLOR_RGB( 255, 0, 128 ) )
 		, timeout( 0 )
 		, startAirAccelFrac( 0 )
 		, endAirAccelFrac( 0 )

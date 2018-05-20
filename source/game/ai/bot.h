@@ -7,7 +7,7 @@
 #include "ai_base_ai.h"
 #include "vec3.h"
 
-#include "movement/bot_movement.h"
+#include "movement/MovementModule.h"
 #include "combat/WeaponsUsageModule.h"
 #include "planning/TacticalSpotsCache.h"
 #include "awareness/ThreatTracker.h"
@@ -116,32 +116,11 @@ class Bot : public Ai
 	friend class BotRoamGoal;
 	friend class BotTacticalSpotsCache;
 	friend class WorldState;
-	friend struct BotMovementState;
-	friend class MovementPredictionContext;
-	friend class BaseMovementAction;
-	friend class FallbackMovementAction;
-	friend class HandleTriggeredJumppadAction;
-	friend class LandOnSavedAreasAction;
-	friend class RidePlatformAction;
-	friend class SwimMovementAction;
-	friend class FlyUntilLandingAction;
-	friend class CampASpotMovementAction;
-	friend class WalkCarefullyAction;
-	friend class GenericRunBunnyingAction;
-	friend class BunnyStraighteningReachChainAction;
-	friend class BunnyToBestShortcutAreaAction;
-	friend class BunnyToBestFloorClusterPointAction;
-	friend class BunnyInterpolatingReachChainAction;
-	friend class WalkOrSlideInterpolatingReachChainAction;
-	friend class CombatDodgeSemiRandomlyToTargetAction;
 
-	friend class GenericGroundMovementFallback;
-	friend class UseWalkableNodeFallback;
-	friend class UseRampExitFallback;
-	friend class UseStairsExitFallback;
-	friend class UseWalkableTriggerFallback;
-	friend class FallDownFallback;
-	friend class JumpOverBarrierFallback;
+	friend class BotMovementModule;
+	friend class MovementPredictionContext;
+	// TODO: Remove this and refactor "kept in fov point" handling
+	friend class FallbackMovementAction;
 
 	friend class CachedTravelTimesMatrix;
 public:
@@ -318,17 +297,16 @@ public:
 	inline BotWeightConfig &WeightConfig() { return weightConfig; }
 
 	inline void OnInterceptedPredictedEvent( int ev, int parm ) {
-		movementPredictionContext.OnInterceptedPredictedEvent( ev, parm );
+		movementModule.OnInterceptedPredictedEvent( ev, parm );
 	}
+
 	inline void OnInterceptedPMoveTouchTriggers( pmove_t *pm, const vec3_t previousOrigin ) {
-		movementPredictionContext.OnInterceptedPMoveTouchTriggers( pm, previousOrigin );
+		movementModule.OnInterceptedPMoveTouchTriggers( pm, previousOrigin );
 	}
 
 	inline const AiEntityPhysicsState *EntityPhysicsState() const {
 		return entityPhysicsState;
 	}
-
-	bool TestWhetherCanSafelyKeepHighSpeed( MovementPredictionContext *context = nullptr );
 
 	// The movement code should use this method if there really are no
 	// feasible ways to continue traveling to the nav target.
@@ -420,38 +398,7 @@ private:
 	BotStartLostEnemyPursuitAction startLostEnemyPursuitAction;
 	BotStopLostEnemyPursuitAction stopLostEnemyPursuitAction;
 
-	// Must be initialized before any of movement actions constructors is called
-	StaticVector<BaseMovementAction *, 16> movementActions;
-
-	FallbackMovementAction fallbackMovementAction;
-	HandleTriggeredJumppadAction handleTriggeredJumppadAction;
-	LandOnSavedAreasAction landOnSavedAreasAction;
-	RidePlatformAction ridePlatformAction;
-	SwimMovementAction swimMovementAction;
-	FlyUntilLandingAction flyUntilLandingAction;
-	CampASpotMovementAction campASpotMovementAction;
-	WalkCarefullyAction walkCarefullyAction;
-	BunnyStraighteningReachChainAction bunnyStraighteningReachChainAction;
-	BunnyToBestShortcutAreaAction bunnyToBestShortcutAreaAction;
-	BunnyToBestFloorClusterPointAction bunnyToBestFloorClusterPointAction;
-	BunnyInterpolatingReachChainAction bunnyInterpolatingReachChainAction;
-	WalkOrSlideInterpolatingReachChainAction walkOrSlideInterpolatingReachChainAction;
-	CombatDodgeSemiRandomlyToTargetAction combatDodgeSemiRandomlyToTargetAction;
-
-	BotMovementState movementState;
-
-	MovementPredictionContext movementPredictionContext;
-
-	UseWalkableNodeFallback useWalkableNodeFallback;
-	UseRampExitFallback useRampExitFallback;
-	UseStairsExitFallback useStairsExitFallback;
-	UseWalkableTriggerFallback useWalkableTriggerFallback;
-
-	JumpToSpotFallback jumpToSpotFallback;
-	FallDownFallback fallDownFallback;
-	JumpOverBarrierFallback jumpOverBarrierFallback;
-
-	MovementFallback *activeMovementFallback;
+	BotMovementModule movementModule;
 
 	int64_t vsayTimeout;
 
@@ -592,9 +539,6 @@ public:
 	};
 
 	KeptInFovPoint keptInFovPoint;
-	int64_t nextRotateInputAttemptAt;
-	int64_t inputRotationBlockingTimer;
-	int64_t lastInputRotationFailureAt;
 
 	const Enemy *lastChosenLostOrHiddenEnemy;
 	unsigned lastChosenLostOrHiddenEnemyInstanceId;
@@ -611,9 +555,10 @@ public:
 
 	void UpdateKeptInFovPoint();
 
-	void MovementFrame( BotInput *input );
-	void CheckGroundPlatform();
-	bool CanChangeWeapons() const;
+	bool CanChangeWeapons() const {
+		return movementModule.CanChangeWeapons();
+	}
+
 	void ChangeWeapons( const SelectedWeapons &selectedWeapons_ );
 	virtual void OnBlockedTimeout() override;
 	void SayVoiceMessages();
@@ -624,34 +569,6 @@ public:
 
 	void OnRespawn();
 
-	void ApplyPendingTurnToLookAtPoint( BotInput *input, MovementPredictionContext *context = nullptr ) const;
-	void ApplyInput( BotInput *input, MovementPredictionContext *context = nullptr );
-
-	void CheckBlockingDueToInputRotation();
-
-	inline void InvertInput( BotInput *input, MovementPredictionContext *context = nullptr );
-	inline void TurnInputToSide( vec3_t sideDir, int sign, BotInput *input, MovementPredictionContext *context = nullptr );
-
-	inline bool TryRotateInput( BotInput *input, MovementPredictionContext *context = nullptr );
-
-	inline bool HasEnemy() const { return selectedEnemies.AreValid(); }
-	/*
-	inline bool IsEnemyAStaticSpot() const { return selectedEnemies.IsStaticSpot(); }
-	inline const edict_t *EnemyTraceKey() const { return selectedEnemies.TraceKey(); }
-	inline const bool IsEnemyOnGround() const { return selectedEnemies.OnGround(); }
-	 */
-	inline Vec3 EnemyOrigin() const { return selectedEnemies.LastSeenOrigin(); }
-	/*
-	inline Vec3 EnemyLookDir() const { return selectedEnemies.LookDir(); }
-	inline unsigned EnemyFireDelay() const { return selectedEnemies.FireDelay(); }
-	inline Vec3 EnemyVelocity() const { return selectedEnemies.LastSeenVelocity(); }
-	inline Vec3 EnemyMins() const { return selectedEnemies.Mins(); }
-	inline Vec3 EnemyMaxs() const { return selectedEnemies.Maxs(); }*/
-
-	static constexpr unsigned MAX_SAVED_AREAS = MovementPredictionContext::MAX_SAVED_LANDING_AREAS;
-	StaticVector<int, MAX_SAVED_AREAS> savedLandingAreas;
-	StaticVector<int, MAX_SAVED_AREAS> savedPlatformAreas;
-
 	void CheckTargetProximity();
 
 	bool HasJustPickedGoalItem() const;
@@ -661,29 +578,41 @@ public:
 		return ++similarWorldStateInstanceId;
 	}
 
+	int64_t LastTriggerTouchTime() const {
+		return std::max( lastTouchedJumppadAt, std::max( lastTouchedTeleportAt, lastTouchedElevatorAt ) );
+	}
+
+	int64_t LastKnockbackAt() const { return lastKnockbackAt; }
+
 	void ForceSetNavEntity( const SelectedNavEntity &selectedNavEntity_ );
 
 	inline void ForcePlanBuilding() {
 		basePlanner->ClearGoalAndPlan();
 	}
+
 	inline void SetCampingSpot( const AiCampingSpot &campingSpot ) {
-		movementState.campingSpotState.Activate( campingSpot );
+		movementModule.SetCampingSpot( campingSpot );
 	}
 	inline void ResetCampingSpot() {
-		movementState.campingSpotState.Deactivate();
+		movementModule.ResetCampingSpot();
 	}
 	inline bool HasActiveCampingSpot() const {
-		return movementState.campingSpotState.IsActive();
+		return movementModule.HasActiveCampingSpot();
 	}
 	inline void SetPendingLookAtPoint( const AiPendingLookAtPoint &lookAtPoint, unsigned timeoutPeriod ) {
-		movementState.pendingLookAtPointState.Activate( lookAtPoint, timeoutPeriod );
+		return movementModule.SetPendingLookAtPoint( lookAtPoint, timeoutPeriod );
 	}
 	inline void ResetPendingLookAtPoint() {
-		movementState.pendingLookAtPointState.Deactivate();
+		movementModule.ResetPendingLookAtPoint();
 	}
 	inline bool HasPendingLookAtPoint() const {
-		return movementState.pendingLookAtPointState.IsActive();
+		return movementModule.HasPendingLookAtPoint();
 	}
+
+	inline bool CanInterruptMovement() const {
+		return movementModule.CanInterruptMovement();
+	}
+
 	const SelectedNavEntity &GetSelectedNavEntity() const {
 		return selectedNavEntity;
 	}
@@ -691,6 +620,8 @@ public:
 	const SelectedNavEntity &GetOrUpdateSelectedNavEntity();
 
 	const SelectedEnemies &GetSelectedEnemies() const { return selectedEnemies; }
+
+	const Danger *PrimaryHazard() const { return perceptionManager.PrimaryDanger(); }
 
 	SelectedMiscTactics &GetMiscTactics() { return selectedTactics; }
 	const SelectedMiscTactics &GetMiscTactics() const { return selectedTactics; }

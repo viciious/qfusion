@@ -14,7 +14,7 @@ class BunnyStraighteningReachChainAction : public BotBunnyTestingMultipleLookDir
 										unsigned lastValidReachIndex );
 
 public:
-	explicit BunnyStraighteningReachChainAction( class Bot *bot_ );
+	explicit BunnyStraighteningReachChainAction( BotMovementModule *module_ );
 
 	void BeforePlanning() override {
 		BotBunnyTestingMultipleLookDirsAction::BeforePlanning();

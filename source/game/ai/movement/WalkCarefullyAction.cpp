@@ -8,7 +8,7 @@ void WalkCarefullyAction::PlanPredictionStep( Context *context ) {
 	// Ramp/stairs areas and areas not in floor clusters are exceptions
 	// (these kinds of areas are still troublesome for bot movement).
 	BaseMovementAction *suggestedAction = &DefaultBunnyAction();
-	if( self->ai->botRef->Skill() < 0.33f ) {
+	if( bot->Skill() < 0.33f ) {
 		const auto *aasWorld = AiAasWorld::Instance();
 		const int currGroundedAreaNum = context->CurrGroundedAasAreaNum();
 		// If the current area is not a ramp-like area
@@ -51,11 +51,11 @@ void WalkCarefullyAction::PlanPredictionStep( Context *context ) {
 		return;
 	}
 
-	if( self->ai->botRef->ShouldMoveCarefully() || self->ai->botRef->ShouldBeSilent() ) {
+	if( bot->ShouldMoveCarefully() || bot->ShouldBeSilent() ) {
 		context->SetDefaultBotInput();
 		context->record->botInput.ClearMovementDirections();
 		context->record->botInput.SetForwardMovement( 1 );
-		if( self->ai->botRef->ShouldMoveCarefully() || context->IsInNavTargetArea() ) {
+		if( bot->ShouldMoveCarefully() || context->IsInNavTargetArea() ) {
 			context->record->botInput.SetWalkButton( true );
 		}
 		return;

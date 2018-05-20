@@ -9,8 +9,8 @@ class FallDownFallback: public MovementFallback
 	unsigned timeout;
 	float reachRadius;
 public:
-	explicit FallDownFallback( const edict_t *self_ )
-		: MovementFallback( self_, COLOR_RGB( 128, 0, 0 ) ) {}
+	explicit FallDownFallback( const Bot *bot_, BotMovementModule *module_ )
+		: MovementFallback( bot_, module_, COLOR_RGB( 128, 0, 0 ) ) {}
 
 	// Note: It is expected that bot origin Z should be <= target origin Z
 	// after completion of the fallback, so target Z matters a lot!

@@ -13,7 +13,7 @@ bool FallDownFallback::TryDeactivate( Context *context ) {
 	if( context ) {
 		entityPhysicsState = &context->movementState->entityPhysicsState;
 	} else {
-		entityPhysicsState = self->ai->botRef->EntityPhysicsState();
+		entityPhysicsState = bot->EntityPhysicsState();
 	}
 
 	// Wait for touching any ground
@@ -34,7 +34,7 @@ void FallDownFallback::SetupMovement( Context *context ) {
 
 	// Start Z is rather important, don't use entity origin as-is
 	Vec3 intendedLookDir( entityPhysicsState.Origin() );
-	intendedLookDir.Z() += self->viewheight;
+	intendedLookDir.Z() += game.edicts[bot->EntNum()].viewheight;
 	intendedLookDir -= targetOrigin;
 	intendedLookDir *= -1.0f;
 	intendedLookDir.Normalize();
@@ -70,7 +70,7 @@ MovementFallback *FallbackMovementAction::TryFindWalkOffLedgeReachFallback( Cont
 	// If the falling distance is really low, treat is just as walking to a node
 	const float squareFallingHeight = DistanceSquared( nextReach.start, nextReach.end );
 	if( squareFallingHeight < SQUARE( 40.0f ) ) {
-		auto *fallback = &self->ai->botRef->useWalkableNodeFallback;
+		auto *fallback = &module->useWalkableNodeFallback;
 		float squareDistance = DistanceSquared( entityPhysicsState.Origin(), nextReach.start );
 		unsigned timeout = 100 + (unsigned)( 1000.0f * sqrtf( squareDistance ) / context->GetRunSpeed() );
 		Vec3 target( nextReach.start );
@@ -79,7 +79,7 @@ MovementFallback *FallbackMovementAction::TryFindWalkOffLedgeReachFallback( Cont
 		return fallback;
 	}
 
-	auto *fallback = &self->ai->botRef->fallDownFallback;
+	auto *fallback = &module->fallDownFallback;
 	Vec3 targetOrigin( nextReach.end );
 	// Setting the proper Z (should be greater than an origin of bot standing at destination) is important!
 	targetOrigin.Z() = AiAasWorld::Instance()->Areas()[nextReach.areanum].mins[2] + 4.0f - playerbox_stand_mins[2];

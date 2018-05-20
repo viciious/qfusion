@@ -2,9 +2,9 @@
 #include "MovementLocal.h"
 
 void BaseMovementAction::RegisterSelf() {
-	this->self = bot->self;
-	this->actionNum = bot->movementActions.size();
-	bot->movementActions.push_back( this );
+	bot = module->bot;
+	this->actionNum = module->movementActions.size();
+	module->movementActions.push_back( this );
 }
 
 void BaseMovementAction::Debug( const char *format, ... ) const {
@@ -17,7 +17,7 @@ void BaseMovementAction::Debug( const char *format, ... ) const {
 #endif
 
 	char tag[128];
-	Q_snprintfz( tag, 128, "^5%s(%s)", this->Name(), Nick( self ) );
+	Q_snprintfz( tag, 128, "^5%s(%s)", this->Name(), Nick( game.edicts + bot->EntNum() ) );
 
 	va_list va;
 	va_start( va, format );
@@ -50,6 +50,8 @@ void BaseMovementAction::ExecActionRecord( const MovementActionRecord *record, B
 		}
 		return;
 	}
+
+	edict_t *const self = game.edicts + bot->EntNum();
 
 	if( record->hasModifiedVelocity ) {
 		record->ModifiedVelocity().CopyTo( self->velocity );
@@ -92,7 +94,7 @@ void BaseMovementAction::CheckPredictionStepResults( Context *context ) {
 	}
 
 	if( stopPredictionOnEnteringWater && newEntityPhysicsState.waterLevel > 1 ) {
-		Assert( this != &self->ai->botRef->swimMovementAction );
+		Assert( this != &module->swimMovementAction );
 		Debug( "A prediction step has lead to entering water, should stop planning\n" );
 		context->isCompleted = true;
 		return;
@@ -144,7 +146,7 @@ void BaseMovementAction::CheckPredictionStepResults( Context *context ) {
 		const uint16_t *ents = context->frameEvents.otherTouchedTriggerEnts;
 		for( int i = 0, end = context->frameEvents.numOtherTouchedTriggers; i < end; ++i ) {
 			const edict_t *ent = gameEdicts + ents[i];
-			if( self->ai->botRef->IsNavTargetBasedOnEntity( ent ) ) {
+			if( bot->IsNavTargetBasedOnEntity( ent ) ) {
 				const char *entName = ent->classname ? ent->classname : "???";
 				Debug( "A prediction step has lead to touching a nav entity %s, should stop planning\n", entName );
 				context->isCompleted = true;
@@ -153,12 +155,12 @@ void BaseMovementAction::CheckPredictionStepResults( Context *context ) {
 		}
 	}
 
-	if( self->ai->botRef->ShouldRushHeadless() ) {
+	if( bot->ShouldRushHeadless() ) {
 		return;
 	}
 
 	if( this->failPredictionOnEnteringDangerImpactZone ) {
-		if( const auto *danger = self->ai->botRef->perceptionManager.PrimaryDanger() ) {
+		if( const auto *danger = bot->PrimaryHazard() ) {
 			if( danger->SupportsImpactTests() ) {
 				// Check the new origin condition first to cut off early
 				if( danger->HasImpactOnPoint( newEntityPhysicsState.Origin() ) ) {
@@ -173,7 +175,7 @@ void BaseMovementAction::CheckPredictionStepResults( Context *context ) {
 	}
 
 	// If misc tactics flag "rush headless" is set, areas occupied by enemies are never excluded from routing
-	const auto *routeCache = self->ai->botRef->routeCache;
+	const auto *routeCache = bot->RouteCache();
 	// Check the new origin condition first to cut off early
 	if( routeCache->AreaTemporarilyDisabled( newAasAreaNum ) ) {
 		if( !routeCache->AreaTemporarilyDisabled( oldAasAreaNum ) ) {

@@ -159,8 +159,7 @@ bool BotSameFloorClusterAreasCache::AreaPassesCollisionTest( const Vec3 &start,
 	float *start_ = const_cast<float *>( start.Data() );
 	float *mins_ = const_cast<float *>( mins );
 	float *maxs_ = const_cast<float *>( maxs );
-	edict_t *ignore = const_cast<edict_t *>( self );
-	G_Trace( &trace, start_, mins_, maxs_, areaPoint.Data(), ignore, MASK_AISOLID );
+	G_Trace( &trace, start_, mins_, maxs_, areaPoint.Data(), game.edicts + bot->EntNum(), MASK_AISOLID );
 	return trace.fraction == 1.0f;
 }
 
@@ -298,14 +297,14 @@ void BotSameFloorClusterAreasCache::BuildCandidateAreasHeap( Context *context, c
 		return;
 	}
 
-	const auto *dangerToEvade = self->ai->botRef->perceptionManager.PrimaryDanger();
+	const auto *dangerToEvade = bot->perceptionManager.PrimaryDanger();
 	// Reduce branching in the loop below
-	if( self->ai->botRef->ShouldRushHeadless() || ( dangerToEvade && !dangerToEvade->SupportsImpactTests() ) ) {
+	if( bot->ShouldRushHeadless() || ( dangerToEvade && !dangerToEvade->SupportsImpactTests() ) ) {
 		dangerToEvade = nullptr;
 	}
 
 	const auto *aasAreas = aasWorld->Areas();
-	const auto *routeCache = self->ai->botRef->routeCache;
+	const auto *routeCache = bot->RouteCache();
 	const auto &entityPhysicsState = context->movementState->entityPhysicsState;
 	const int toAreaNum = context->NavTargetAasAreaNum();
 

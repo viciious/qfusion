@@ -184,8 +184,8 @@ int BotRoamingManager::TryFindReachableArea( const Candidates &candidateAreas, i
 }
 
 int BotRoamingManager::TrySuggestRandomAasArea() {
-	const int currAreaNum = self->ai->botRef->movementState.entityPhysicsState.CurrAasAreaNum();
-	const int groundedAreaNum = self->ai->botRef->movementState.entityPhysicsState.DroppedToFloorAasAreaNum();
+	const int currAreaNum = self->ai->botRef->EntityPhysicsState()->CurrAasAreaNum();
+	const int groundedAreaNum = self->ai->botRef->EntityPhysicsState()->DroppedToFloorAasAreaNum();
 
 	const int numAreas = aasWorld->NumAreas();
 	const auto *aasAreas = aasWorld->Areas();
@@ -229,8 +229,8 @@ int BotRoamingManager::TrySuggestNearbyAasArea() {
 	int bboxAreaNums[64];
 	const int numBBoxAreas = aasWorld->BBoxAreas( mins, maxs, bboxAreaNums, 64 );
 
-	const int currAreaNum = self->ai->botRef->movementState.entityPhysicsState.CurrAasAreaNum();
-	const int groundedAreaNum = self->ai->botRef->movementState.entityPhysicsState.DroppedToFloorAasAreaNum();
+	const int currAreaNum = self->ai->botRef->EntityPhysicsState()->CurrAasAreaNum();
+	const int groundedAreaNum = self->ai->botRef->EntityPhysicsState()->DroppedToFloorAasAreaNum();
 
 	const auto *aasAreas = aasWorld->Areas();
 	const auto *aasAreaSettings = aasWorld->AreaSettings();

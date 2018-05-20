@@ -1,11 +1,11 @@
 #include "BunnyToBestShortcutAreaAction.h"
 #include "MovementLocal.h"
 
-BunnyToBestShortcutAreaAction::BunnyToBestShortcutAreaAction( Bot *bot_ )
-	: BotBunnyTestingMultipleLookDirsAction( bot_, NAME, COLOR_RGB( 255, 64, 0 ) ) {
+BunnyToBestShortcutAreaAction::BunnyToBestShortcutAreaAction( BotMovementModule *module_ )
+	: BotBunnyTestingMultipleLookDirsAction( module_, NAME, COLOR_RGB( 255, 64, 0 ) ) {
 	supportsObstacleAvoidance = false;
 	// The constructor cannot be defined in the header due to this bot member access
-	suggestedAction = &bot_->walkOrSlideInterpolatingReachChainAction;
+	suggestedAction = &module->walkOrSlideInterpolatingReachChainAction;
 }
 
 void BunnyToBestShortcutAreaAction::SaveSuggestedLookDirs( Context *context ) {
@@ -24,8 +24,8 @@ void BunnyToBestShortcutAreaAction::SaveSuggestedLookDirs( Context *context ) {
 
 inline int BunnyToBestShortcutAreaAction::FindActualStartTravelTime( Context *context ) {
 	const auto &entityPhysicsState = context->movementState->entityPhysicsState;
-	const auto *aasRouteCache = self->ai->botRef->routeCache;
-	const int travelFlags = self->ai->botRef->PreferredTravelFlags();
+	const auto *aasRouteCache = bot->RouteCache();
+	const int travelFlags = bot->PreferredTravelFlags();
 	const int navTargetAreaNum = context->NavTargetAasAreaNum();
 
 	int startAreaNums[2] = { entityPhysicsState.DroppedToFloorAasAreaNum(), entityPhysicsState.CurrAasAreaNum() };
@@ -51,7 +51,7 @@ inline int BunnyToBestShortcutAreaAction::FindActualStartTravelTime( Context *co
 inline int BunnyToBestShortcutAreaAction::FindBBoxAreas( Context *context, int *areaNums, int maxAreas ) {
 	const auto &entityPhysicsState = context->movementState->entityPhysicsState;
 	// Do not make it speed-depended, it leads to looping/jitter!
-	const float side = 256.0f + 256.0f * self->ai->botRef->Skill();
+	const float side = 256.0f + 256.0f * bot->Skill();
 
 	Vec3 boxMins( -side, -side, -0.33f * side );
 	Vec3 boxMaxs( +side, +side, 0 );
@@ -66,17 +66,17 @@ AreaAndScore *BunnyToBestShortcutAreaAction::SelectCandidateAreas( Context *cont
 																   int startTravelTime ) {
 	const auto &entityPhysicsState = context->movementState->entityPhysicsState;
 	const auto *aasWorld = AiAasWorld::Instance();
-	const auto *aasRouteCache = self->ai->botRef->routeCache;
+	const auto *aasRouteCache = bot->RouteCache();
 	const auto *aasAreas = aasWorld->Areas();
 	const auto *aasAreaSettings = aasWorld->AreaSettings();
 	const auto *aasAreaStairsClusterNums = aasWorld->AreaStairsClusterNums();
 
 	const int navTargetAreaNum = context->NavTargetAasAreaNum();
-	const int travelFlags = self->ai->botRef->PreferredTravelFlags();
+	const int travelFlags = bot->PreferredTravelFlags();
 	const int currAreaNum = entityPhysicsState.CurrAasAreaNum();
 	const int droppedToFloorAreaNum = entityPhysicsState.DroppedToFloorAasAreaNum();
 
-	const auto &prevTestedAction = self->ai->botRef->bunnyStraighteningReachChainAction;
+	const auto &prevTestedAction = module->bunnyStraighteningReachChainAction;
 	Assert( prevTestedAction.suggestedAction == this );
 	const auto &prevTestedAreas = prevTestedAction.dirsBaseAreas;
 
@@ -90,9 +90,9 @@ AreaAndScore *BunnyToBestShortcutAreaAction::SelectCandidateAreas( Context *cont
 	Vec3 traceStartPoint( entityPhysicsState.Origin() );
 	traceStartPoint.Z() += playerbox_stand_viewheight;
 
-	const auto *dangerToEvade = self->ai->botRef->perceptionManager.PrimaryDanger();
+	const auto *dangerToEvade = bot->PrimaryHazard();
 	// Reduce branching in the loop below
-	if( self->ai->botRef->ShouldRushHeadless() || ( dangerToEvade && !dangerToEvade->SupportsImpactTests() ) ) {
+	if( bot->ShouldRushHeadless() || ( dangerToEvade && !dangerToEvade->SupportsImpactTests() ) ) {
 		dangerToEvade = nullptr;
 	}
 

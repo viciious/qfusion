@@ -2,7 +2,7 @@
 #include "MovementLocal.h"
 
 void BunnyToBestFloorClusterPointAction::PlanPredictionStep( Context *context ) {
-	if( !GenericCheckIsActionEnabled( context, &self->ai->botRef->bunnyInterpolatingReachChainAction ) ) {
+	if( !GenericCheckIsActionEnabled( context, &module->bunnyInterpolatingReachChainAction ) ) {
 		return;
 	}
 

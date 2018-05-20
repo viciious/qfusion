@@ -5,7 +5,7 @@
 
 class RidePlatformAction : public BaseMovementAction
 {
-	friend class Bot;
+	friend class BotMovementModule;
 
 public:
 	DECLARE_MOVEMENT_ACTION_CONSTRUCTOR( RidePlatformAction, COLOR_RGB( 128, 128, 0 ) ) {

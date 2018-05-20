@@ -361,6 +361,8 @@ public:
 	inline Vec3 Target() const { return GetUnpacked4uVec( target ); }
 };
 
+class Bot;
+
 struct alignas ( 4 )BotMovementState {
 	// We want to pack members tightly to reduce copying cost of this struct during the planning process
 	static_assert( alignof( AiEntityPhysicsState ) == 4, "Members order by alignment is broken" );
@@ -427,7 +429,7 @@ struct alignas ( 4 )BotMovementState {
 		return result;
 	}
 
-	bool TestActualStatesForExpectedMask( unsigned expectedStatesMask, const edict_t *owner = nullptr ) const;
+	bool TestActualStatesForExpectedMask( unsigned expectedStatesMask, const Bot *bot ) const;
 };
 
 #endif

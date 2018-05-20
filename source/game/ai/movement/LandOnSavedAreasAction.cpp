@@ -113,8 +113,8 @@ float LandOnSavedAreasAction::SaveJumppadLandingAreas( const edict_t *jumppadEnt
 	}
 
 	const auto *aasWorld = AiAasWorld::Instance();
-	const auto *routeCache = self->ai->botRef->routeCache;
-	if( int navTargetAreaNum = self->ai->botRef->NavTargetAasAreaNum() ) {
+	const auto *routeCache = bot->RouteCache();
+	if( int navTargetAreaNum = bot->NavTargetAasAreaNum() ) {
 		int reachNum = 0;
 		if( routeCache->PreferredRouteToGoalArea( jumppadAreaNum, navTargetAreaNum, &reachNum ) ) {
 			int jumppadTargetAreaNum = aasWorld->Reachabilities()[reachNum].areanum;
@@ -167,7 +167,7 @@ float LandOnSavedAreasAction::SaveLandingAreasForJumppadTargetArea( const edict_
 																	int navTargetAreaNum,
 																	int jumppadTargetAreaNum ) {
 	const auto *aasWorld = AiAasWorld::Instance();
-	const auto *routeCache = self->ai->botRef->routeCache;
+	const auto *routeCache = bot->RouteCache();
 	const auto *aasAreas = aasWorld->Areas();
 	const auto *aasAreaSettings = aasWorld->AreaSettings();
 
@@ -279,11 +279,10 @@ void LandOnSavedAreasAction::BeforePlanning() {
 	totalTestedAreas = 0;
 
 	this->savedLandingAreas.clear();
-	auto *botSavedAreas = &self->ai->botRef->savedLandingAreas;
-	for( int areaNum: *botSavedAreas )
+	for( int areaNum: module->savedLandingAreas )
 		this->savedLandingAreas.push_back( areaNum );
 
-	botSavedAreas->clear();
+	module->savedLandingAreas.clear();
 }
 
 void LandOnSavedAreasAction::AfterPlanning() {
@@ -292,9 +291,8 @@ void LandOnSavedAreasAction::AfterPlanning() {
 		return;
 	}
 
-	auto *botSavedAreas = &self->ai->botRef->savedLandingAreas;
 	for( int areaNum: this->savedLandingAreas )
-		botSavedAreas->push_back( areaNum );
+		module->savedLandingAreas.push_back( areaNum );
 }
 
 bool LandOnSavedAreasAction::TryLandingStepOnArea( int areaNum, Context *context ) {
@@ -478,7 +476,7 @@ void LandOnSavedAreasAction::CheckPredictionStepResults( Context *context ) {
 	} else {
 		// Check whether the target area is reachable from the current area by walking and seems to be straight-walkable
 		int bestTravelTime = std::numeric_limits<int>::max();
-		const auto *routeCache = self->ai->botRef->routeCache;
+		const auto *routeCache = bot->RouteCache();
 		for( int i = 0; i < numCurrAreas; ++i ) {
 			int travelFlags = TFL_WALK | TFL_WALKOFFLEDGE | TFL_AIR;
 			if( int travelTime = routeCache->TravelTimeToGoalArea( currAreaNums[i], targetAreaNum, travelFlags ) ) {
@@ -495,7 +493,7 @@ void LandOnSavedAreasAction::CheckPredictionStepResults( Context *context ) {
 			currPoint.Z() += 1.0f;
 			// We have to check against entities in this case
 			trace_t trace;
-			edict_t *ignore = const_cast<edict_t *>( self );
+			edict_t *ignore = game.edicts + bot->EntNum();
 			float *mins = playerbox_stand_mins;
 			float *maxs = playerbox_stand_maxs;
 			G_Trace( &trace, currPoint.Data(), mins, maxs, testedTargetPoint.Data(), ignore, MASK_PLAYERSOLID );

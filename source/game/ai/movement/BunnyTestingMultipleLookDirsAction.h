@@ -36,8 +36,8 @@ protected:
 	// to avoid the mentioned failure in some environment kinds.
 	bool TraceArcInSolidWorld( const AiEntityPhysicsState &startPhysicsState, const vec3_t from, const vec3_t to );
 public:
-	BotBunnyTestingMultipleLookDirsAction( class Bot *bot_, const char *name_, int debugColor_ )
-		: GenericRunBunnyingAction( bot_, name_, debugColor_ )
+	BotBunnyTestingMultipleLookDirsAction( BotMovementModule *module_, const char *name_, int debugColor_ )
+		: GenericRunBunnyingAction( module_, name_, debugColor_ )
 		, maxSuggestedLookDirs( MAX_SUGGESTED_LOOK_DIRS )
 		, currSuggestedLookDirNum( 0 )
 		, suggestedAction( nullptr ) {}

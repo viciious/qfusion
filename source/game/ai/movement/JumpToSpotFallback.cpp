@@ -54,7 +54,7 @@ bool JumpToSpotFallback::TryDeactivate( Context *context ) {
 	if( context ) {
 		entityPhysicsState = &context->movementState->entityPhysicsState;
 	} else {
-		entityPhysicsState = self->ai->botRef->EntityPhysicsState();
+		entityPhysicsState = bot->EntityPhysicsState();
 	}
 
 	// Wait until the target is reached
@@ -86,7 +86,7 @@ bool JumpToSpotFallback::TryDeactivate( Context *context ) {
 				if( context->CanSafelyKeepHighSpeed() ) {
 					return DeactivateWithStatus( COMPLETED );
 				}
-			} else if( self->ai->botRef->TestWhetherCanSafelyKeepHighSpeed( nullptr ) ) {
+			} else if( module->TestWhetherCanSafelyKeepHighSpeed( nullptr ) ) {
 				return DeactivateWithStatus( COMPLETED );
 			}
 		}
@@ -101,7 +101,7 @@ void JumpToSpotFallback::SetupMovement( Context *context ) {
 
 	// Start Z is rather important, don't use entity origin as-is
 	Vec3 toTargetDir( entityPhysicsState.Origin() );
-	toTargetDir.Z() += self->viewheight;
+	toTargetDir.Z() += game.edicts[bot->EntNum()].viewheight;
 	toTargetDir -= targetOrigin;
 	toTargetDir *= -1.0f;
 	toTargetDir.Normalize();
@@ -208,7 +208,7 @@ void JumpToSpotFallback::SetupMovement( Context *context ) {
 		traceStart += entityPhysicsState.Origin();
 		Vec3 traceEnd( traceStart );
 		traceEnd.Z() -= 40.0f;
-		edict_t *ignore = const_cast<edict_t *>( self );
+		edict_t *ignore = game.edicts + bot->EntNum();
 		G_Trace( &trace, traceStart.Data(), nullptr, nullptr, traceEnd.Data(), ignore, MASK_PLAYERSOLID );
 		// If there is no gap or hazard in front of the bot, wait for accelerating on ground
 		if( trace.fraction != 1.0f && !( trace.contents & ( CONTENTS_LAVA | CONTENTS_SLIME | CONTENTS_NODROP ) ) ) {
@@ -426,12 +426,12 @@ void BestNavMeshPolyJumpableSpotDetector::FillCandidateSpotsWithoutRoutingTest( 
 
 MovementFallback *FallbackMovementAction::TryFindJumpToSpotFallback( Context *context, bool testTravelTime ) {
 	// Cut off these extremely expensive computations
-	if( !AiManager::Instance()->TryGetExpensiveComputationQuota( self ) ) {
+	if( !AiManager::Instance()->TryGetExpensiveComputationQuota( bot ) ) {
 		return nullptr;
 	}
 
 	const auto &entityPhysicsState = context->movementState->entityPhysicsState;
-	auto *const fallback = &self->ai->botRef->jumpToSpotFallback;
+	auto *const fallback = &module->jumpToSpotFallback;
 
 	auto *const areaDetector = &::bestAreaCenterJumpableSpotDetector;
 	auto *const polyDetector = &::bestNavMeshPolyJumpableSpotDetector;
@@ -446,8 +446,8 @@ MovementFallback *FallbackMovementAction::TryFindJumpToSpotFallback( Context *co
 		if( !startTravelTimeToTarget ) {
 			return nullptr;
 		}
-		areaDetector->AddRoutingParams( self->ai->botRef->routeCache, navTargetAreaNum, startTravelTimeToTarget );
-		polyDetector->AddRoutingParams( self->ai->botRef->routeCache, navTargetAreaNum, startTravelTimeToTarget );
+		areaDetector->AddRoutingParams( bot->RouteCache(), navTargetAreaNum, startTravelTimeToTarget );
+		polyDetector->AddRoutingParams( bot->RouteCache(), navTargetAreaNum, startTravelTimeToTarget );
 	}
 
 	vec3_t spotOrigin;
@@ -458,12 +458,12 @@ MovementFallback *FallbackMovementAction::TryFindJumpToSpotFallback( Context *co
 	}
 
 	// We have found nothing.. Try polys
-	if( !self->ai->botRef->navMeshQuery ) {
-		self->ai->botRef->navMeshQuery = AiNavMeshManager::Instance()->AllocQuery( self->r.client );
+	if( !bot->navMeshQuery ) {
+		bot->navMeshQuery = AiNavMeshManager::Instance()->AllocQuery( game.edicts[bot->EntNum()].r.client );
 	}
 
 	polyDetector->SetJumpPhysicsProps( context->GetRunSpeed(), context->GetJumpSpeed() );
-	polyDetector->navMeshQuery = self->ai->botRef->navMeshQuery;
+	polyDetector->navMeshQuery = bot->navMeshQuery;
 	if( unsigned jumpTravelTime = polyDetector->Exec( entityPhysicsState.Origin(), spotOrigin ) ) {
 		fallback->Activate( entityPhysicsState.Origin(), spotOrigin, jumpTravelTime );
 		return fallback;
@@ -475,7 +475,7 @@ MovementFallback *FallbackMovementAction::TryFindJumpToSpotFallback( Context *co
 // Can't be defined in the header due to accesing a Bot field
 MovementFallback *FallbackMovementAction::TryFindJumpAdvancingToTargetFallback( Context *context ) {
 	// Let the bot lose its speed first
-	if( self->ai->botRef->MillisInBlockedState() < 100 ) {
+	if( bot->MillisInBlockedState() < 100 ) {
 		return nullptr;
 	}
 
@@ -528,7 +528,7 @@ MovementFallback *FallbackMovementAction::TryFindJumpLikeReachFallback( Context 
 
 				// All areas pass the walkability test, use walking to a node that seems to be really close
 				if( i == numTracedAreas ) {
-					auto *fallback = &self->ai->botRef->useWalkableNodeFallback;
+					auto *fallback = &module->useWalkableNodeFallback;
 					Vec3 target( nextReach.end );
 					target.Z() += 1.0f - playerbox_stand_mins[2];
 					fallback->Activate( target.Data(), 24.0f, AiAasWorld::Instance()->FindAreaNum( target ), 500u );
@@ -544,7 +544,7 @@ MovementFallback *FallbackMovementAction::TryFindJumpLikeReachFallback( Context 
 	predictor.SetEnterAreaProps( 0, AREACONTENTS_LAVA | AREACONTENTS_SLIME | AREACONTENTS_DONOTENTER );
 	predictor.SetEnterAreaNum( nextReach.areanum );
 	predictor.SetColliderBounds( vec3_origin, playerbox_stand_maxs );
-	predictor.SetEntitiesCollisionProps( true, ENTNUM( self ) );
+	predictor.SetEntitiesCollisionProps( true, bot->EntNum() );
 	predictor.AddStopEventFlags( AiTrajectoryPredictor::HIT_SOLID | AiTrajectoryPredictor::HIT_ENTITY );
 
 	int numAttempts;
@@ -588,7 +588,7 @@ MovementFallback *FallbackMovementAction::TryFindJumpLikeReachFallback( Context 
 
 	const float defaultJumpSpeed = context->GetJumpSpeed();
 
-	const auto *routeCache = self->ai->botRef->routeCache;
+	const auto *routeCache = bot->RouteCache();
 	int navTargetAreaNum = context->NavTargetAasAreaNum();
 	// Note: we don't stop on the first feasible travel time here and below
 	int travelTimeFromReachArea = routeCache->FastestRouteToGoalArea( nextReach.areanum, navTargetAreaNum );
@@ -655,8 +655,8 @@ MovementFallback *FallbackMovementAction::TryFindJumpLikeReachFallback( Context 
 		return nullptr;
 	}
 
-	jumpTarget[2] += 1.0f - playerbox_stand_mins[2] + self->viewheight;
-	auto *fallback = &self->ai->botRef->jumpToSpotFallback;
+	jumpTarget[2] += 1.0f - playerbox_stand_mins[2] + game.edicts[bot->EntNum()].viewheight;
+	auto *fallback = &module->jumpToSpotFallback;
 	fallback->Activate( entityPhysicsState.Origin(), jumpTarget, predictionResults.millisAhead,
 						32.0f, startAirAccelFracs[i], endAirAccelFracs[i], attemptsZBoosts[i] );
 	return fallback;
@@ -677,18 +677,18 @@ MovementFallback *FallbackMovementAction::TryFindLostNavTargetFallback( Context 
 	Assert( !context->NavTargetAasAreaNum() );
 
 	// This code is extremely expensive, prevent frametime spikes
-	if( AiManager::Instance()->TryGetExpensiveComputationQuota( self ) ) {
+	if( AiManager::Instance()->TryGetExpensiveComputationQuota( bot ) ) {
 		return nullptr;
 	}
 
 	vec3_t spotOrigin;
 	const auto &entityPhysicsState = context->movementState->entityPhysicsState;
 	auto *detector = &::bestConnectedToHubAreasJumpableSpotDetector;
-	detector->searchRadius = 48.0f + 512.0f * BoundedFraction( self->ai->botRef->MillisInBlockedState(), 2000 );
+	detector->searchRadius = 48.0f + 512.0f * BoundedFraction( bot->MillisInBlockedState(), 2000 );
 	detector->numCurrAreas = entityPhysicsState.PrepareRoutingStartAreas( detector->currAreaNums );
 	detector->SetJumpPhysicsProps( context->GetRunSpeed(), context->GetJumpSpeed() );
 	if( detector->Exec( entityPhysicsState.Origin(), spotOrigin ) ) {
-		auto *fallback = &self->ai->botRef->jumpToSpotFallback;
+		auto *fallback = &module->jumpToSpotFallback;
 		// TODO: Compute and set a correct timeout instead of this magic number
 		fallback->Activate( entityPhysicsState.Origin(), spotOrigin, 500u, 32.0f );
 		return fallback;
@@ -762,7 +762,7 @@ MovementFallback *FallbackMovementAction::TryShortcutOtherFallbackByJumping( Con
 MovementFallback *FallbackMovementAction::TryShortcutOtherFallbackByJumping( Context *context,
 																			 const vec3_t initialTarget,
 																			 int initialTargetAreaNum ) {
-	if( self->ai->botRef->ShouldBeSilent() ) {
+	if( bot->ShouldBeSilent() ) {
 		return nullptr;
 	}
 
@@ -845,7 +845,7 @@ MovementFallback *FallbackMovementAction::TryShortcutOtherFallbackByJumping( Con
 	int landingAreaNum = predictionResults.lastAreaNum;
 	// We have not landed in the target area, check whether we have landed in even better one
 	if( landingAreaNum != initialTargetAreaNum ) {
-		const auto *routeCache = self->ai->botRef->routeCache;
+		const auto *routeCache = bot->RouteCache();
 		const int goalAreaNum = context->NavTargetAasAreaNum();
 		const auto travelFlags = Bot::ALLOWED_TRAVEL_FLAGS;
 		int nextReachTravelTime = routeCache->TravelTimeToGoalArea( initialTargetAreaNum, goalAreaNum, travelFlags );
@@ -855,7 +855,7 @@ MovementFallback *FallbackMovementAction::TryShortcutOtherFallbackByJumping( Con
 		}
 	}
 
-	auto *fallback = &self->ai->botRef->jumpToSpotFallback;
+	auto *fallback = &module->jumpToSpotFallback;
 	fallback->Activate( entityPhysicsState.Origin(), predictionResults.origin, predictionResults.millisAhead );
 	return fallback;
 }

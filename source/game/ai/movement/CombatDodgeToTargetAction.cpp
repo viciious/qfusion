@@ -40,8 +40,8 @@ void CombatDodgeSemiRandomlyToTargetAction::UpdateKeyMoveDirs( Context *context 
 }
 
 void CombatDodgeSemiRandomlyToTargetAction::PlanPredictionStep( Context *context ) {
-	Assert( self->ai->botRef->ShouldKeepXhairOnEnemy() );
-	Assert( self->ai->botRef->GetSelectedEnemies().AreValid() );
+	Assert( bot->ShouldKeepXhairOnEnemy() );
+	Assert( bot->GetSelectedEnemies().AreValid() );
 
 	auto *botInput = &context->record->botInput;
 	const auto &entityPhysicsState = context->movementState->entityPhysicsState;
@@ -59,7 +59,7 @@ void CombatDodgeSemiRandomlyToTargetAction::PlanPredictionStep( Context *context
 		context->isCompleted = true;
 	}
 
-	Vec3 botToEnemies( self->ai->botRef->GetSelectedEnemies().LastSeenOrigin() );
+	Vec3 botToEnemies( bot->GetSelectedEnemies().LastSeenOrigin() );
 	botToEnemies -= entityPhysicsState.Origin();
 
 	const short *pmStats = context->currPlayerState->pmove.stats;
@@ -96,7 +96,7 @@ void CombatDodgeSemiRandomlyToTargetAction::PlanPredictionStep( Context *context
 			}
 		}
 
-		const float skill = self->ai->botRef->Skill();
+		const float skill = bot->Skill();
 		if( !botInput->IsSpecialButtonSet() && entityPhysicsState.Speed2D() < 650 ) {
 			const auto &oldPMove = context->oldPlayerState->pmove;
 			const auto &newPMove = context->currPlayerState->pmove;
@@ -190,5 +190,5 @@ void CombatDodgeSemiRandomlyToTargetAction::OnApplicationSequenceStopped( Contex
 void CombatDodgeSemiRandomlyToTargetAction::BeforePlanning() {
 	BaseMovementAction::BeforePlanning();
 	attemptNum = 0;
-	maxAttempts = self->ai->botRef->Skill() > 0.33f ? 4 : 2;
+	maxAttempts = bot->Skill() > 0.33f ? 4 : 2;
 }

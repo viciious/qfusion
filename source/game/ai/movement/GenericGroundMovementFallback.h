@@ -35,8 +35,8 @@ protected:
 public:
 	static constexpr auto TRAVEL_FLAGS = TFL_WALK | TFL_AIR | TFL_WALKOFFLEDGE;
 
-	GenericGroundMovementFallback( const edict_t *self_, int debugColor_ )
-		: MovementFallback( self_, debugColor_ )
+	GenericGroundMovementFallback( const Bot *bot_, BotMovementModule *module_, int debugColor_ )
+		: MovementFallback( bot_, module_, debugColor_ )
 		, runDistanceToTargetThreshold( 20.0f )
 		, runDotProductToTargetThreshold( 0.3f )
 		, dashDistanceToTargetThreshold( 72.0f )

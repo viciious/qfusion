@@ -65,11 +65,15 @@ struct MovementPredictionConstants {
 	static constexpr unsigned MAX_SAVED_LANDING_AREAS = 16;
 };
 
+class Bot;
+class BotMovementModule;
+
 class MovementPredictionContext : public MovementPredictionConstants
 {
 	friend class BotTriggerPendingWeaponJumpMovementAction;
 
-	edict_t *const self;
+	Bot *const bot;
+	BotMovementModule *const module;
 public:
 	static constexpr unsigned MAX_PREDICTED_STATES = 48;
 
@@ -312,25 +316,7 @@ public:
 	inline const AiAasRouteCache *RouteCache() const;
 	inline const ArrayRange<int> TravelFlags() const;
 
-	explicit MovementPredictionContext( edict_t *self_ )
-		: self( self_ )
-		, sameFloorClusterAreasCache( self_ )
-		, navMeshQueryCache( self_ )
-		, movementState( nullptr )
-		, record( nullptr )
-		, oldPlayerState( nullptr )
-		, currPlayerState( nullptr )
-		, actionSuggestedByAction( nullptr )
-		, activeAction( nullptr )
-		, totalMillisAhead( 0 )
-		, predictionStepMillis( 0 )
-		, oldStepMillis( 0 )
-		, topOfStackIndex( 0 )
-		, savepointTopOfStackIndex( 0 )
-		, sequenceStopReason( SequenceStopReason::SUCCEEDED )
-		, isCompleted( false )
-		, cannotApplyAction( false )
-		, shouldRollback( false ) {}
+	explicit MovementPredictionContext( BotMovementModule *module );
 
 	HitWhileRunningTestResult MayHitWhileRunning();
 

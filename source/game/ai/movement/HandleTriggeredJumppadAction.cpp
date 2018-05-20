@@ -22,7 +22,7 @@ void HandleTriggeredJumppadAction::PlanPredictionStep( Context *context ) {
 	botInput->Clear();
 
 	const edict_t *jumppadEntity = jumppadMovementState->JumppadEntity();
-	float startLandingAtZ = self->ai->botRef->landOnSavedAreasAction.SaveJumppadLandingAreas( jumppadEntity );
+	float startLandingAtZ = module->landOnSavedAreasAction.SaveJumppadLandingAreas( jumppadEntity );
 	context->movementState->flyUntilLandingMovementState.Activate( startLandingAtZ );
 	// Stop prediction (jumppad triggers are not simulated by Exec() code)
 	context->isCompleted = true;

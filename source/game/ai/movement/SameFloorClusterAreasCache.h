@@ -4,6 +4,7 @@
 #include "../ai_local.h"
 #include "../static_vector.h"
 
+class Bot;
 class MovementPredictionContext;
 
 class BotSameFloorClusterAreasCache
@@ -19,7 +20,7 @@ class BotSameFloorClusterAreasCache
 	// and only straight-line walkability tests are to be performed.
 	mutable CandidateAreasHeap oldCandidatesHeap;
 
-	edict_t *const self;
+	Bot *const bot;
 	const AiAasWorld *aasWorld;
 	mutable int64_t computedAt;
 	mutable Vec3 computedTargetAreaPoint;
@@ -38,8 +39,8 @@ class BotSameFloorClusterAreasCache
 	bool AreaPassesCollisionTest( MovementPredictionContext *context, int areaNum ) const;
 	bool AreaPassesCollisionTest( const Vec3 &start, int areaNum, const vec3_t mins, const vec3_t maxs ) const;
 public:
-	explicit BotSameFloorClusterAreasCache( edict_t *self_ )
-		: self( self_ )
+	explicit BotSameFloorClusterAreasCache( Bot *bot_ )
+		: bot( bot_ )
 		, aasWorld( AiAasWorld::Instance() )
 		, computedAt( 0 )
 		, computedTargetAreaPoint( 0, 0, 0 )

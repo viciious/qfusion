@@ -3,10 +3,11 @@
 
 #include "../ai_local.h"
 
+class Bot;
 class MovementPredictionContext;
 
 class BotNavMeshQueryCache {
-	edict_t *const self;
+	Bot *const bot;
 	const class AiAasWorld *const aasWorld;
 	mutable int64_t computedAt;
 	mutable vec3_t computedForOrigin;
@@ -27,7 +28,7 @@ class BotNavMeshQueryCache {
 	bool TryTraceAndAasWalkabilityTests( MovementPredictionContext *context, int lastReachIndex, float *resultPoint );
 	bool InspectAasWorldTraceToPoly( const vec3_t polyOrigin );
 public:
-	BotNavMeshQueryCache( edict_t *self_ );
+	BotNavMeshQueryCache( Bot *bot_ );
 
 	bool GetClosestToTargetPoint( MovementPredictionContext *context, float *resultPoint ) const;
 };

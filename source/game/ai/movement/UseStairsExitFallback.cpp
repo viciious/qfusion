@@ -115,7 +115,7 @@ MovementFallback *FallbackMovementAction::TryFindStairsFallback( Context *contex
 
 	// Note: Don't try to apply jumping shortcut, results are very poor.
 
-	auto *fallback = &self->ai->botRef->useStairsExitFallback;
+	auto *fallback = &module->useStairsExitFallback;
 	fallback->Activate( stairsClusterNum, *bestAreaNum );
 	return fallback;
 }

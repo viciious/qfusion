@@ -3,7 +3,7 @@
 #include "ReachChainInterpolator.h"
 
 void BunnyInterpolatingReachChainAction::PlanPredictionStep( Context *context ) {
-	if( !GenericCheckIsActionEnabled( context, &self->ai->botRef->bunnyStraighteningReachChainAction ) ) {
+	if( !GenericCheckIsActionEnabled( context, &module->bunnyStraighteningReachChainAction ) ) {
 		return;
 	}
 

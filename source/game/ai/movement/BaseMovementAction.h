@@ -2,18 +2,20 @@
 #define QFUSION_BASEMOVEMENTACTION_H
 
 class Bot;
+class BotMovementModule;
 
 #include "MovementPredictionContext.h"
 
 class BaseMovementAction : public MovementPredictionConstants
 {
 	friend class MovementPredictionContext;
-	Bot *bot;
 	void RegisterSelf();
-	const char *name;
 
 protected:
-	edict_t *self;
+	Bot *bot;
+	BotMovementModule *const module;
+	const char *name;
+
 	int debugColor;
 
 	// Used to establish a direct mapping between integers and actions.
@@ -66,8 +68,8 @@ protected:
 	}
 
 public:
-	inline BaseMovementAction( class Bot *bot_, const char *name_, int debugColor_ = 0 )
-		: bot( bot_ )
+	inline BaseMovementAction( BotMovementModule *module_, const char *name_, int debugColor_ = 0 )
+		: module( module_ )
 		, name( name_ )
 		, debugColor( debugColor_ )
 		, originAtSequenceStart( 0, 0, 0 )
@@ -117,7 +119,7 @@ public:
 };
 
 #define DECLARE_MOVEMENT_ACTION_CONSTRUCTOR( name, debugColor_ ) \
-	name( class Bot *bot_ ) : BaseMovementAction( bot_, #name, debugColor_ )
+	name( BotMovementModule *module_ ) : BaseMovementAction( module_, #name, debugColor_ )
 
 // Lets not create excessive headers for these dummy action declarations
 

@@ -10,8 +10,8 @@ class JumpOverBarrierFallback: public MovementFallback
 	bool hasReachedStart;
 	bool allowWalljumping;
 public:
-	explicit JumpOverBarrierFallback( const edict_t *self_ )
-		: MovementFallback( self_, COLOR_RGB( 128, 0, 128 ) )
+	explicit JumpOverBarrierFallback( const Bot *bot_, BotMovementModule *module_ )
+		: MovementFallback( bot_, module_, COLOR_RGB( 128, 0, 128 ) )
 		, hasReachedStart( false )
 		, allowWalljumping( false ) {}
 

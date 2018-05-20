@@ -43,11 +43,11 @@ inline float MovementPredictionContext::GetRunSpeed() const {
 }
 
 inline Vec3 MovementPredictionContext::NavTargetOrigin() const {
-	return self->ai->botRef->NavTargetOrigin();
+	return bot->NavTargetOrigin();
 }
 
 inline float MovementPredictionContext::NavTargetRadius() const {
-	return self->ai->botRef->NavTargetRadius();
+	return bot->NavTargetRadius();
 }
 
 inline bool MovementPredictionContext::IsCloseToNavTarget() const {
@@ -76,7 +76,7 @@ inline int MovementPredictionContext::CurrGroundedAasAreaNum() const {
 }
 
 inline int MovementPredictionContext::NavTargetAasAreaNum() const {
-	return self->ai->botRef->NavTargetAasAreaNum();
+	return bot->NavTargetAasAreaNum();
 }
 
 inline bool MovementPredictionContext::IsInNavTargetArea() const {
@@ -134,11 +134,11 @@ inline void BaseMovementAction::Assert( bool condition, const char *message ) co
 }
 
 inline const AiAasRouteCache *MovementPredictionContext::RouteCache() const {
-	return self->ai->botRef->routeCache;
+	return bot->RouteCache();
 }
 
 inline const ArrayRange<int> MovementPredictionContext::TravelFlags() const {
-	return self->ai->botRef->TravelFlags();
+	return bot->TravelFlags();
 }
 
 inline EnvironmentTraceCache &MovementPredictionContext::TraceCache() {
@@ -231,33 +231,33 @@ inline ObstacleAvoidanceResult MovementPredictionContext::TryAvoidJumpableObstac
 
 inline BaseMovementAction &BaseMovementAction::DummyAction() {
 	// We have to check the combat action since it might be disabled due to planning stack overflow.
-	if( self->ai->botRef->ShouldKeepXhairOnEnemy() && self->ai->botRef->GetSelectedEnemies().AreValid() ) {
-		if( !self->ai->botRef->combatDodgeSemiRandomlyToTargetAction.IsDisabledForPlanning() ) {
-			return self->ai->botRef->combatDodgeSemiRandomlyToTargetAction;
+	if( bot->ShouldKeepXhairOnEnemy() && bot->GetSelectedEnemies().AreValid() ) {
+		if( !module->combatDodgeSemiRandomlyToTargetAction.IsDisabledForPlanning() ) {
+			return module->combatDodgeSemiRandomlyToTargetAction;
 		}
 	}
 
-	return self->ai->botRef->fallbackMovementAction;
+	return module->fallbackMovementAction;
 }
 
 inline BaseMovementAction &BaseMovementAction::DefaultWalkAction() {
-	return self->ai->botRef->walkCarefullyAction;
+	return module->walkCarefullyAction;
 }
 
 inline BaseMovementAction &BaseMovementAction::DefaultBunnyAction() {
-	return self->ai->botRef->bunnyToBestFloorClusterPointAction;
+	return module->bunnyToBestFloorClusterPointAction;
 }
 
 inline BaseMovementAction &BaseMovementAction::FallbackBunnyAction() {
-	return self->ai->botRef->walkOrSlideInterpolatingReachChainAction;
+	return module->walkOrSlideInterpolatingReachChainAction;
 }
 
 inline FlyUntilLandingAction &BaseMovementAction::FlyUntilLandingAction() {
-	return self->ai->botRef->flyUntilLandingAction;
+	return module->flyUntilLandingAction;
 }
 
 inline LandOnSavedAreasAction &BaseMovementAction::LandOnSavedAreasAction() {
-	return self->ai->botRef->landOnSavedAreasAction;
+	return module->landOnSavedAreasAction;
 }
 
 inline float Distance2DSquared( const vec3_t a, const vec3_t b ) {

@@ -6,6 +6,8 @@
 #include "planning/GoalEntities.h"
 #include "static_vector.h"
 
+class Bot;
+
 class AiManager : public AiFrameAwareUpdatable
 {
 	static const unsigned MAX_ACTIONS = BasePlanner::MAX_ACTIONS;
@@ -210,7 +212,7 @@ public:
 	// * Otherwise, sets some internal lock and returns true.
 	// Note that subsequent calls in the same frame fail even for the same client
 	// (only a single expensive operation is allowed per frame globally).
-	bool TryGetExpensiveComputationQuota( const edict_t *ent );
+	bool TryGetExpensiveComputationQuota( const Bot *bot );
 };
 
 #endif

@@ -32,8 +32,8 @@ bool GenericRunBunnyingAction::CheckCommonBunnyingPreconditions( Context *contex
 		return false;
 	}
 
-	if( self->ai->botRef->ShouldKeepXhairOnEnemy() ) {
-		const auto &selectedEnemies = self->ai->botRef->GetSelectedEnemies();
+	if( bot->ShouldKeepXhairOnEnemy() ) {
+		const auto &selectedEnemies = bot->GetSelectedEnemies();
 		if( selectedEnemies.AreValid() && selectedEnemies.ArePotentiallyHittable() ) {
 			if( !context->MayHitWhileRunning().CanHit() ) {
 				Debug( "Cannot apply action: cannot hit an enemy while keeping the crosshair on it is required\n" );
@@ -59,7 +59,7 @@ bool GenericRunBunnyingAction::CheckCommonBunnyingPreconditions( Context *contex
 		return false;
 	}
 
-	if( self->ai->botRef->ShouldBeSilent() ) {
+	if( bot->ShouldBeSilent() ) {
 		Debug( "Cannot apply action: bot should be silent\n" );
 		context->SetPendingRollback();
 		this->isDisabledForPlanning = true;
@@ -77,8 +77,8 @@ void GenericRunBunnyingAction::SetupCommonBunnyingInput( Context *context ) {
 
 	botInput->SetForwardMovement( 1 );
 	const auto &hitWhileRunningTestResult = context->MayHitWhileRunning();
-	if( self->ai->botRef->ShouldKeepXhairOnEnemy() ) {
-		const auto &selectedEnemies = self->ai->botRef->GetSelectedEnemies();
+	if( bot->ShouldKeepXhairOnEnemy() ) {
+		const auto &selectedEnemies = bot->GetSelectedEnemies();
 		if( selectedEnemies.AreValid() && selectedEnemies.ArePotentiallyHittable() ) {
 			Assert( hitWhileRunningTestResult.CanHit() );
 		}
@@ -164,7 +164,7 @@ bool GenericRunBunnyingAction::SetupBunnying( const Vec3 &intendedLookVec, Conte
 	// Looks like the bot is in air falling vertically
 	else if( !entityPhysicsState.GroundEntity() ) {
 		// Release keys to allow full control over view in air without affecting movement
-		if( self->ai->botRef->ShouldAttack() && CanFlyAboveGroundRelaxed( context ) ) {
+		if( bot->ShouldAttack() && CanFlyAboveGroundRelaxed( context ) ) {
 			botInput->ClearMovementDirections();
 			botInput->canOverrideLookVec = true;
 		}
@@ -174,7 +174,7 @@ bool GenericRunBunnyingAction::SetupBunnying( const Vec3 &intendedLookVec, Conte
 		return true;
 	}
 
-	if( self->ai->botRef->ShouldAttack() && CanFlyAboveGroundRelaxed( context ) ) {
+	if( bot->ShouldAttack() && CanFlyAboveGroundRelaxed( context ) ) {
 		botInput->ClearMovementDirections();
 		botInput->canOverrideLookVec = true;
 	}
@@ -549,7 +549,7 @@ void GenericRunBunnyingAction::CheckPredictionStepResults( Context *context ) {
 			for( int i = 0, end = ( areaNums[0] != areaNums[1] ? 2 : 1 ); i < end; ++i ) {
 				int travelFlags = GenericGroundMovementFallback::TRAVEL_FLAGS;
 				int toAreaNum = minTravelTimeAreaNumSoFar;
-				if( int aasTime = self->ai->botRef->routeCache->TravelTimeToGoalArea( areaNums[i], toAreaNum, travelFlags ) ) {
+				if( int aasTime = bot->RouteCache()->TravelTimeToGoalArea( areaNums[i], toAreaNum, travelFlags ) ) {
 					// aasTime is in seconds^-2
 					if( aasTime * 10 < (int)tolerableWalkableIncreasedTravelTimeMillis ) {
 						walkable = true;
@@ -650,8 +650,7 @@ void GenericRunBunnyingAction::CheckPredictionStepResults( Context *context ) {
 		return;
 	}
 
-	const auto *routeCache = self->ai->botRef->routeCache;
-	int travelTime = routeCache->PreferredRouteToGoalArea( groundAreaNum, context->NavTargetAasAreaNum() );
+	int travelTime = bot->RouteCache()->PreferredRouteToGoalArea( groundAreaNum, context->NavTargetAasAreaNum() );
 	if( travelTime && travelTime <= currTravelTimeToNavTarget ) {
 		Debug( "The bot is not very high above the ground and looks like it lands in a \"good\" area\n" );
 		context->isCompleted = true;

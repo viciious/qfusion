@@ -18,7 +18,7 @@ class BunnyToBestShortcutAreaAction : public BotBunnyTestingMultipleLookDirsActi
 										int startTravelTime );
 
 public:
-	explicit BunnyToBestShortcutAreaAction( class Bot *bot_ );
+	explicit BunnyToBestShortcutAreaAction( BotMovementModule *module_ );
 
 	void BeforePlanning() override {
 		BotBunnyTestingMultipleLookDirsAction::BeforePlanning();
