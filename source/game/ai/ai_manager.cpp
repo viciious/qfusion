@@ -95,6 +95,7 @@ AiManager::AiManager( const char *gametype, const char *mapname )
 	REGISTER_BUILTIN_ACTION( BotSteadyCombatAction );
 	REGISTER_BUILTIN_ACTION( BotGotoAvailableGoodPositionAction );
 	REGISTER_BUILTIN_ACTION( BotAttackFromCurrentPositionAction );
+	REGISTER_BUILTIN_ACTION( BotAttackAdvancingToTargetAction );
 
 	REGISTER_BUILTIN_ACTION( BotGenericRunAvoidingCombatAction );
 	REGISTER_BUILTIN_ACTION( BotStartGotoCoverAction );
