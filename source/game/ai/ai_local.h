@@ -291,14 +291,25 @@ public:
 // a substantial amount of space can be lost for alignment.
 class alignas ( 4 )Int64Align4 {
 	uint32_t parts[2];
+
+	inline void SetParts( int64_t value ) {
+		parts[0] = (uint32_t)( ( (uint64_t)value >> 32 ) & 0xFFFFFFFFu );
+		parts[1] = (uint32_t)( ( (uint64_t)value >> 00 ) & 0xFFFFFFFFu );
+	}
 public:
 	operator int64_t() const {
 		return (int64_t)( ( (uint64_t)parts[0] << 32 ) | parts[1] );
 	}
+
 	Int64Align4 operator=( int64_t value ) {
-		parts[0] = (uint32_t)( ( (uint64_t)value >> 32 ) & 0xFFFFFFFFu );
-		parts[1] = (uint32_t)( ( (uint64_t)value >> 00 ) & 0xFFFFFFFFu );
+		SetParts( value );
 		return *this;
+	}
+
+	Int64Align4() {}
+
+	Int64Align4( int64_t value ) {
+		SetParts( value );
 	}
 };
 

@@ -3,7 +3,7 @@
 
 #include "BunnyTestingMultipleLookDirsAction.h"
 
-class BunnyStraighteningReachChainAction : public BotBunnyTestingMultipleLookDirsAction
+class BunnyStraighteningReachChainAction : public BunnyTestingMultipleLookDirsAction
 {
 	friend class BunnyToBestShortcutAreaAction;
 	static constexpr const char *NAME = "BunnyStraighteningReachChainAction";
@@ -12,12 +12,18 @@ class BunnyStraighteningReachChainAction : public BotBunnyTestingMultipleLookDir
 	AreaAndScore *SelectCandidateAreas( MovementPredictionContext *context,
 										AreaAndScore *candidatesBegin,
 										unsigned lastValidReachIndex );
-
 public:
 	explicit BunnyStraighteningReachChainAction( BotMovementModule *module_ );
 
+	void OnApplicationSequenceStarted( MovementPredictionContext *context ) override {
+		BunnyTestingMultipleLookDirsAction::OnApplicationSequenceStarted( context );
+		if( currSuggestedLookDirNum < suggestedLookDirs.size() ) {
+			checkStopAtAreaNums.push_back( dirsBaseAreas[currSuggestedLookDirNum] );
+		}
+	}
+
 	void BeforePlanning() override {
-		BotBunnyTestingMultipleLookDirsAction::BeforePlanning();
+		BunnyTestingMultipleLookDirsAction::BeforePlanning();
 		// Reset to the action default value every frame
 		maxSuggestedLookDirs = 2;
 	}

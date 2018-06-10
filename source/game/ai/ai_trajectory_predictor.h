@@ -143,6 +143,7 @@ public:
 	};
 
 	inline void AddStopEventFlags( int flags ) { this->stopEventFlags |= (StopEvent)flags; }
+	inline StopEvent StopEventFlags() const { return (StopEvent)this->stopEventFlags; }
 
 	StopEvent Run( const Vec3 &startVelocity, const Vec3 &startOrigin, Results *results );
 

@@ -14,6 +14,10 @@ bool ReachChainInterpolator::TrySetDirToRegionExitArea( Context *context, const 
 	intendedLookDir.Set( areaPoint );
 	intendedLookDir -= origin;
 	intendedLookDir.NormalizeFast();
+
+	dirs.push_back( intendedLookDir );
+	dirsAreas.push_back( 0 );
+
 	return true;
 }
 
@@ -22,6 +26,7 @@ bool ReachChainInterpolator::Exec( Context *context ) {
 	vec3_t firstReachDir;
 	const auto &reachChain = context->NextReachChain();
 	const auto *aasWorld = AiAasWorld::Instance();
+	const auto *routeCache = context->RouteCache();
 	const auto *aasAreas = aasWorld->Areas();
 	const auto *aasReach = aasWorld->Reachabilities();
 	const auto *aasAreaSettings = aasWorld->AreaSettings();
@@ -35,7 +40,11 @@ bool ReachChainInterpolator::Exec( Context *context ) {
 	unsigned numReachFound = 0;
 	int currAreaFloorClusterNum = 0;
 	int currAreaNum = context->CurrAasAreaNum();
+	const int botGroundedAreaNum = context->CurrGroundedAasAreaNum();
 	bool endsInNavTargetArea = false;
+
+	dirs.clear();
+	dirsAreas.clear();
 
 	// Check for quick shortcuts for special cases when a bot is already inside a stairs cluster or a ramp.
 	// This should reduce CPU cycles wasting on interpolation attempts inside these kinds of environment.
@@ -105,8 +114,12 @@ bool ReachChainInterpolator::Exec( Context *context ) {
 				break;
 			}
 		} else {
-			SolidWorldTrace( &trace, origin, reach.start );
-			if( trace.fraction != 1.0f ) {
+			if( !BunnyTestingMultipleLookDirsAction::TraceArcInSolidWorld( entityPhysicsState, origin, reach.start ) ) {
+				break;
+			}
+
+			// This is very likely to indicate a significant elevation of the reach area over the bot area
+			if( !TravelTimeWalkingOrFallingShort( routeCache, reach.areanum, botGroundedAreaNum ) ) {
 				break;
 			}
 		}
@@ -118,21 +131,38 @@ bool ReachChainInterpolator::Exec( Context *context ) {
 		// The next reachability starts in this area
 		reachStartArea = reach.areanum;
 
-		Vec3 reachDir( reach.start );
-		reachDir -= origin;
-		reachDir.NormalizeFast();
+		Vec3 *reachDir = dirs.unsafe_grow_back();
+		reachDir->Set( reach.start );
+		*reachDir -= origin;
+		reachDir->Z() *= Z_NO_BEND_SCALE;
+		reachDir->NormalizeFast();
 		// Add a reach dir to the dirs list (be optimistic to avoid extra temporaries)
-		if( numReachFound ) {
-			// Limit dirs angular spread checking against a first found dir as a base dir
-			if( reachDir.Dot( firstReachDir ) < 0.5f ) {
-				break;
-			}
-		} else {
-			reachDir.CopyTo( firstReachDir );
+		if( !numReachFound ) {
+			reachDir->CopyTo( firstReachDir );
 		}
 
-		intendedLookDir += reachDir;
+		intendedLookDir += *reachDir;
 		numReachFound++;
+
+		dirsAreas.push_back( reach.areanum );
+		if( dirs.size() == dirs.capacity() ) {
+			break;
+		}
+
+		// If the trace test seems to be valid for reach end too
+		if( DistanceSquared( reach.start, reach.end ) < SQUARE( 20 ) ) {
+			reachDir->Set( reach.end );
+			*reachDir -= origin;
+			reachDir->Z() *= Z_NO_BEND_SCALE;
+			reachDir->NormalizeFast();
+			intendedLookDir += *reachDir;
+			numReachFound++;
+
+			dirsAreas.push_back( reach.areanum );
+			if( dirs.size() == dirs.capacity() ) {
+				break;
+			}
+		}
 	}
 
 	if( !numReachFound ) {
@@ -141,6 +171,9 @@ bool ReachChainInterpolator::Exec( Context *context ) {
 				intendedLookDir.Set( context->NavTargetOrigin() );
 				intendedLookDir -= origin;
 				intendedLookDir.NormalizeFast();
+
+				dirs.push_back( intendedLookDir );
+				dirsAreas.push_back( context->NavTargetAasAreaNum() );
 				return true;
 			}
 			return false;
@@ -149,6 +182,10 @@ bool ReachChainInterpolator::Exec( Context *context ) {
 		intendedLookDir.Set( singleFarReach->start );
 		intendedLookDir -= origin;
 		intendedLookDir.NormalizeFast();
+
+		dirs.push_back( intendedLookDir );
+		dirsAreas.push_back( singleFarReach->areanum );
+
 		return true;
 	}
 
@@ -160,11 +197,9 @@ bool ReachChainInterpolator::Exec( Context *context ) {
 			Vec3 toTargetDir( navTargetOrigin );
 			toTargetDir -= origin;
 			toTargetDir.NormalizeFast();
-			if( toTargetDir.Dot( firstReachDir ) > 0.5f ) {
-				intendedLookDir += toTargetDir;
-				// Count it as an additional interpolated reachability
-				numReachFound++;
-			}
+			intendedLookDir += toTargetDir;
+			// Count it as an additional interpolated reachability
+			numReachFound++;
 		}
 	}
 

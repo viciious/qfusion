@@ -183,23 +183,6 @@ void JumpToSpotFallback::SetupMovement( Context *context ) {
 
 	// Wait for accelerating on ground, except there is an obstacle or a gap
 	if( entityPhysicsState.Speed2D() < context->GetRunSpeed() - 30 ) {
-		// First, utilize the obstacles cache used in prediction
-		auto *traceCache = &context->TraceCache();
-		bool shouldJumpOverObstacle;
-		if( forwardMovement > 0 ) {
-			traceCache->TestForResultsMask( context, traceCache->FullHeightMask( EnvironmentTraceCache::FRONT ) );
-			shouldJumpOverObstacle = !traceCache->FullHeightFrontTrace().IsEmpty();
-		} else {
-			traceCache->TestForResultsMask( context, traceCache->FullHeightMask( EnvironmentTraceCache::BACK ) );
-			shouldJumpOverObstacle = !traceCache->FullHeightBackTrace().IsEmpty();
-		}
-		if( shouldJumpOverObstacle ) {
-			botInput->SetUpMovement( 1 );
-			// Setting it is important too (helps if skimming gets triggered)
-			botInput->SetForwardMovement( forwardMovement );
-			return;
-		}
-
 		// Check whether there is a gap in front of the bot
 		trace_t trace;
 		Vec3 traceStart( entityPhysicsState.ForwardDir() );
@@ -214,15 +197,19 @@ void JumpToSpotFallback::SetupMovement( Context *context ) {
 		if( trace.fraction != 1.0f && !( trace.contents & ( CONTENTS_LAVA | CONTENTS_SLIME | CONTENTS_NODROP ) ) ) {
 			return;
 		}
-	}
 
-	// Try dashing
-	if( entityPhysicsState.Origin()[2] >= targetOrigin[2] ) {
-		const auto *pmStats = context->currPlayerState->pmove.stats;
-		// If a dash can succeed, return
-		if( ( pmStats[PM_STAT_FEATURES] & PMFEAT_JUMP ) && !pmStats[PM_STAT_DASHTIME] ) {
-			botInput->SetSpecialButton( true );
-			return;
+		// We're unsure if the bot could reach the needed speed for jumping from the ledge.
+		// Try using a cheating acceleration
+		Vec3 forwardDir( entityPhysicsState.ForwardDir() );
+		// Check whether the bot is not leaning too hard to avoid weird-looking movement
+		if( fabsf( forwardDir.Z() ) < 0.3f & DistanceSquared( entityPhysicsState.Origin(), targetOrigin ) > SQUARE( 48 ) ) {
+			forwardDir.Z() = 0;
+			forwardDir.NormalizeFast();
+			if( toTargetDir.Dot( forwardDir ) > 0.9f ) {
+				Vec3 modifiedVelocity( forwardDir );
+				modifiedVelocity *= context->GetRunSpeed();
+				context->record->SetModifiedVelocity( modifiedVelocity );
+			}
 		}
 	}
 
@@ -237,6 +224,10 @@ class BestAreaCenterJumpableSpotDetector: public BestRegularJumpableSpotDetector
 	void FillCandidateSpotsUsingRoutingTest( const int *boxAreaNums, int numBoxAreas );
 	void FillCandidateSpotsWithoutRoutingTest( const int *boxAreaNums, int numBoxAreas );
 	inline bool TestAreaSettings( const aas_areasettings_t &areaSettings );
+public:
+	BestAreaCenterJumpableSpotDetector() {
+		SetTestSpotAreaNums( true );
+	}
 };
 
 static BestAreaCenterJumpableSpotDetector bestAreaCenterJumpableSpotDetector;
@@ -303,7 +294,7 @@ void BestAreaCenterJumpableSpotDetector::FillCandidateSpotsUsingRoutingTest( con
 		// Otherwise no results are produced
 		areaPoint.Z() += playerbox_stand_maxs[2];
 		// Use the negated travel time as a score for the max-heap (closest to target spot gets evicted first)
-		new( spotsHeap.unsafe_grow_back() )SpotAndScore( areaPoint.Data(), -travelTime );
+		new( spotsHeap.unsafe_grow_back() )SpotAndScore( areaPoint.Data(), -travelTime, areaNum, -1 );
 	}
 }
 
@@ -324,7 +315,7 @@ void BestAreaCenterJumpableSpotDetector::FillCandidateSpotsWithoutRoutingTest( c
 		float squareDistance = areaPoint.SquareDistanceTo( startOrigin );
 		areaPoint.Z() += playerbox_stand_maxs[2];
 		// Farthest spots should get evicted first
-		new( spotsHeap.unsafe_grow_back() )SpotAndScore( areaPoint.Data(), squareDistance );
+		new( spotsHeap.unsafe_grow_back() )SpotAndScore( areaPoint.Data(), squareDistance, areaNum, -1 );
 	}
 }
 
@@ -337,14 +328,16 @@ class BestNavMeshPolyJumpableSpotDetector: public BestRegularJumpableSpotDetecto
 	void FillCandidateSpotsUsingRoutingTest( const uint32_t *polyRefs, int numPolyRefs );
 	void FillCandidateSpotsWithoutRoutingTest( const uint32_t *polyRefs, int numPolyRefs );
 public:
-	BestNavMeshPolyJumpableSpotDetector() : navMeshManager( nullptr ), navMeshQuery( nullptr ) {}
+	BestNavMeshPolyJumpableSpotDetector() : navMeshManager( nullptr ), navMeshQuery( nullptr ) {
+		SetTestSpotAreaNums( true );
+	}
 
 	// Should be set for the query owned by the corresponding client
 	AiNavMeshQuery *navMeshQuery;
 
-	unsigned Exec( const vec3_t startOrigin_, vec3_t spotOrigin_ ) override {
+	const SpotAndScore *Exec( const vec3_t startOrigin_, unsigned *millis ) override {
 		navMeshManager = AiNavMeshManager::Instance();
-		unsigned result = BestRegularJumpableSpotDetector::Exec( startOrigin_, spotOrigin_ );
+		const SpotAndScore *result = BestRegularJumpableSpotDetector::Exec( startOrigin_, millis );
 		// Nullify the supplied reference to avoid unintended reusing
 		navMeshQuery = nullptr;
 		return result;
@@ -406,7 +399,7 @@ void BestNavMeshPolyJumpableSpotDetector::FillCandidateSpotsUsingRoutingTest( co
 		}
 		targetOrigin[2] += playerbox_stand_maxs[2];
 		// Use the negated travel time as a spot score (closest to target spots should get evicted first)
-		new( spotsHeap.unsafe_grow_back() )SpotAndScore( targetOrigin, -travelTime );
+		new( spotsHeap.unsafe_grow_back() )SpotAndScore( targetOrigin, -travelTime, areaNum, -1 );
 	}
 }
 
@@ -420,7 +413,7 @@ void BestNavMeshPolyJumpableSpotDetector::FillCandidateSpotsWithoutRoutingTest( 
 		float spotScore = DistanceSquared( startOrigin, targetOrigin );
 		targetOrigin[2] += playerbox_stand_maxs[2];
 		// Farthest spots should get evicted first
-		new( spotsHeap.unsafe_grow_back() )SpotAndScore( targetOrigin, spotScore );
+		new( spotsHeap.unsafe_grow_back() )SpotAndScore( targetOrigin, spotScore, aasWorld->FindAreaNum( targetOrigin ), -1 );
 	}
 }
 
@@ -450,10 +443,10 @@ MovementFallback *FallbackMovementAction::TryFindJumpToSpotFallback( Context *co
 		polyDetector->AddRoutingParams( bot->RouteCache(), navTargetAreaNum, startTravelTimeToTarget );
 	}
 
-	vec3_t spotOrigin;
+	unsigned jumpTravelTime;
 	areaDetector->SetJumpPhysicsProps( context->GetRunSpeed(), context->GetJumpSpeed() );
-	if( unsigned jumpTravelTime = areaDetector->Exec( entityPhysicsState.Origin(), spotOrigin ) ) {
-		fallback->Activate( entityPhysicsState.Origin(), spotOrigin, jumpTravelTime );
+	if( const auto *spot = areaDetector->Exec( entityPhysicsState.Origin(), &jumpTravelTime ) ) {
+		fallback->Activate( entityPhysicsState.Origin(), spot->origin, jumpTravelTime );
 		return fallback;
 	}
 
@@ -464,8 +457,8 @@ MovementFallback *FallbackMovementAction::TryFindJumpToSpotFallback( Context *co
 
 	polyDetector->SetJumpPhysicsProps( context->GetRunSpeed(), context->GetJumpSpeed() );
 	polyDetector->navMeshQuery = bot->navMeshQuery;
-	if( unsigned jumpTravelTime = polyDetector->Exec( entityPhysicsState.Origin(), spotOrigin ) ) {
-		fallback->Activate( entityPhysicsState.Origin(), spotOrigin, jumpTravelTime );
+	if( const auto *spot = polyDetector->Exec( entityPhysicsState.Origin(), &jumpTravelTime ) ) {
+		fallback->Activate( entityPhysicsState.Origin(), spot->origin, jumpTravelTime );
 		return fallback;
 	}
 
@@ -669,6 +662,10 @@ public:
 	float searchRadius;
 	int currAreaNums[2];
 	int numCurrAreas;
+
+	BestConnectedToHubAreasJumpableSpotDetector() {
+		SetTestSpotAreaNums( true );
+	}
 };
 
 static BestConnectedToHubAreasJumpableSpotDetector bestConnectedToHubAreasJumpableSpotDetector;
@@ -681,16 +678,16 @@ MovementFallback *FallbackMovementAction::TryFindLostNavTargetFallback( Context 
 		return nullptr;
 	}
 
-	vec3_t spotOrigin;
 	const auto &entityPhysicsState = context->movementState->entityPhysicsState;
 	auto *detector = &::bestConnectedToHubAreasJumpableSpotDetector;
 	detector->searchRadius = 48.0f + 512.0f * BoundedFraction( bot->MillisInBlockedState(), 2000 );
 	detector->numCurrAreas = entityPhysicsState.PrepareRoutingStartAreas( detector->currAreaNums );
 	detector->SetJumpPhysicsProps( context->GetRunSpeed(), context->GetJumpSpeed() );
-	if( detector->Exec( entityPhysicsState.Origin(), spotOrigin ) ) {
+	unsigned millis;
+	if( const auto *spot = detector->Exec( entityPhysicsState.Origin(), &millis ) ) {
 		auto *fallback = &module->jumpToSpotFallback;
 		// TODO: Compute and set a correct timeout instead of this magic number
-		fallback->Activate( entityPhysicsState.Origin(), spotOrigin, 500u, 32.0f );
+		fallback->Activate( entityPhysicsState.Origin(), spot->origin, millis, 32.0f );
 		return fallback;
 	}
 
@@ -742,7 +739,7 @@ void BestConnectedToHubAreasJumpableSpotDetector::GetCandidateSpots( SpotAndScor
 
 		// Use the distance as a spot score in a max-heap.
 		// Farthest spots should get evicted first
-		new( spotsHeap.unsafe_grow_back() )SpotAndScore( areaPoint.Data(), squareDistance );
+		new( spotsHeap.unsafe_grow_back() )SpotAndScore( areaPoint.Data(), squareDistance, areaNum, -1 );
 	}
 
 	// FindBestJumpableSpot assumes candidates to be a max-heap

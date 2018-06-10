@@ -54,19 +54,13 @@ protected:
 	}
 
 	inline bool GenericCheckIsActionEnabled( MovementPredictionContext *context,
-											 BaseMovementAction *suggestedAction = nullptr ) const {
-		// Put likely case first
-		if( !isDisabledForPlanning ) {
-			return true;
-		}
+											 BaseMovementAction *suggestedAction = nullptr ) const;
 
-		context->sequenceStopReason = DISABLED;
-		context->cannotApplyAction = true;
-		context->actionSuggestedByAction = suggestedAction;
-		Debug( "The action has been completely disabled for further planning\n" );
-		return false;
-	}
+	inline void DisableWithAlternative( MovementPredictionContext *context, BaseMovementAction *suggestedAction );
+	inline void SwitchOrStop( MovementPredictionContext *context, BaseMovementAction *suggestedAction );
+	inline void SwitchOrRollback( MovementPredictionContext *context, BaseMovementAction *suggestedAction );
 
+	bool HasTouchedNavEntityThisFrame( MovementPredictionContext *context );
 public:
 	inline BaseMovementAction( BotMovementModule *module_, const char *name_, int debugColor_ = 0 )
 		: module( module_ )

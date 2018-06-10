@@ -10,10 +10,17 @@ public:
 	struct SpotAndScore {
 		vec3_t origin;
 		float score;
+		int areaNum;   // Positive if set (zero is a dummy area)
+		int tag;       // Non-negative if set (usually an index)
 
-		SpotAndScore( const vec3_t origin_, float score_ ) {
+		SpotAndScore( const vec3_t origin_, float score_ )
+			: score( score_ ), areaNum( 0 ), tag( -1 ) {
 			VectorCopy( origin_, this->origin );
-			this->score = score_;
+		}
+
+		SpotAndScore( const vec3_t origin_, float score_, int areaNum_, int tag_ )
+			: score( score_ ), areaNum( areaNum_ ), tag( tag_ ) {
+			VectorCopy( origin_, this->origin );
 		}
 
 		// Do not negate the comparison result as we usually do, since spots are assumed to be stored in a max-heap
@@ -23,6 +30,7 @@ protected:
 	AiTrajectoryPredictor predictor;
 	AiTrajectoryPredictor::Results predictionResults;
 	vec3_t startOrigin;
+	bool testSpotAreaNums;
 
 	// A returned range should be a max-heap (best spots be evicted first)
 	virtual void GetCandidateSpots( SpotAndScore **begin, SpotAndScore **end ) = 0;
@@ -30,12 +38,15 @@ protected:
 	// Can be overridden in different ways, e.g.:
 	// for regular jumping velocity XY is a 2 direction to spot multiplied by run speed, Z is the jump speed
 	// for weapon jumping velocity is a direction to spot multiplied by a value derived from knockback and player mass
-	virtual void GetVelocityForJumpingToSpot( vec3_t velocity, const vec3_t spot ) = 0;
+	virtual void GetVelocityForJumpingToSpot( vec3_t velocity, const SpotAndScore *spot ) = 0;
+
+	bool InspectBumpingPoint( const SpotAndScore *spotAndScore ) const;
 public:
 	BestJumpableSpotDetector() {
 		auto badAreaContents = AREACONTENTS_LAVA | AREACONTENTS_SLIME | AREACONTENTS_WATER | AREACONTENTS_DONOTENTER;
 		predictor.SetEnterAreaProps( 0, badAreaContents );
 		predictor.AddStopEventFlags( AiTrajectoryPredictor::HIT_SOLID );
+		testSpotAreaNums = true;
 	}
 
 	virtual ~BestJumpableSpotDetector() {}
@@ -54,15 +65,16 @@ public:
 		predictor.SetColliderBounds( mins, maxs );
 	}
 
-	// Returns an estimated jump travel time on success or zero on failure
-	virtual unsigned Exec( const vec3_t startOrigin_, vec3_t spotOrigin_ );
+	inline void SetTestSpotAreaNums( bool value ) { this->testSpotAreaNums = value; }
+
+	virtual const SpotAndScore *Exec( const vec3_t startOrigin_, unsigned *millis = nullptr );
 };
 
 class BestRegularJumpableSpotDetector: public BestJumpableSpotDetector {
 	float run2DSpeed;
 	float jumpZSpeed;
 protected:
-	void GetVelocityForJumpingToSpot( vec3_t velocity, const vec3_t spot ) final;
+	void GetVelocityForJumpingToSpot( vec3_t velocity, const SpotAndScore *spot ) final;
 
 	const AiAasWorld *aasWorld;
 	// If set, a travel time to a nav target is used as a criterion instead of distance proximity
@@ -89,7 +101,7 @@ public:
 		this->startTravelTimeToTarget = startTravelTimeToTarget_;
 	}
 
-	unsigned Exec( const vec3_t startOrigin_, vec3_t spotOrigin_ ) override;
+	virtual const SpotAndScore *Exec( const vec3_t startOrigin_, unsigned *millis = nullptr );
 };
 
 #endif

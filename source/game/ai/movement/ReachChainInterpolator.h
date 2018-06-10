@@ -6,6 +6,10 @@
 class MovementPredictionContext;
 
 struct ReachChainInterpolator {
+	// These immediates are saved as they might be useful
+	StaticVector<Vec3, 64> dirs;
+	StaticVector<int, 64> dirsAreas;
+
 	Vec3 intendedLookDir;
 	// Continue interpolating while a next reach has these travel types
 	const int *compatibleReachTypes;

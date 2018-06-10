@@ -121,6 +121,7 @@ class Bot : public Ai
 	friend class MovementPredictionContext;
 	// TODO: Remove this and refactor "kept in fov point" handling
 	friend class FallbackMovementAction;
+	friend class CorrectWeaponJumpAction;
 
 	friend class CachedTravelTimesMatrix;
 public:
@@ -149,15 +150,27 @@ public:
 	inline float Skill() const { return skillLevel; }
 	inline bool IsReady() const { return level.ready[PLAYERNUM( self )]; }
 
-	void Pain( const edict_t *enemy, float kick, int damage ) {
-		if( kick != 0.0f ) {
-			lastKnockbackAt = level.time;
+	void OnPain( const edict_t *enemy, float kick, int damage ) {
+		if( enemy != self ) {
+			threatTracker.OnPain( enemy, kick, damage );
 		}
-		threatTracker.OnPain( enemy, kick, damage );
+	}
+
+	void OnKnockback( edict_t *attacker, const vec3_t basedir, int kick, int dflags ) {
+		if( kick ) {
+			lastKnockbackAt = level.time;
+			VectorCopy( basedir, lastKnockbackBaseDir );
+			if( attacker == self ) {
+				lastOwnKnockbackKick = kick;
+				lastOwnKnockbackAt = level.time;
+			}
+		}
 	}
 
 	void OnEnemyDamaged( const edict_t *enemy, int damage ) {
-		threatTracker.OnEnemyDamaged( enemy, damage );
+		if( enemy != self ) {
+			threatTracker.OnEnemyDamaged( enemy, damage );
+		}
 	}
 
 	void OnEnemyOriginGuessed( const edict_t *enemy, unsigned millisSinceLastSeen, const float *guessedOrigin = nullptr ) {
@@ -333,9 +346,6 @@ protected:
 	}
 
 	virtual void TouchedOtherEntity( const edict_t *entity ) override;
-
-	virtual Vec3 GetNewViewAngles( const vec3_t oldAngles, const Vec3 &desiredDirection,
-								   unsigned frameTime, float angularSpeedMultiplier ) const override;
 private:
 	inline bool IsPrimaryAimEnemy( const edict_t *enemy ) const {
 		return selectedEnemies.IsPrimaryEnemy( enemy );
@@ -435,6 +445,9 @@ private:
 	int64_t lastTouchedJumppadAt;
 	int64_t lastTouchedElevatorAt;
 	int64_t lastKnockbackAt;
+	int64_t lastOwnKnockbackAt;
+	int lastOwnKnockbackKick;
+	vec3_t lastKnockbackBaseDir;
 
 	unsigned similarWorldStateInstanceId;
 
@@ -616,6 +629,17 @@ public:
 	const SelectedNavEntity &GetSelectedNavEntity() const {
 		return selectedNavEntity;
 	}
+
+	bool NavTargetWorthRushing() const;
+
+	bool NavTargetWorthWeaponJumping() const {
+		// TODO: Implement more sophisticated logic for this and another methods
+		return NavTargetWorthRushing();
+	}
+
+	// Returns a number of weapons the logic allows to be used for weapon jumping.
+	// The buffer is assumed to be capable to store all implemented weapons.
+	int GetWeaponsForWeaponJumping( int *weaponNumsBuffer );
 
 	const SelectedNavEntity &GetOrUpdateSelectedNavEntity();
 

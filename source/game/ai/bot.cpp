@@ -1,7 +1,9 @@
 #include "bot.h"
 #include "navigation/AasWorld.h"
 #include "navigation/NavMeshManager.h"
+#include "../g_gametypes.h"
 #include <algorithm>
+#include <array>
 
 #ifndef _MSC_VER
 // Allow getting an address of not initialized yet field movementModule.movementState.entityPhysicsState.
@@ -66,6 +68,8 @@ Bot::Bot( edict_t *self_, float skillLevel_ )
 	, lastTouchedJumppadAt( 0 )
 	, lastTouchedElevatorAt( 0 )
 	, lastKnockbackAt( 0 )
+	, lastOwnKnockbackAt( 0 )
+	, lastOwnKnockbackKick( 0 )
 	, similarWorldStateInstanceId( 0 )
 	, lastItemSelectedAt( 0 )
 	, noItemAvailableSince( 0 )
@@ -242,37 +246,6 @@ void Bot::ForceSetNavEntity( const SelectedNavEntity &selectedNavEntity_ ) {
 	} else if( self->ai->botRef->lastItemSelectedAt >= self->ai->botRef->noItemAvailableSince ) {
 		self->ai->botRef->noItemAvailableSince = level.time;
 	}
-}
-
-Vec3 Bot::GetNewViewAngles( const vec3_t oldAngles, const Vec3 &desiredDirection,
-							unsigned frameTime, float angularSpeedMultiplier ) const {
-	// A hack for evil hard bots aiming
-	if( self->ai->botRef->Skill() > 0.33f ) {
-		return Ai::GetNewViewAngles( oldAngles, desiredDirection, frameTime, angularSpeedMultiplier );
-	}
-
-	const auto &selectedEnemies = GetSelectedEnemies();
-	if( !selectedEnemies.AreValid() || !selectedEnemies.ArePotentiallyHittable() ) {
-		return Ai::GetNewViewAngles( oldAngles, desiredDirection, frameTime, angularSpeedMultiplier );
-	}
-
-	if( GetMiscTactics().shouldKeepXhairOnEnemy ) {
-		angularSpeedMultiplier *= 1.0f + 0.33f * ( Skill() - 0.33f );
-	}
-
-	// Another hack for shooting while falling
-	if( EntityPhysicsState()->IsHighAboveGround() ) {
-		// It is intended for crazy EB/RL/SW shots, not for aimbot LG tracking while falling
-		if( !IsBuiltinWeaponContinuousFire( self->r.client->ps.stats[STAT_WEAPON] ) ) {
-			const float oldPitchSpeed = angularViewSpeed[PITCH];
-			const_cast<float *>( angularViewSpeed )[PITCH] *= 1.33f;
-			Vec3 result( Ai::GetNewViewAngles( oldAngles, desiredDirection, frameTime, angularSpeedMultiplier ) );
-			const_cast<float *>( angularViewSpeed )[PITCH] = oldPitchSpeed;
-			return result;
-		}
-	}
-
-	return Ai::GetNewViewAngles( oldAngles, desiredDirection, frameTime, angularSpeedMultiplier );
 }
 
 void Bot::EnableAutoAlert( const AiAlertSpot &alertSpot, AlertCallback callback, void *receiver ) {
@@ -658,4 +631,82 @@ void Bot::OnMovementToNavTargetBlocked() {
 
 	itemsSelector.MarkAsDisabled( *navEntity, 4000 );
 	selectedNavEntity.InvalidateNextFrame();
+}
+
+bool Bot::NavTargetWorthRushing() const {
+	if( ShouldBeSilent() || ShouldMoveCarefully() ) {
+		return false;
+	}
+
+	if( ShouldRushHeadless() ) {
+		return true;
+	}
+
+	if( !GS_SelfDamage() ) {
+		return true;
+	}
+
+	// If the bot cannot refill health
+	if( !( level.gametype.spawnableItemsMask & IT_HEALTH ) ) {
+		// TODO: Allow it at the end of round. How to detect a round state in the native code?
+		return false;
+	}
+
+	return selectedEnemies.AreValid() && itemsSelector.IsTopTierItem( navTarget );
+}
+
+int Bot::GetWeaponsForWeaponJumping( int *weaponNumsBuffer ) {
+	// TODO: Implement more sophisticated logic
+	if( ShouldBeSilent() || ShouldMoveCarefully() ) {
+		return 0;
+	}
+
+	int numSuitableWeapons = 0;
+	const auto *inventory = self->r.client->ps.inventory;
+
+	if( g_instajump->integer ) {
+		if( inventory[WEAP_INSTAGUN] && inventory[AMMO_INSTAS] ) {
+			weaponNumsBuffer[numSuitableWeapons++] = WEAP_INSTAGUN;
+		}
+	}
+
+	// We have decided to avoid using Shockwave...
+	std::array<int, 2> rlPriorityWeapons = { { WEAP_ROCKETLAUNCHER, WEAP_GUNBLADE } };
+	std::array<int, 2> gbPriorityWeapons = { { WEAP_GUNBLADE, WEAP_ROCKETLAUNCHER } };
+	const std::array<int, 2> *weaponsList;
+
+	if( g_allow_selfdamage->integer ) {
+		weaponsList = &gbPriorityWeapons;
+		float damageToKill = DamageToKill( self, g_armor_protection->value, g_armor_degradation->value );
+		if( HasQuad( self ) ) {
+			damageToKill /= 4.0f;
+		}
+		if( HasShell( self ) ) {
+			damageToKill *= 4.0f;
+			weaponsList = &rlPriorityWeapons;
+		}
+
+		for( int weapon: *weaponsList ) {
+			if( inventory[weapon] && inventory[AMMO_GUNBLADE + ( weapon - WEAP_GUNBLADE )] ) {
+				const auto &firedef = GS_GetWeaponDef( weapon )->firedef;
+				if( firedef.damage * firedef.selfdamage + 15 < damageToKill ) {
+					weaponNumsBuffer[numSuitableWeapons++] = weapon;
+				}
+			}
+		}
+	} else {
+		// Prefer RL as it is very likely to be the CA gametype and high knockback is expected
+		weaponsList = &rlPriorityWeapons;
+		if( inventory[AMMO_ROCKETS] < 5 ) {
+			// Save RL ammo in this case
+			weaponsList = &gbPriorityWeapons;
+		}
+		for( int weapon: *weaponsList ) {
+			if( inventory[weapon] && inventory[AMMO_GUNBLADE + ( weapon - WEAP_GUNBLADE )] ) {
+				weaponNumsBuffer[numSuitableWeapons++] = weapon;
+			}
+		}
+	}
+
+	return numSuitableWeapons;
 }

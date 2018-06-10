@@ -75,7 +75,10 @@ class MovementPredictionContext : public MovementPredictionConstants
 	Bot *const bot;
 	BotMovementModule *const module;
 public:
-	static constexpr unsigned MAX_PREDICTED_STATES = 48;
+	// Note: We have deliberately lowered this value
+	// to prevent fruitless prediction frames that lead to an overflow anyway
+	// once much more stricter bunnying checks are implemented
+	static constexpr unsigned MAX_PREDICTED_STATES = 32;
 
 	struct alignas ( 1 )HitWhileRunningTestResult {
 		bool canHitAsIs : 1;
@@ -244,6 +247,7 @@ public:
 
 	SequenceStopReason sequenceStopReason;
 	bool isCompleted;
+	bool isTruncated;
 	bool cannotApplyAction;
 	bool shouldRollback;
 
@@ -255,6 +259,7 @@ public:
 		int numOtherTouchedTriggers;
 
 		bool hasJumped: 1;
+		bool hasDoubleJumped: 1;
 		bool hasDashed: 1;
 		bool hasWalljumped: 1;
 		bool hasTakenFallDamage: 1;
@@ -270,6 +275,7 @@ public:
 		inline void Clear() {
 			numOtherTouchedTriggers = 0;
 			hasJumped = false;
+			hasDoubleJumped = false;
 			hasDashed = false;
 			hasWalljumped = false;
 			hasTakenFallDamage = false;
@@ -337,6 +343,8 @@ public:
 
 	inline void SaveActionOnStack( BaseMovementAction *action );
 
+	void StopTruncatingStackAt( unsigned frameIndex );
+
 	// Frame index is restricted to topOfStack or topOfStack + 1
 	inline void MarkSavepoint( BaseMovementAction *markedBy, unsigned frameIndex );
 
@@ -377,7 +385,7 @@ public:
 	class BaseMovementAction *GetActionAndRecordForCurrTime( MovementActionRecord *record_ );
 
 	// Might be called for failed attempts too
-	void ShowBuiltPlanPath() const;
+	void ShowBuiltPlanPath( bool useActionsColor = false ) const;
 };
 
 #endif

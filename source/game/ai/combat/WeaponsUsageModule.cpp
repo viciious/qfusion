@@ -163,6 +163,8 @@ void BotWeaponsUsageModule::LookAtEnemy( float coordError, const vec_t *fire_ori
 		return;
 	}
 
+	float multiplier = enemyTrackingSpeedHolder.UpdateAndGet( bot->GetSelectedEnemies(), selectedWeapons, bot->Skill() );
+
 	Vec3 toTargetDir( target );
 	toTargetDir -= fire_origin;
 	toTargetDir.NormalizeFast();
@@ -176,7 +178,7 @@ void BotWeaponsUsageModule::LookAtEnemy( float coordError, const vec_t *fire_ori
 	// If there is no look vec set or it can be completely overridden
 	if( !input->isLookDirSet || input->canOverrideLookVec ) {
 		input->SetIntendedLookDir( toTargetDir );
-		Vec3 newAngles = bot->GetNewViewAngles( entAngles, toTargetDir, game.frametime, 1.0f );
+		Vec3 newAngles = bot->GetNewViewAngles( entAngles, toTargetDir, game.frametime, multiplier );
 		input->SetAlreadyComputedAngles( newAngles );
 		return;
 	}
@@ -184,18 +186,18 @@ void BotWeaponsUsageModule::LookAtEnemy( float coordError, const vec_t *fire_ori
 	// (in case when XY view movement is exactly specified and Z view movement can vary)
 	assert( input->canOverridePitch );
 	// These angles can be intended by the already set look vec (can be = not always ideal due to limited view speed).
-	Vec3 intendedAngles = bot->GetNewViewAngles( entAngles, input->IntendedLookDir(), game.frametime, 1.0f );
+	Vec3 intendedAngles = bot->GetNewViewAngles( entAngles, input->IntendedLookDir(), game.frametime, multiplier );
 	// These angles can be required to hit the target
-	Vec3 targetAimAngles = bot->GetNewViewAngles( entAngles, toTargetDir, game.frametime, 1.0f );
+	Vec3 targetAimAngles = bot->GetNewViewAngles( entAngles, toTargetDir, game.frametime, multiplier );
 	// Override pitch in hope this will be sufficient for hitting a target
 	intendedAngles.Data()[PITCH] = targetAimAngles.Data()[PITCH];
 	input->SetAlreadyComputedAngles( intendedAngles );
 }
 
-void BotWeaponsUsageModule::PressAttack( const GenericFireDef *fireDef
-									   , const GenericFireDef *builtinFireDef
-									   , const GenericFireDef *scriptFireDef
-									   , BotInput *input ) {
+void BotWeaponsUsageModule::PressAttack( const GenericFireDef *fireDef,
+										 const GenericFireDef *builtinFireDef,
+										 const GenericFireDef *scriptFireDef,
+										 BotInput *input ) {
 	if( fireDef == scriptFireDef ) {
 		input->fireScriptWeapon = true;
 		return;
@@ -207,10 +209,10 @@ void BotWeaponsUsageModule::PressAttack( const GenericFireDef *fireDef
 	}
 }
 
-bool BotWeaponsUsageModule::TryTraceShot( trace_t *tr
-										, const Vec3 &newLookDir
-										, const AimParams &aimParams
-										, const GenericFireDef &fireDef ) {
+bool BotWeaponsUsageModule::TryTraceShot( trace_t *tr,
+										  const Vec3 &newLookDir,
+										  const AimParams &aimParams,
+										  const GenericFireDef &fireDef ) {
 	edict_t *const self = game.edicts + bot->EntNum();
 	if( fireDef.AimType() != AI_WEAPON_AIM_TYPE_DROP ) {
 		Vec3 traceEnd( newLookDir );
@@ -238,9 +240,9 @@ bool BotWeaponsUsageModule::TryTraceShot( trace_t *tr
 	return ( stopEvents & ( AiTrajectoryPredictor::HIT_SOLID | AiTrajectoryPredictor::HIT_ENTITY ) ) != 0;
 }
 
-bool BotWeaponsUsageModule::CheckSplashTeamDamage( const vec3_t hitOrigin
-												 , const AimParams &aimParams
-												 , const GenericFireDef &fireDef ) {
+bool BotWeaponsUsageModule::CheckSplashTeamDamage( const vec3_t hitOrigin,
+												   const AimParams &aimParams,
+												   const GenericFireDef &fireDef ) {
 	edict_t *const self = game.edicts + bot->EntNum();
 	// TODO: Predict actual teammates origins at the moment of explosion
 	// (it requires a coarse physics simulation and collision tests)
@@ -279,10 +281,10 @@ bool BotWeaponsUsageModule::CheckSplashTeamDamage( const vec3_t hitOrigin
 	return true;
 }
 
-bool BotWeaponsUsageModule::IsShotBlockedBySolidWall( trace_t *tr
-													, float distanceThreshold
-													, const AimParams &aimParams
-													, const GenericFireDef &fireDef ) {
+bool BotWeaponsUsageModule::IsShotBlockedBySolidWall( trace_t *tr,
+													  float distanceThreshold,
+													  const AimParams &aimParams,
+													  const GenericFireDef &fireDef ) {
 	AimParams adjustedParams;
 	memcpy( &adjustedParams, &aimParams, sizeof( AimParams ) );
 
@@ -312,9 +314,9 @@ bool BotWeaponsUsageModule::IsShotBlockedBySolidWall( trace_t *tr
 	return DistanceSquared( tr->endpos, aimParams.fireTarget ) > distanceThreshold * distanceThreshold;
 }
 
-bool BotWeaponsUsageModule::CheckShot( const AimParams &aimParams
-									 , const BotInput *input
-									 , const GenericFireDef &fireDef ) {
+bool BotWeaponsUsageModule::CheckShot( const AimParams &aimParams,
+									   const BotInput *input,
+									   const GenericFireDef &fireDef ) {
 	// Convert modified angles to direction back (due to limited view speed it rarely will match given direction)
 	Vec3 newLookDir( 0, 0, 0 );
 	AngleVectors( input->AlreadyComputedAngles().Data(), newLookDir.Data(), nullptr, nullptr );
@@ -377,6 +379,10 @@ bool BotWeaponsUsageModule::CheckShot( const AimParams &aimParams
 		return DistanceSquared( tr.endpos, aimParams.fireTarget ) < testedSplashRadius * testedSplashRadius;
 	}
 
+	// This factor lowers with the greater velocity.
+	// The bot should have lesser accuracy while moving fast, and greater one while standing still
+	const float velocityFactor = 1.0f - BoundedFraction( bot->EntityPhysicsState()->Speed() - DEFAULT_PLAYERSPEED, 500 );
+
 	if( aimType == AI_WEAPON_AIM_TYPE_PREDICTION ) {
 		if( tr.fraction == 1.0f ) {
 			return true;
@@ -394,7 +400,10 @@ bool BotWeaponsUsageModule::CheckShot( const AimParams &aimParams
 		if( fireDef.IsBuiltin() ) {
 			// Put very low restrictions on PG since spammy fire style is even adviced.
 			if( fireDef.WeaponNum() == WEAP_PLASMAGUN ) {
-				return toTargetDotLookDir > ( ( bot->ShouldKeepXhairOnEnemy() ) ? 0.85f : 0.70f );
+				if( bot->ShouldKeepXhairOnEnemy() ) {
+					return toTargetDotLookDir > 0.75f + 0.10f * velocityFactor;
+				}
+				return toTargetDotLookDir > 0.60f + 0.15f * velocityFactor;
 			}
 
 			if( fireDef.WeaponNum() == WEAP_SHOCKWAVE ) {
@@ -426,7 +435,10 @@ bool BotWeaponsUsageModule::CheckShot( const AimParams &aimParams
 			}
 		}
 
-		return toTargetDotLookDir > ( ( bot->ShouldKeepXhairOnEnemy() ) ? 0.95f : 0.90f );
+		if( bot->ShouldKeepXhairOnEnemy() ) {
+			return toTargetDotLookDir > 0.90f + 0.07 * velocityFactor;
+		}
+		return toTargetDotLookDir > 0.85f + 0.05f * velocityFactor;
 	}
 
 	// Trajectory prediction is not accurate, also this adds some randomization in grenade spamming.
@@ -469,12 +481,12 @@ bool BotWeaponsUsageModule::CheckShot( const AimParams &aimParams
 				absMins += playerbox_stand_mins;
 				absMaxs += playerbox_stand_maxs;
 
-				float factor = ( 1.0f - 0.75f * bot->Skill() );
+				float skillFactor = ( 1.0f - 0.75f * bot->Skill() );
 				if( bot->ShouldKeepXhairOnEnemy() ) {
-					factor *= 1.0f - 0.75 * bot->Skill();
+					skillFactor *= 1.0f - 0.75 * bot->Skill();
 				}
 
-				float radius = 1.0f + factor * 64.0f;
+				float radius = 1.0f + skillFactor * 64.0f + ( 1.0f - velocityFactor ) * 48.0f;
 				return BoundsAndSphereIntersect( absMins.Data(), absMaxs.Data(), tr.endpos, radius );
 			}
 		}
@@ -488,11 +500,15 @@ bool BotWeaponsUsageModule::CheckShot( const AimParams &aimParams
 	float dotThreshold = 0.97f;
 	if( fireDef.IsBuiltin() ) {
 		if( fireDef.WeaponNum() == WEAP_LASERGUN || fireDef.WeaponNum() == WEAP_RIOTGUN ) {
-			dotThreshold -= ( bot->ShouldKeepXhairOnEnemy() ) ? 0.10f : 0.20f;
+			if( bot->ShouldKeepXhairOnEnemy() ) {
+				dotThreshold -= 0.15f - 0.075f * velocityFactor;
+			} else {
+				dotThreshold -= 0.25f - 0.10f * velocityFactor;
+			}
 		}
 	} else {
 		if( !bot->ShouldKeepXhairOnEnemy() ) {
-			dotThreshold -= 0.03f;
+			dotThreshold -= 0.05f - 0.025f * velocityFactor;
 		}
 	}
 

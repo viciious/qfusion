@@ -80,11 +80,11 @@ void BaseMovementAction::CheckPredictionStepResults( Context *context ) {
 	constexpr auto badContents = CONTENTS_LAVA | CONTENTS_SLIME | CONTENTS_DONOTENTER;
 	if( newEntityPhysicsState.waterType & badContents ) {
 		if( !( oldEntityPhysicsState.waterType & badContents ) ) {
-			if( badContents & CONTENTS_LAVA ) {
+			if( newEntityPhysicsState.waterType & CONTENTS_LAVA ) {
 				Debug( "A prediction step has lead to entering CONTENTS_LAVA point\n" );
-			} else if( badContents & CONTENTS_SLIME ) {
+			} else if( newEntityPhysicsState.waterType & CONTENTS_SLIME ) {
 				Debug( "A prediction step has lead to entering CONTENTS_SLIME point\n" );
-			} else if( badContents & CONTENTS_DONOTENTER ) {
+			} else {
 				Debug( "A prediction step has lead to entering CONTENTS_DONOTENTER point\n" );
 			}
 
@@ -142,16 +142,10 @@ void BaseMovementAction::CheckPredictionStepResults( Context *context ) {
 	}
 
 	if( this->stopPredictionOnTouchingNavEntity ) {
-		const edict_t *gameEdicts = game.edicts;
-		const uint16_t *ents = context->frameEvents.otherTouchedTriggerEnts;
-		for( int i = 0, end = context->frameEvents.numOtherTouchedTriggers; i < end; ++i ) {
-			const edict_t *ent = gameEdicts + ents[i];
-			if( bot->IsNavTargetBasedOnEntity( ent ) ) {
-				const char *entName = ent->classname ? ent->classname : "???";
-				Debug( "A prediction step has lead to touching a nav entity %s, should stop planning\n", entName );
-				context->isCompleted = true;
-				return;
-			}
+		if( HasTouchedNavEntityThisFrame( context ) ) {
+			Debug( "A prediction step has lead to touching the nav entity, should stop planning\n" );
+			context->isCompleted = true;
+			return;
 		}
 	}
 
@@ -183,6 +177,18 @@ void BaseMovementAction::CheckPredictionStepResults( Context *context ) {
 			return;
 		}
 	}
+}
+
+bool BaseMovementAction::HasTouchedNavEntityThisFrame( Context *context ) {
+	const edict_t *gameEdicts = game.edicts;
+	const uint16_t *ents = context->frameEvents.otherTouchedTriggerEnts;
+	for( int i = 0, end = context->frameEvents.numOtherTouchedTriggers; i < end; ++i ) {
+		const edict_t *ent = gameEdicts + ents[i];
+		if( bot->IsNavTargetBasedOnEntity( ent ) ) {
+			return true;
+		}
+	}
+	return false;
 }
 
 void BaseMovementAction::BeforePlanning() {

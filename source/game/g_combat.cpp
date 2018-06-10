@@ -356,6 +356,7 @@ void G_Damage( edict_t *targ, edict_t *inflictor, edict_t *attacker, const vec3_
 	// push
 	if( !( dflags & DAMAGE_NO_KNOCKBACK ) ) {
 		G_KnockBackPush( targ, attacker, pushdir, knockback, dflags );
+		AI_Knockback( targ, attacker, pushdir, knockback, dflags );
 	}
 
 	// stun

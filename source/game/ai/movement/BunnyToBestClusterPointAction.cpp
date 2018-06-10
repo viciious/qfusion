@@ -2,7 +2,7 @@
 #include "MovementLocal.h"
 
 void BunnyToBestFloorClusterPointAction::PlanPredictionStep( Context *context ) {
-	if( !GenericCheckIsActionEnabled( context, &module->bunnyInterpolatingReachChainAction ) ) {
+	if( !GenericCheckIsActionEnabled( context, &module->bunnyInterpolatingChainAtStartAction ) ) {
 		return;
 	}
 
@@ -11,9 +11,13 @@ void BunnyToBestFloorClusterPointAction::PlanPredictionStep( Context *context ) 
 	}
 
 	if( !hasSpotOrigin ) {
-		if( !context->sameFloorClusterAreasCache.GetClosestToTargetPoint( context, spotOrigin ) ) {
+		int areaNum = 0;
+		if( !context->sameFloorClusterAreasCache.GetClosestToTargetPoint( context, spotOrigin, &areaNum ) ) {
 			context->SetPendingRollback();
 			return;
+		} else {
+			checkStopAtAreaNums.push_back( areaNum );
+			hasSpotOrigin = true;
 		}
 	}
 

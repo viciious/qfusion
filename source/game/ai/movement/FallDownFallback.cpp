@@ -32,34 +32,51 @@ void FallDownFallback::SetupMovement( Context *context ) {
 	const auto &entityPhysicsState = context->movementState->entityPhysicsState;
 	auto *botInput = &context->record->botInput;
 
-	// Start Z is rather important, don't use entity origin as-is
-	Vec3 intendedLookDir( entityPhysicsState.Origin() );
-	intendedLookDir.Z() += game.edicts[bot->EntNum()].viewheight;
-	intendedLookDir -= targetOrigin;
-	intendedLookDir *= -1.0f;
-	intendedLookDir.Normalize();
+	Vec3 toTargetDir( entityPhysicsState.Origin() );
+	toTargetDir.Z() += game.edicts[bot->EntNum()].viewheight;
+	toTargetDir -= targetOrigin;
+	toTargetDir *= -1.0f;
+	toTargetDir.Normalize();
 
-	botInput->SetIntendedLookDir( intendedLookDir, true );
+	botInput->isUcmdSet = true;
 
-	const float viewDot = intendedLookDir.Dot( entityPhysicsState.ForwardDir() );
-	if( viewDot < 0 ) {
-		botInput->SetTurnSpeedMultiplier( 10.0f );
-	} else if( viewDot < 0.9f ) {
-		if( viewDot < 0.7f ) {
-			botInput->SetWalkButton( true );
-			botInput->SetTurnSpeedMultiplier( 5.0f );
+	if( entityPhysicsState.GroundEntity() ) {
+		botInput->SetIntendedLookDir( toTargetDir, true );
+		const float dot = toTargetDir.Dot( entityPhysicsState.ForwardDir() );
+		if( dot < 0.9f ) {
+			botInput->SetTurnSpeedMultiplier( 15.0f );
 		} else {
-			// Apply air-control being in air, so turn rather slowly.
-			// We might consider using CheatingCorrectVelocity()
-			// but it currently produces weird results on vertical trajectories.
-			if( !entityPhysicsState.GroundEntity() ) {
-				botInput->SetForwardMovement( 1 );
-			} else {
-				botInput->SetTurnSpeedMultiplier( 3.0f );
+			botInput->SetForwardMovement( 1 );
+			if( dot < 0.99f ) {
+				botInput->SetWalkButton( true );
 			}
 		}
+		return;
+	}
+
+	// We're falling and might miss the target
+	Vec3 velocityDir( entityPhysicsState.Velocity() );
+	velocityDir *= 1.0f / entityPhysicsState.Speed();
+
+	// If the velocity fairly conforms the direction to target
+	if( velocityDir.Dot( toTargetDir ) > 0.95f ) {
+		botInput->SetIntendedLookDir( toTargetDir );
+		return;
+	}
+
+	// Stop looking down and try gain some side velocity using the slight forward air-control
+	toTargetDir.Z() = 0;
+	toTargetDir.Normalize();
+	botInput->SetIntendedLookDir( toTargetDir, false );
+
+	if( entityPhysicsState.ForwardDir().Dot( toTargetDir ) < 0.95f ) {
+		botInput->SetTurnSpeedMultiplier( 15.0f );
 	} else {
 		botInput->SetForwardMovement( 1 );
+		// Prevent weird-looking accelerated falling
+		if( entityPhysicsState.Velocity()[2] > -25.0f ) {
+			context->CheatingAccelerate( 0.5f );
+		}
 	}
 }
 
@@ -79,10 +96,13 @@ MovementFallback *FallbackMovementAction::TryFindWalkOffLedgeReachFallback( Cont
 		return fallback;
 	}
 
+	const int targetAreaNum = nextReach.areanum;
+	const auto &targetArea = AiAasWorld::Instance()->Areas()[targetAreaNum];
+
 	auto *fallback = &module->fallDownFallback;
-	Vec3 targetOrigin( nextReach.end );
+	// Set target not to the reach. end but to the center of the target area (a reach end is often at ledge)
 	// Setting the proper Z (should be greater than an origin of bot standing at destination) is important!
-	targetOrigin.Z() = AiAasWorld::Instance()->Areas()[nextReach.areanum].mins[2] + 4.0f - playerbox_stand_mins[2];
+	Vec3 targetOrigin( targetArea.center[0], targetArea.center[1], targetArea.mins[2] + 4.0f - playerbox_stand_mins[2] );
 	// Compute the proper timeout
 	float distanceToReach = sqrtf( DistanceSquared( entityPhysicsState.Origin(), nextReach.start ) );
 	unsigned travelTimeToLedgeMillis = (unsigned)( 1000.0f * distanceToReach / context->GetRunSpeed() );

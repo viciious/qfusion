@@ -142,6 +142,10 @@ public:
 		disabledForSelectionUntil[navEntity.Id()] = level.time + millis;
 	}
 
+	inline bool IsTopTierItem( const NavTarget *navTarget ) const {
+		return navTarget && navTarget->IsTopTierItem( overriddenEntityWeights );
+	}
+
 	SelectedNavEntity SuggestGoalNavEntity( const SelectedNavEntity &currSelectedNavEntity );
 };
 

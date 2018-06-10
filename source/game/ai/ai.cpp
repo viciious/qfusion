@@ -127,7 +127,8 @@ void AI_FailWith( const char *tag, const char *format, ... ) {
 void AI_FailWithv( const char *tag, const char *format, va_list va ) {
 	char outputBuffer[2048];
 	AI_PrintToBufferv( outputBuffer, 2048, tag, format, va );
-	G_Error( "%s", outputBuffer );
+	G_Printf( "%s\n", outputBuffer );
+	abort();
 }
 
 void AITools_DrawLine( const vec3_t origin, const vec3_t dest ) {
@@ -413,18 +414,26 @@ ai_type AI_GetType( const ai_handle_t *ai ) {
 }
 
 void AI_TouchedEntity( edict_t *self, edict_t *ent ) {
-	self->ai->aiRef->TouchedEntity( ent );
+	if( self->ai ) {
+		self->ai->aiRef->TouchedEntity( ent );
+	}
 }
 
 void AI_DamagedEntity( edict_t *self, edict_t *ent, int damage ) {
-	if( self->ai->botRef ) {
+	if( self->ai && self->ai->botRef ) {
 		self->ai->botRef->OnEnemyDamaged( ent, damage );
 	}
 }
 
 void AI_Pain( edict_t *self, edict_t *attacker, int kick, int damage ) {
-	if( self->ai->botRef ) {
-		self->ai->botRef->Pain( attacker, kick, damage );
+	if( self->ai && self->ai->botRef ) {
+		self->ai->botRef->OnPain( attacker, kick, damage );
+	}
+}
+
+void AI_Knockback( edict_t *self, edict_t *attacker, const vec3_t basedir, int kick, int dflags ) {
+	if( self->ai && self->ai->botRef ) {
+		self->ai->botRef->OnKnockback( attacker, basedir, kick, dflags );
 	}
 }
 

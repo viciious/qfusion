@@ -51,6 +51,28 @@ bool BotFlyUntilLandingMovementState::CheckForLanding( const Context *context ) 
 	return true;
 }
 
+void BotWeaponJumpMovementState::TryDeactivate( const edict_t *self, const Context *context ) {
+	// If a bot has activated a trigger, give its movement state a priority
+	if( level.time - self->ai->botRef->LastTriggerTouchTime() < 64 ) {
+		Deactivate();
+	}
+
+	if( !( hasTriggeredWeaponJump && hasCorrectedWeaponJump ) ) {
+		return;
+	}
+
+	if( context ) {
+		if( context->movementState->entityPhysicsState.GroundEntity() ) {
+			Deactivate();
+		}
+		return;
+	}
+
+	if( self->groundentity ) {
+		Deactivate();
+	}
+}
+
 void BotCampingSpotState::TryDeactivate( const edict_t *self, const Context *context ) {
 	const float *botOrigin = context ? context->movementState->entityPhysicsState.Origin() : self->s.origin;
 	const float distanceThreshold = 1.5f * campingSpot.Radius();

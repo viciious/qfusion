@@ -23,6 +23,30 @@ class BotWeaponsUsageModule {
 	BotWeaponSelector weaponSelector;
 	SelectedWeapons selectedWeapons;
 
+	// Vary angular speed depending of enemy tracking duration
+	// (make sure bots finish their targets)
+	struct alignas( 4 )EnemyTrackingSpeedHolder {
+		Int64Align4 trackingEnemySince;
+		unsigned selectedEnemiesInstanceId;
+		unsigned selectedWeaponsInstanceId;
+
+		EnemyTrackingSpeedHolder()
+			: trackingEnemySince( 0 ), selectedEnemiesInstanceId( 0 ), selectedWeaponsInstanceId( 0 ) {}
+
+		float UpdateAndGet( const SelectedEnemies &selectedEnemies,
+							const SelectedWeapons &selectedWeapons,
+							float skill ) {
+			int64_t levelTime = level.time;
+			if( selectedEnemies.InstanceId() != selectedEnemiesInstanceId ||
+				selectedWeapons.InstanceId() != selectedWeaponsInstanceId  ) {
+				trackingEnemySince = levelTime;
+			}
+			return 0.75f + skill * 1.25f * BoundedFraction( levelTime - trackingEnemySince, 1000.0f );
+		}
+	};
+
+	EnemyTrackingSpeedHolder enemyTrackingSpeedHolder;
+
 	// Returns true if current look angle worth pressing attack
 	bool CheckShot( const AimParams &aimParams, const BotInput *input, const GenericFireDef &fireDef );
 

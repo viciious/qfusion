@@ -2,7 +2,7 @@
 #include "MovementLocal.h"
 
 BunnyToBestShortcutAreaAction::BunnyToBestShortcutAreaAction( BotMovementModule *module_ )
-	: BotBunnyTestingMultipleLookDirsAction( module_, NAME, COLOR_RGB( 255, 64, 0 ) ) {
+	: BunnyTestingMultipleLookDirsAction( module_, NAME, COLOR_RGB( 255, 64, 0 ) ) {
 	supportsObstacleAvoidance = false;
 	// The constructor cannot be defined in the header due to this bot member access
 	suggestedAction = &module->walkOrSlideInterpolatingReachChainAction;
@@ -12,7 +12,7 @@ void BunnyToBestShortcutAreaAction::SaveSuggestedLookDirs( Context *context ) {
 	Assert( suggestedLookDirs.empty() );
 	Assert( context->NavTargetAasAreaNum() );
 
-	int startTravelTime = FindActualStartTravelTime( context );
+	const int startTravelTime = context->TravelTimeToNavTarget();
 	if( !startTravelTime ) {
 		return;
 	}
@@ -20,32 +20,6 @@ void BunnyToBestShortcutAreaAction::SaveSuggestedLookDirs( Context *context ) {
 	AreaAndScore candidates[MAX_BBOX_AREAS];
 	AreaAndScore *candidatesEnd = SelectCandidateAreas( context, candidates, startTravelTime );
 	SaveCandidateAreaDirs( context, candidates, candidatesEnd );
-}
-
-inline int BunnyToBestShortcutAreaAction::FindActualStartTravelTime( Context *context ) {
-	const auto &entityPhysicsState = context->movementState->entityPhysicsState;
-	const auto *aasRouteCache = bot->RouteCache();
-	const int travelFlags = bot->PreferredTravelFlags();
-	const int navTargetAreaNum = context->NavTargetAasAreaNum();
-
-	int startAreaNums[2] = { entityPhysicsState.DroppedToFloorAasAreaNum(), entityPhysicsState.CurrAasAreaNum() };
-	int startTravelTimes[2];
-
-	int j = 0;
-	for( int i = 0, end = ( startAreaNums[0] != startAreaNums[1] ) ? 2 : 1; i < end; ++i ) {
-		if( int travelTime = aasRouteCache->TravelTimeToGoalArea( startAreaNums[i], navTargetAreaNum, travelFlags ) ) {
-			startTravelTimes[j++] = travelTime;
-		}
-	}
-
-	switch( j ) {
-		case 2:
-			return std::min( startTravelTimes[0], startTravelTimes[1] );
-		case 1:
-			return startTravelTimes[0];
-		default:
-			return 0;
-	}
 }
 
 inline int BunnyToBestShortcutAreaAction::FindBBoxAreas( Context *context, int *areaNums, int maxAreas ) {
@@ -84,7 +58,6 @@ AreaAndScore *BunnyToBestShortcutAreaAction::SelectCandidateAreas( Context *cont
 	Vec3 velocityDir( entityPhysicsState.Velocity() );
 	velocityDir *= 1.0f / speed;
 
-	int minTravelTimeSave = 0;
 	AreaAndScore *candidatesPtr = candidatesBegin;
 
 	Vec3 traceStartPoint( entityPhysicsState.Origin() );
@@ -144,27 +117,20 @@ AreaAndScore *BunnyToBestShortcutAreaAction::SelectCandidateAreas( Context *cont
 
 		const auto &area = aasAreas[areaNum];
 		Vec3 areaPoint( area.center[0], area.center[1], area.mins[2] - playerbox_stand_mins[2] );
-		// Skip areas higher than the bot (to allow moving on a stairs chain, we test distance/height ratio)
-		if( area.mins[2] > entityPhysicsState.Origin()[2] ) {
-			float distance = areaPoint.FastDistance2DTo( entityPhysicsState.Origin() );
-			if( area.mins[2] - entityPhysicsState.Origin()[2] > M_SQRT1_2 * distance ) {
-				continue;
-			}
-		}
 
 		Vec3 toAreaDir( areaPoint );
 		toAreaDir -= entityPhysicsState.Origin();
-		float distanceToArea = toAreaDir.LengthFast();
+		const float squareDistanceToArea = toAreaDir.SquaredLength();
 
 		// Reject areas that are very close to the bot.
 		// This for example helps to skip some junk areas in stair-like environment.
-		if( distanceToArea < 96 ) {
+		if( squareDistanceToArea < SQUARE( 72 ) ) {
 			continue;
 		}
 
-		toAreaDir *= 1.0f / distanceToArea;
+		toAreaDir *= 1.0f / sqrtf( squareDistanceToArea );
 		// Reject areas behind/not in front depending on speed
-		float speedDotFactor = -1.0f + 2 * 0.99f * BoundedFraction( speed, 900 );
+		float speedDotFactor = -1.0f + 1.0f * BoundedFraction( speed, 700 );
 		if( velocityDir.Dot( toAreaDir ) < speedDotFactor ) {
 			continue;
 		}
@@ -185,19 +151,9 @@ AreaAndScore *BunnyToBestShortcutAreaAction::SelectCandidateAreas( Context *cont
 			continue;
 		}
 
-		const int prevMinTravelTimeSave = minTravelTimeSave;
-		// Do not test lower score areas if there is already enough tested candidates
-		if( travelTimeSave > minTravelTimeSave ) {
-			minTravelTimeSave = travelTimeSave;
-		} else if( candidatesPtr - candidatesBegin >= (ptrdiff_t)maxSuggestedLookDirs ) {
-			continue;
-		}
-
 		// Q: Why an optimization that tests walkability in a floor cluster is not applied?
 		// A: Gaps are allowed between the current and target areas, but the walkability test rejects these kinds of areas
 		if( !TraceArcInSolidWorld( entityPhysicsState, traceStartPoint.Data(), areaPoint.Data() ) ) {
-			// Restore minTravelTimeSave (it might has been set to the value of the rejected area on this loop step)
-			minTravelTimeSave = prevMinTravelTimeSave;
 			continue;
 		}
 
@@ -205,8 +161,14 @@ AreaAndScore *BunnyToBestShortcutAreaAction::SelectCandidateAreas( Context *cont
 		// than time traveling from best area to nav target saves.
 		// Otherwise only areas in the reachability chain conform to the condition if the routing algorithm works properly.
 		// We hope for shortcuts the routing algorithm is not aware of.
+		if( candidatesPtr - candidatesBegin == maxSuggestedLookDirs ) {
+			// Evict the worst element (with the lowest score and with the last order by the operator < in the max-heap)
+			std::pop_heap( candidatesBegin, candidatesPtr );
+			candidatesPtr--;
+		}
 
-		new( candidatesPtr++ )AreaAndScore( areaNum, travelTimeSave );
+		new ( candidatesPtr++ )AreaAndScore( areaNum, travelTimeSave );
+		std::push_heap( candidatesBegin, candidatesPtr );
 	}
 
 	return candidatesPtr;

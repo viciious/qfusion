@@ -134,49 +134,55 @@ public:
 	}
 
 	inline const edict_t *JumppadEntity() const { return game.edicts + jumppadEntNum; }
+	inline Vec3 JumpTarget() const { return Vec3( JumppadEntity()->target_ent->s.origin ); }
 };
 
 class alignas ( 2 )BotWeaponJumpMovementState : protected BotAerialMovementState
 {
 	int16_t jumpTarget[3];
 	int16_t fireTarget[3];
-
+	int16_t originAtStart[3];
 public:
 	bool hasPendingWeaponJump : 1;
-	bool hasTriggeredRocketJump : 1;
+	bool hasTriggeredWeaponJump : 1;
 	bool hasCorrectedWeaponJump : 1;
+	int8_t weapon: 5;
 
 	BotWeaponJumpMovementState()
-		: hasPendingWeaponJump( false ), hasTriggeredRocketJump( false ), hasCorrectedWeaponJump( false ) {}
+		: hasPendingWeaponJump( false ), hasTriggeredWeaponJump( false ), hasCorrectedWeaponJump( false ) {}
 
 	inline void Frame( unsigned frameTime ) {}
 
 	inline Vec3 JumpTarget() const { return GetUnpacked4uVec( jumpTarget ); }
 	inline Vec3 FireTarget() const { return GetUnpacked4uVec( fireTarget ); }
+	inline Vec3 OriginAtStart() const { return GetUnpacked4uVec( originAtStart ); }
 
 	inline bool IsActive() const {
-		return ( hasPendingWeaponJump || hasTriggeredRocketJump || hasCorrectedWeaponJump );
+		return ( hasPendingWeaponJump || hasTriggeredWeaponJump || hasCorrectedWeaponJump );
 	}
 
-	inline void TryDeactivate( const edict_t *self, const class MovementPredictionContext *context = nullptr ) {
-		if( ShouldDeactivate( self, context ) ) {
-			Deactivate();
-		}
-	}
+	void TryDeactivate( const edict_t *self, const class MovementPredictionContext *context = nullptr );
 
 	inline void Deactivate() {
 		hasPendingWeaponJump = false;
-		hasTriggeredRocketJump = false;
+		hasTriggeredWeaponJump = false;
 		hasCorrectedWeaponJump = false;
 	}
 
-	inline void Activate( const Vec3 &jumpTarget_, const Vec3 &fireTarget_,
-						  unsigned timeoutPeriod, int64_t levelTime = level.time ) {
+	inline void Activate( const Vec3 &jumpTarget_,
+						  const Vec3 &fireTarget_,
+						  const Vec3 &originAtStart_,
+						  unsigned timeoutPeriod,
+						  int weapon_,
+						  int64_t levelTime = level.time ) {
 		SetPacked4uVec( jumpTarget_, jumpTarget );
 		SetPacked4uVec( fireTarget_, fireTarget );
+		SetPacked4uVec( originAtStart_, originAtStart );
 		hasPendingWeaponJump = true;
-		hasTriggeredRocketJump = false;
+		hasTriggeredWeaponJump = false;
 		hasCorrectedWeaponJump = false;
+		assert( weapon_ < 32 );
+		this->weapon = weapon_;
 	}
 };
 

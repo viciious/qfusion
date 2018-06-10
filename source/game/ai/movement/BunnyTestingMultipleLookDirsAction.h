@@ -3,7 +3,7 @@
 
 #include "GenericBunnyingAction.h"
 
-class BotBunnyTestingMultipleLookDirsAction : public GenericRunBunnyingAction
+class BunnyTestingMultipleLookDirsAction : public GenericRunBunnyingAction
 {
 protected:
 	static constexpr auto MAX_SUGGESTED_LOOK_DIRS = 16;
@@ -34,9 +34,9 @@ protected:
 	// Tracing a straight line between two points fails in stairs-like environment way too often.
 	// This routine uses extremely coarse arc approximation which still should be sufficient
 	// to avoid the mentioned failure in some environment kinds.
-	bool TraceArcInSolidWorld( const AiEntityPhysicsState &startPhysicsState, const vec3_t from, const vec3_t to );
 public:
-	BotBunnyTestingMultipleLookDirsAction( BotMovementModule *module_, const char *name_, int debugColor_ )
+	static bool TraceArcInSolidWorld( const AiEntityPhysicsState &startPhysicsState, const vec3_t from, const vec3_t to );
+	BunnyTestingMultipleLookDirsAction( BotMovementModule *module_, const char *name_, int debugColor_ )
 		: GenericRunBunnyingAction( module_, name_, debugColor_ )
 		, maxSuggestedLookDirs( MAX_SUGGESTED_LOOK_DIRS )
 		, currSuggestedLookDirNum( 0 )

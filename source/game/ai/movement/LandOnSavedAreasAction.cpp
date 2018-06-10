@@ -290,7 +290,11 @@ void LandOnSavedAreasAction::AfterPlanning() {
 	if( this->isDisabledForPlanning ) {
 		return;
 	}
+	if( this->savedLandingAreas.empty() ) {
+		return;
+	}
 
+	module->savedLandingAreas.clear();
 	for( int areaNum: this->savedLandingAreas )
 		module->savedLandingAreas.push_back( areaNum );
 }
@@ -394,14 +398,21 @@ void LandOnSavedAreasAction::PlanPredictionStep( Context *context ) {
 	// All areas have been tested, and there is no suitable area for landing
 	Debug( "Warning: An area suitable for landing has not been found\n" );
 
-	// Just look at the jumppad target
+	// Just look at the target
 	const auto &movementState = context->movementState;
-	auto *botInput = &context->record->botInput;
-	Vec3 toTargetDir( movementState->jumppadMovementState.JumppadEntity()->target_ent->s.origin );
-	toTargetDir -= movementState->entityPhysicsState.Origin();
+	Vec3 toTargetDir( movementState->entityPhysicsState.Origin() );
+	if( movementState->weaponJumpMovementState.IsActive() ) {
+		toTargetDir -= movementState->weaponJumpMovementState.JumpTarget();
+	} else if( movementState->jumppadMovementState.IsActive() ) {
+		toTargetDir -= movementState->jumppadMovementState.JumpTarget();
+	} else {
+		AI_FailWith( "LandOnSavedAreasAction::PlanPredictionStep()", "Neither jumppad nor weapon jump states is active" );
+	}
+	toTargetDir *= -1;
 	toTargetDir.NormalizeFast();
 
-	botInput->SetIntendedLookDir( toTargetDir, true );
+	auto *botInput = &context->record->botInput;
+	botInput->SetIntendedLookDir( toTargetDir );
 	// Try apply air control preferring QW-style one
 	float dotForward = toTargetDir.Dot( movementState->entityPhysicsState.ForwardDir() );
 	if( dotForward < -0.3f ) {

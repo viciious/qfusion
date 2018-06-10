@@ -1,15 +1,18 @@
 #include "BunnyTestingMultipleLookDirsAction.h"
 #include "MovementLocal.h"
 
-bool BotBunnyTestingMultipleLookDirsAction::TraceArcInSolidWorld( const AiEntityPhysicsState &startPhysicsState,
-																  const vec3_t from, const vec3_t to ) {
+bool BunnyTestingMultipleLookDirsAction::TraceArcInSolidWorld( const AiEntityPhysicsState &startPhysicsState,
+															   const vec3_t from, const vec3_t to ) {
 	trace_t trace;
 	auto brushMask = MASK_WATER | MASK_SOLID;
 
-	const float velocityZ = startPhysicsState.Velocity()[2];
-	if( !startPhysicsState.GroundEntity() && velocityZ < 50.0f ) {
+	float velocityZ = startPhysicsState.Velocity()[2];
+	if( startPhysicsState.GroundEntity() ) {
+		// We're going to jump...
+		velocityZ = DEFAULT_JUMPSPEED;
+	} else if( velocityZ < 0.0f ) {
 		StaticWorldTrace( &trace, from, to, brushMask );
-		return trace.fraction != 1.0f;
+		return trace.fraction == 1.0f;
 	}
 
 	Vec3 midPoint( to );
@@ -19,9 +22,9 @@ bool BotBunnyTestingMultipleLookDirsAction::TraceArcInSolidWorld( const AiEntity
 	// Lets figure out deltaZ making an assumption that all forward momentum is converted to the direction to the point one
 
 	const float squareDistanceToMidPoint = SQUARE( from[0] - midPoint.X() ) + SQUARE( from[1] - midPoint.Y() );
-	if( squareDistanceToMidPoint < 10 ) {
+	if( squareDistanceToMidPoint < SQUARE( 32 ) ) {
 		StaticWorldTrace( &trace, from, to, brushMask );
-		return trace.fraction != 1.0f;
+		return trace.fraction == 1.0f;
 	}
 
 	const float timeToMidPoint = sqrtf( squareDistanceToMidPoint ) / startPhysicsState.Speed2D();
@@ -31,7 +34,7 @@ bool BotBunnyTestingMultipleLookDirsAction::TraceArcInSolidWorld( const AiEntity
 	// Note that we ignore negative deltaZ since the real trajectory differs anyway
 	if( deltaZ < 2.0f ) {
 		StaticWorldTrace( &trace, from, to, brushMask );
-		return trace.fraction != 1.0f;
+		return trace.fraction == 1.0f;
 	}
 
 	midPoint.Z() += deltaZ;
@@ -42,14 +45,10 @@ bool BotBunnyTestingMultipleLookDirsAction::TraceArcInSolidWorld( const AiEntity
 	}
 
 	StaticWorldTrace( &trace, midPoint.Data(), to, brushMask );
-	if( trace.fraction != 1.0f ) {
-		return false;
-	}
-
-	return true;
+	return trace.fraction == 1.0f;
 }
 
-void BotBunnyTestingMultipleLookDirsAction::BeforePlanning() {
+void BunnyTestingMultipleLookDirsAction::BeforePlanning() {
 	GenericRunBunnyingAction::BeforePlanning();
 	currSuggestedLookDirNum = 0;
 	suggestedLookDirs.clear();
@@ -59,7 +58,7 @@ void BotBunnyTestingMultipleLookDirsAction::BeforePlanning() {
 	Assert( suggestedAction );
 }
 
-void BotBunnyTestingMultipleLookDirsAction::OnApplicationSequenceStarted( Context *ctx ) {
+void BunnyTestingMultipleLookDirsAction::OnApplicationSequenceStarted( Context *ctx ) {
 	GenericRunBunnyingAction::OnApplicationSequenceStarted( ctx );
 	// If there is no dirs tested yet
 	if( currSuggestedLookDirNum == 0 ) {
@@ -71,25 +70,15 @@ void BotBunnyTestingMultipleLookDirsAction::OnApplicationSequenceStarted( Contex
 	}
 }
 
-void BotBunnyTestingMultipleLookDirsAction::OnApplicationSequenceStopped( Context *context,
-																		  SequenceStopReason stopReason,
-																		  unsigned stoppedAtFrameIndex ) {
+void BunnyTestingMultipleLookDirsAction::OnApplicationSequenceStopped( Context *context,
+																	   SequenceStopReason stopReason,
+																	   unsigned stoppedAtFrameIndex ) {
 	GenericRunBunnyingAction::OnApplicationSequenceStopped( context, stopReason, stoppedAtFrameIndex );
 	// If application sequence succeeded
 	if( stopReason != FAILED ) {
 		if( stopReason != DISABLED ) {
 			currSuggestedLookDirNum = 0;
 		}
-		return;
-	}
-
-	// If the action has been disabled due to prediction stack overflow
-	if( this->isDisabledForPlanning ) {
-		return;
-	}
-
-	// If rolling back is available for the current suggested dir
-	if( disabledForApplicationFrameIndex != context->savepointTopOfStackIndex ) {
 		return;
 	}
 
@@ -115,7 +104,7 @@ inline float SuggestObstacleAvoidanceCorrectionFraction( const Context *context 
 	return 0.35f - 0.20f * speedOverRunSpeed / 500.0f;
 }
 
-void BotBunnyTestingMultipleLookDirsAction::PlanPredictionStep( Context *context ) {
+void BunnyTestingMultipleLookDirsAction::PlanPredictionStep( Context *context ) {
 	if( !GenericCheckIsActionEnabled( context, suggestedAction ) ) {
 		return;
 	}
@@ -143,9 +132,9 @@ void BotBunnyTestingMultipleLookDirsAction::PlanPredictionStep( Context *context
 	}
 }
 
-inline AreaAndScore *BotBunnyTestingMultipleLookDirsAction::TakeBestCandidateAreas( AreaAndScore *inputBegin,
-																					AreaAndScore *inputEnd,
-																					unsigned maxAreas ) {
+inline AreaAndScore *BunnyTestingMultipleLookDirsAction::TakeBestCandidateAreas( AreaAndScore *inputBegin,
+																				 AreaAndScore *inputEnd,
+																				 unsigned maxAreas ) {
 	Assert( inputEnd >= inputBegin );
 	const uintptr_t numAreas = inputEnd - inputBegin;
 	const uintptr_t numResultAreas = numAreas < maxAreas ? numAreas : maxAreas;
@@ -156,8 +145,7 @@ inline AreaAndScore *BotBunnyTestingMultipleLookDirsAction::TakeBestCandidateAre
 		auto &startArea = *( inputBegin + i );
 		for( uintptr_t j = i + 1; j < numAreas; ++j ) {
 			auto &currArea = *( inputBegin + j );
-			// If current area is better (<) than the start one, swap these areas
-			if( currArea.score < startArea.score ) {
+			if( currArea.score > startArea.score ) {
 				std::swap( currArea, startArea );
 			}
 		}
@@ -166,9 +154,9 @@ inline AreaAndScore *BotBunnyTestingMultipleLookDirsAction::TakeBestCandidateAre
 	return inputBegin + numResultAreas;
 }
 
-void BotBunnyTestingMultipleLookDirsAction::SaveCandidateAreaDirs( Context *context,
-																   AreaAndScore *candidateAreasBegin,
-																   AreaAndScore *candidateAreasEnd ) {
+void BunnyTestingMultipleLookDirsAction::SaveCandidateAreaDirs( Context *context,
+																AreaAndScore *candidateAreasBegin,
+																AreaAndScore *candidateAreasEnd ) {
 	const auto &entityPhysicsState = context->movementState->entityPhysicsState;
 	const int navTargetAreaNum = context->NavTargetAasAreaNum();
 	const auto *aasAreas = AiAasWorld::Instance()->Areas();

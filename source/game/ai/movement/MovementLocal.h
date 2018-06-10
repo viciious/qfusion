@@ -260,6 +260,50 @@ inline LandOnSavedAreasAction &BaseMovementAction::LandOnSavedAreasAction() {
 	return module->landOnSavedAreasAction;
 }
 
+inline bool BaseMovementAction::GenericCheckIsActionEnabled( MovementPredictionContext *context,
+															 BaseMovementAction *suggestedAction ) const {
+	// Put likely case first
+	if( !isDisabledForPlanning ) {
+		return true;
+	}
+
+	context->sequenceStopReason = DISABLED;
+	context->cannotApplyAction = true;
+	context->actionSuggestedByAction = suggestedAction;
+	Debug( "The action has been completely disabled for further planning\n" );
+	return false;
+}
+
+typedef MovementPredictionContext Context;
+
+inline void BaseMovementAction::DisableWithAlternative( Context *context, BaseMovementAction *suggestedAction ) {
+	context->cannotApplyAction = true;
+	context->actionSuggestedByAction = suggestedAction;
+	this->isDisabledForPlanning = true;
+}
+
+inline void BaseMovementAction::SwitchOrStop( Context *context, BaseMovementAction *suggestedAction ) {
+	// Few predicted frames are enough if the action cannot be longer applied (but have not caused rollback)
+	if( context->topOfStackIndex > 0 ) {
+		Debug( "There were enough successfully predicted frames anyway, stopping prediction\n" );
+		context->isCompleted = true;
+		return;
+	}
+
+	DisableWithAlternative( context, suggestedAction );
+}
+
+inline void BaseMovementAction::SwitchOrRollback( Context *context, BaseMovementAction *suggestedAction ) {
+	if( context->topOfStackIndex > 0 ) {
+		Debug( "There were some frames predicted ahead that lead to a failure, should rollback\n" );
+		this->isDisabledForPlanning = true;
+		context->SetPendingRollback();
+		return;
+	}
+
+	DisableWithAlternative( context, suggestedAction );
+}
+
 inline float Distance2DSquared( const vec3_t a, const vec3_t b ) {
 	float dx = a[0] - b[0];
 	float dy = a[1] - b[1];
@@ -327,6 +371,6 @@ public:
 
 extern TriggerAreaNumsCache triggerAreaNumsCache;
 
-typedef MovementPredictionContext Context;
+int TravelTimeWalkingOrFallingShort( const AiAasRouteCache *routeCache, int fromAreaNum, int toAreaNum );
 
 #endif

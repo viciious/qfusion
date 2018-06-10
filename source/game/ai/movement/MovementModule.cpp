@@ -7,6 +7,7 @@
 
 BotMovementModule::BotMovementModule( Bot *bot_ )
 	: bot( bot_ )
+	, weaponJumpAttemptsRateLimiter( 2 )
 	, fallbackMovementAction( this )
 	, handleTriggeredJumppadAction( this )
 	, landOnSavedAreasAction( this )
@@ -18,9 +19,13 @@ BotMovementModule::BotMovementModule( Bot *bot_ )
 	, bunnyStraighteningReachChainAction( this )
 	, bunnyToBestShortcutAreaAction( this )
 	, bunnyToBestFloorClusterPointAction( this )
+	, bunnyInterpolatingChainAtStartAction( this )
 	, bunnyInterpolatingReachChainAction( this )
 	, walkOrSlideInterpolatingReachChainAction( this )
 	, combatDodgeSemiRandomlyToTargetAction( this )
+	, scheduleWeaponJumpAction( this )
+	, tryTriggerWeaponJumpAction( this )
+	, correctWeaponJumpAction( this )
 	, predictionContext( this )
 	, useWalkableNodeFallback( bot_, this )
 	, useRampExitFallback( bot_, this )
@@ -587,4 +592,43 @@ MovementPredictionContext::HitWhileRunningTestResult MovementPredictionContext::
 
 	mayHitWhileRunningCachesStack.SetCachedValue( HitWhileRunningTestResult::Failure() );
 	return HitWhileRunningTestResult::Failure();
+}
+
+int TravelTimeWalkingOrFallingShort( const AiAasRouteCache *routeCache, int fromAreaNum, int toAreaNum ) {
+	const auto *aasReach = AiAasWorld::Instance()->Reachabilities();
+	constexpr int travelFlags = TFL_WALK | TFL_AIR | TFL_WALKOFFLEDGE;
+	int numHops = 0;
+	int travelTime = 0;
+	for(;; ) {
+		if( fromAreaNum == toAreaNum ) {
+			return std::max( 1, travelTime );
+		}
+		// Limit to prevent looping
+		if ( ( numHops++ ) == 32 ) {
+			return 0;
+		}
+		int reachNum = routeCache->ReachabilityToGoalArea( fromAreaNum, toAreaNum, travelFlags );
+		if( !reachNum ) {
+			return 0;
+		}
+		// Save the returned travel time once at start.
+		// It is not so inefficient as results of the previous call including travel time are cached and the cache is fast.
+		if( !travelTime ) {
+			travelTime = routeCache->TravelTimeToGoalArea( fromAreaNum, toAreaNum, travelFlags );
+		}
+		const auto &reach = aasReach[reachNum];
+		// Move to this area for the next iteration
+		fromAreaNum = reach.areanum;
+		// Check whether the travel type fits this function restrictions
+		const int travelType = reach.traveltype & TRAVELTYPE_MASK;
+		if( travelType == TRAVEL_WALK ) {
+			continue;
+		}
+		if( travelType == TRAVEL_WALKOFFLEDGE ) {
+			if( DistanceSquared( reach.start, reach.end ) < SQUARE( 0.8 * AI_JUMPABLE_HEIGHT ) ) {
+				continue;
+			}
+		}
+		return 0;
+	}
 }

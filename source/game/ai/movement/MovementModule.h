@@ -17,6 +17,7 @@
 #include "CombatDodgeToTargetAction.h"
 #include "FallbackMovementAction.h"
 #include "WalkOrSlideInterpolatingAction.h"
+#include "WeaponJumpActions.h"
 
 #include "FallDownFallback.h"
 #include "JumpOverBarrierFallback.h"
@@ -27,6 +28,58 @@
 #include "UseRampExitFallback.h"
 
 class Bot;
+
+// Roughly based on token buckets algorithm
+class alignas( 4 )RateLimiter {
+	Int64Align4 refilledAt;
+	float refillRatePerMillis;
+	unsigned intervalMillis;
+	const int size;
+	int value;
+
+	int GetNewValue( int64_t millisNow ) const {
+		int64_t diff = level.time - refilledAt;
+		auto tokensToAdd = (int)(diff * refillRatePerMillis);
+		if( tokensToAdd <= 0 ) {
+			return value;
+		}
+
+		int newValue = value;
+		if( value <= 0 ) {
+			newValue = tokensToAdd;
+			if( newValue > size ) {
+				newValue = size;
+			}
+		} else {
+			newValue += tokensToAdd;
+			if( newValue > size ) {
+				newValue = 0;
+			}
+		}
+		return newValue;
+	}
+
+	void Refill( int64_t millisNow ) {
+		int newValue = GetNewValue( millisNow );
+		if( value != newValue ) {
+			value = newValue;
+			refilledAt = millisNow - ( millisNow - refilledAt ) % intervalMillis;
+		}
+	}
+public:
+	explicit RateLimiter( int actionsPerSecond )
+		: refilledAt( 0 )
+		, refillRatePerMillis( actionsPerSecond / 1000.0f )
+		, intervalMillis( (unsigned)( 1000.0f / actionsPerSecond ) )
+		, size( actionsPerSecond )
+		, value( 0 ) {}
+
+	bool TryAcquire() {
+		Refill( level.time );
+		value -= 1;
+		return value >= 0;
+	}
+};
 
 class BotMovementModule {
 	friend class Bot;
@@ -45,9 +98,11 @@ class BotMovementModule {
 	friend class BunnyStraighteningReachChainAction;
 	friend class BunnyToBestShortcutAreaAction;
 	friend class BunnyToBestFloorClusterPointAction;
+	friend class BunnyInterpolatingChainAtStartAction;
 	friend class BunnyInterpolatingReachChainAction;
 	friend class WalkOrSlideInterpolatingReachChainAction;
 	friend class CombatDodgeSemiRandomlyToTargetAction;
+	friend class ScheduleWeaponJumpAction;
 
 	friend class GenericGroundMovementFallback;
 	friend class UseWalkableNodeFallback;
@@ -63,8 +118,13 @@ class BotMovementModule {
 	StaticVector<int, MAX_SAVED_AREAS> savedLandingAreas;
 	StaticVector<int, MAX_SAVED_AREAS> savedPlatformAreas;
 
+	// Limits weapon jumps attempts per second
+	// (consequential attempts are allowed but no more than several frames,
+	// otherwise a bot might loop attempts forever)
+	RateLimiter weaponJumpAttemptsRateLimiter;
+
 	// Must be initialized before any of movement actions constructors is called
-	StaticVector<BaseMovementAction *, 16> movementActions;
+	StaticVector<BaseMovementAction *, 20> movementActions;
 
 	FallbackMovementAction fallbackMovementAction;
 	HandleTriggeredJumppadAction handleTriggeredJumppadAction;
@@ -77,9 +137,13 @@ class BotMovementModule {
 	BunnyStraighteningReachChainAction bunnyStraighteningReachChainAction;
 	BunnyToBestShortcutAreaAction bunnyToBestShortcutAreaAction;
 	BunnyToBestFloorClusterPointAction bunnyToBestFloorClusterPointAction;
+	BunnyInterpolatingChainAtStartAction bunnyInterpolatingChainAtStartAction;
 	BunnyInterpolatingReachChainAction bunnyInterpolatingReachChainAction;
 	WalkOrSlideInterpolatingReachChainAction walkOrSlideInterpolatingReachChainAction;
 	CombatDodgeSemiRandomlyToTargetAction combatDodgeSemiRandomlyToTargetAction;
+	ScheduleWeaponJumpAction scheduleWeaponJumpAction;
+	TryTriggerWeaponJumpAction tryTriggerWeaponJumpAction;
+	CorrectWeaponJumpAction correctWeaponJumpAction;
 
 	BotMovementState movementState;
 
@@ -150,7 +214,7 @@ public:
 
 	inline bool CanChangeWeapons() const {
 		auto &weaponJumpState = movementState.weaponJumpMovementState;
-		return !weaponJumpState.IsActive() || weaponJumpState.hasTriggeredRocketJump;
+		return !weaponJumpState.IsActive() || weaponJumpState.hasTriggeredWeaponJump;
 	}
 
 	void Reset() {

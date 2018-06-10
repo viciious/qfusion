@@ -4,8 +4,8 @@
 #include "../ai_manager.h"
 
 BunnyStraighteningReachChainAction::BunnyStraighteningReachChainAction( BotMovementModule *module_ )
-	: BotBunnyTestingMultipleLookDirsAction( module_, NAME, COLOR_RGB( 0, 192, 0 ) ) {
-	supportsObstacleAvoidance = true;
+	: BunnyTestingMultipleLookDirsAction( module_, NAME, COLOR_RGB( 0, 192, 0 ) ) {
+	supportsObstacleAvoidance = false;
 	// The constructor cannot be defined in the header due to this bot member access
 	suggestedAction = &module->bunnyToBestShortcutAreaAction;
 }
@@ -50,31 +50,32 @@ void BunnyStraighteningReachChainAction::SaveSuggestedLookDirs( Context *context
 	}
 
 	const AiAasWorld *aasWorld = AiAasWorld::Instance();
-	const aas_reachability_t *aasReachabilities = aasWorld->Reachabilities();
+	const aas_reachability_t *aasReach = aasWorld->Reachabilities();
 
 	int lastValidReachIndex = -1;
-	constexpr unsigned MAX_TESTED_REACHABILITIES = 16U;
-	const unsigned maxTestedReachabilities = std::min( MAX_TESTED_REACHABILITIES, nextReachChain.size() );
+	constexpr unsigned MAX_TESTED_REACH = Ai::ReachChainVector::capacity();
+	const unsigned maxTestedReach = std::min( MAX_TESTED_REACH, nextReachChain.size() );
 	const aas_reachability_t *reachStoppedAt = nullptr;
-	for( unsigned i = 0; i < maxTestedReachabilities; ++i ) {
-		const auto &reach = aasReachabilities[nextReachChain[i].ReachNum()];
+	for( unsigned i = 0; i < maxTestedReach; ++i ) {
+		const auto &reach = aasReach[nextReachChain[i].ReachNum()];
+		// Avoid inclusion of TRAVEL_JUMP and TRAVEL_STRAFEJUMP reach.
+		// as they are prone to falling down in this case
+		// (Jumping over gaps should be timed precisely)
 		if( reach.traveltype != TRAVEL_WALK && reach.traveltype != TRAVEL_WALKOFFLEDGE ) {
-			if( reach.traveltype != TRAVEL_JUMP && reach.traveltype != TRAVEL_STRAFEJUMP ) {
-				reachStoppedAt = &reach;
-				break;
-			}
+			reachStoppedAt = &reach;
+			break;
 		}
 
 		lastValidReachIndex++;
 	}
 
-	if( lastValidReachIndex < 0 || lastValidReachIndex >= (int)maxTestedReachabilities ) {
+	if( lastValidReachIndex < 0 || lastValidReachIndex >= (int)maxTestedReach ) {
 		Debug( "There were no supported for bunnying reachabilities\n" );
 		return;
 	}
-	Assert( lastValidReachIndex < (int)maxTestedReachabilities );
+	Assert( lastValidReachIndex < (int)maxTestedReach );
 
-	AreaAndScore candidates[MAX_TESTED_REACHABILITIES];
+	AreaAndScore candidates[MAX_TESTED_REACH];
 	AreaAndScore *candidatesEnd = SelectCandidateAreas( context, candidates, (unsigned)lastValidReachIndex );
 
 	SaveCandidateAreaDirs( context, candidates, candidatesEnd );
@@ -111,12 +112,14 @@ AreaAndScore *BunnyStraighteningReachChainAction::SelectCandidateAreas( Context 
 	const auto &entityPhysicsState = context->movementState->entityPhysicsState;
 	const auto &nextReachChain = context->NextReachChain();
 	const auto *aasWorld = AiAasWorld::Instance();
-	const auto *aasReachabilities = aasWorld->Reachabilities();
+	const auto *routeCache = context->RouteCache();
+	const auto *aasReach = aasWorld->Reachabilities();
 	const auto *aasAreas = aasWorld->Areas();
 	const auto *aasAreaSettings = aasWorld->AreaSettings();
 	const auto *aasAreaFloorClusterNums = aasWorld->AreaFloorClusterNums();
 	const auto *aasAreaStairsClusterNums = aasWorld->AreaStairsClusterNums();
 	const int navTargetAasAreaNum = context->NavTargetAasAreaNum();
+	const float pointZOffset = -playerbox_stand_mins[2];
 
 	const auto *dangerToEvade = bot->PrimaryHazard();
 	// Reduce branching in the loop below
@@ -128,22 +131,19 @@ AreaAndScore *BunnyStraighteningReachChainAction::SelectCandidateAreas( Context 
 
 	int currAreaNum = context->CurrAasAreaNum();
 	int floorClusterNum = 0;
-	if( int groundedAreaNum = context->CurrGroundedAasAreaNum() ) {
+	const int groundedAreaNum = context->CurrGroundedAasAreaNum();
+	if( groundedAreaNum ) {
 		floorClusterNum = aasAreaFloorClusterNums[groundedAreaNum];
 	}
 
-	// Do not make it speed-depended, it leads to looping/jitter!
-	const float distanceThreshold = 256.0f + 512.0f * bot->Skill();
-
 	AreaAndScore *candidatesPtr = candidatesBegin;
-	float minScore = 0.0f;
-
 	Vec3 traceStartPoint( entityPhysicsState.Origin() );
 	traceStartPoint.Z() += playerbox_stand_viewheight;
+
 	for( int i = lastValidReachIndex; i >= 0; --i ) {
 		const int reachNum = nextReachChain[i].ReachNum();
-		const auto &reachability = aasReachabilities[reachNum];
-		int areaNum = reachability.areanum;
+		const auto &reach = aasReach[reachNum];
+		int areaNum = reach.areanum;
 		const auto &area = aasAreas[areaNum];
 		const auto &areaSettings = aasAreaSettings[areaNum];
 
@@ -174,23 +174,16 @@ AreaAndScore *BunnyStraighteningReachChainAction::SelectCandidateAreas( Context 
 			continue;
 		}
 
-		Vec3 areaPoint( area.center[0], area.center[1], area.mins[2] + 4.0f );
-		// Skip areas higher than the bot (to allow moving on a stairs chain, we test distance/height ratio)
-		if( area.mins[2] > entityPhysicsState.Origin()[2] ) {
-			float distance = areaPoint.FastDistance2DTo( entityPhysicsState.Origin() );
-			if( area.mins[2] - entityPhysicsState.Origin()[2] > M_SQRT1_2 * distance ) {
-				continue;
-			}
-		}
+		Vec3 areaPoint( area.center[0], area.center[1], area.mins[2] + pointZOffset );
 
-		const float squareDistanceToArea = DistanceSquared( area.center, entityPhysicsState.Origin() );
+		const float squareDistanceToArea = areaPoint.SquareDistanceTo( entityPhysicsState.Origin() );
 		// Skip way too close areas (otherwise the bot might fall into endless looping)
-		if( squareDistanceToArea < SQUARE( 0.4f * distanceThreshold ) ) {
+		if( squareDistanceToArea < SQUARE( 96 ) ) {
 			continue;
 		}
 
 		// Skip way too far areas (this is mainly an optimization for the following SolidWorldTrace() call)
-		if( squareDistanceToArea > SQUARE( distanceThreshold ) ) {
+		if( squareDistanceToArea > SQUARE( 1024 + 512 ) ) {
 			continue;
 		}
 
@@ -198,50 +191,38 @@ AreaAndScore *BunnyStraighteningReachChainAction::SelectCandidateAreas( Context 
 			continue;
 		}
 
-		// Compute score first to cut off expensive tracing
-		const float prevMinScore = minScore;
 		// Give far areas greater initial score
 		float score = 999999.0f;
 		if( areaNum != navTargetAasAreaNum ) {
-			// Avoid a division by zero by shifting both nominator and denominator by 1.
-			// Note that it slightly shifts score too but there are no upper bounds for the score.
-			score = 0.5f + 0.5f * ( (float)( i + 1 ) / (float)( lastValidReachIndex + 1 ) );
-			// Try skip "junk" areas (sometimes these areas cannot be avoided in the shortest path)
-			if( areaFlags & AREA_JUNK ) {
-				score *= 0.1f;
-			}
-			// Give ledge areas a bit smaller score (sometimes these areas cannot be avoided in the shortest path)
-			if( areaFlags & AREA_LEDGE ) {
-				score *= 0.7f;
-			}
-			// Prefer not bounded by walls areas to avoid bumping into walls
-			if( !( areaFlags & AREA_WALL ) ) {
-				score *= 1.6f;
-			}
-
-			// Do not test lower score areas if there is already enough tested candidates
-			if( score > minScore ) {
-				minScore = score;
-			} else if( candidatesPtr - candidatesBegin >= (ptrdiff_t)maxSuggestedLookDirs ) {
-				continue;
-			}
+			score = 0.1f + 0.9f * ( (float)( i + 1 ) / (float)( lastValidReachIndex + 1 ) );
 		}
 
 		// Make sure the bot can see the ground
 		// On failure, restore minScore (it might have been set to the value of the rejected area score on this loop step)
 		if( floorClusterNum && floorClusterNum == aasAreaFloorClusterNums[areaNum] ) {
 			if( !IsAreaWalkableInFloorCluster( currAreaNum, areaNum ) ) {
-				minScore = prevMinScore;
 				continue;
 			}
 		} else {
 			if( !TraceArcInSolidWorld( entityPhysicsState, traceStartPoint.Data(), areaPoint.Data() ) ) {
-				minScore = prevMinScore;
+				continue;
+			}
+
+			// This is very likely to indicate a significant elevation of the area over the bot area.
+			// TODO: This test leads to a failure if the target area is direct-reachable via falling
+			if( !TravelTimeWalkingOrFallingShort( routeCache, areaNum, groundedAreaNum ) ) {
 				continue;
 			}
 		}
 
+		if( candidatesPtr - candidatesBegin == maxSuggestedLookDirs ) {
+			// Evict the worst element (with the lowest score and with the last order by the operator < in the max-heap)
+			std::pop_heap( candidatesBegin, candidatesPtr );
+			candidatesPtr--;
+		}
+
 		new ( candidatesPtr++ )AreaAndScore( areaNum, score );
+		std::push_heap( candidatesBegin, candidatesPtr );
 	}
 
 	return candidatesPtr;

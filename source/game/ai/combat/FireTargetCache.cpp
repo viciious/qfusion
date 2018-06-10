@@ -647,11 +647,20 @@ bool HitPointPredictor::OnPredictionStep( const Vec3 &segmentStart, const Result
 		return true;
 	}
 
-	Vec3 segmentTargetVelocity( problemParams->targetVelocity );
 	// const float zPartAtSegmentStart = 0.001f * ( results->millisAhead - stepMillis ) * level.gravity;
 	// const float zPartAtSegmentEnd = 0.001f * results->millisAhead * level.gravity;
 	// segmentTargetVelocity.Z() -= 0.5f * ( zPartAtSegmentStart + zPartAtSegmentEnd );
-	segmentTargetVelocity.Z() -= 0.5f * 0.001f * ( 2.0f * results->millisAhead - stepMillis ) * level.gravity;
+	float newTargetZSpeed = problemParams->targetVelocity.Z();
+	newTargetZSpeed -= 0.5f * 0.001f * ( 2.0f * results->millisAhead - stepMillis ) * level.gravity;
+
+	// Wait for a negative target velocity or for hitting a solid.
+	// Do not try to hit in-air in this case (it yields poor results).
+	if( newTargetZSpeed > 0 ) {
+		return true;
+	}
+
+	Vec3 segmentTargetVelocity( problemParams->targetVelocity );
+	segmentTargetVelocity.Z() = newTargetZSpeed;
 
 	// TODO: Projectile speed used in PredictProjectileNoClip() needs correction
 	// We can't offset fire origin since we do not know direction to target yet

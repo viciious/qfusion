@@ -192,13 +192,18 @@ BaseMovementAction *MovementPredictionContext::GetActionAndRecordForCurrTime( Mo
 	return action;
 }
 
-void MovementPredictionContext::ShowBuiltPlanPath() const {
+void MovementPredictionContext::ShowBuiltPlanPath( bool useActionsColor ) const {
 	for( unsigned i = 0, j = 1; j < predictedMovementActions.size(); ++i, ++j ) {
-		int color;
-		switch( i % 3 ) {
-			case 0: color = COLOR_RGB( 192, 0, 0 ); break;
-			case 1: color = COLOR_RGB( 0, 192, 0 ); break;
-			case 2: color = COLOR_RGB( 0, 0, 192 ); break;
+
+		int color = 0;
+		if( useActionsColor ) {
+			color = predictedMovementActions[i].action->DebugColor();
+		} else {
+			switch( i % 3 ) {
+				case 0: color = COLOR_RGB( 192, 0, 0 ); break;
+				case 1: color = COLOR_RGB( 0, 192, 0 ); break;
+				case 2: color = COLOR_RGB( 0, 0, 192 ); break;
+			}
 		}
 		const float *v1 = predictedMovementActions[i].entityPhysicsState.Origin();
 		const float *v2 = predictedMovementActions[j].entityPhysicsState.Origin();
@@ -243,6 +248,9 @@ void MovementPredictionContext::OnInterceptedPredictedEvent( int ev, int parm ) 
 	switch( ev ) {
 		case EV_JUMP:
 			this->frameEvents.hasJumped = true;
+			break;
+		case EV_DOUBLEJUMP:
+			this->frameEvents.hasDoubleJumped = true;
 			break;
 		case EV_DASH:
 			this->frameEvents.hasDashed = true;
@@ -410,6 +418,17 @@ void MovementPredictionContext::NearbyTriggersCache::EnsureValidForBounds( const
 	}
 }
 
+void MovementPredictionContext::StopTruncatingStackAt( unsigned frameIndex ) {
+	// Call OnApplicationSequenceStopped() manually
+	this->activeAction->OnApplicationSequenceStopped( this, SWITCHED, this->topOfStackIndex );
+	// Disable the duplicated call in NextPredictionStep();
+	this->activeAction = nullptr;
+	this->isCompleted = true;
+	predictedMovementActions.truncate( frameIndex + 1 );
+	// Do not even bother to restore the entire stack state at frameIndex (including millisAhead, etc)
+	this->isTruncated = true;
+}
+
 void MovementPredictionContext::SetupStackForStep() {
 	PredictedMovementAction *topOfStack;
 	if( topOfStackIndex > 0 ) {
@@ -544,6 +563,19 @@ BaseMovementAction *MovementPredictionContext::SuggestSuitableAction() {
 		return &module->swimMovementAction;
 	}
 
+	if( movementState->weaponJumpMovementState.IsActive() ) {
+		if( movementState->weaponJumpMovementState.hasCorrectedWeaponJump ) {
+			if( movementState->flyUntilLandingMovementState.IsActive() ) {
+				return &module->flyUntilLandingAction;
+			}
+			return &module->landOnSavedAreasAction;
+		}
+		if( movementState->weaponJumpMovementState.hasTriggeredWeaponJump ) {
+			return &module->correctWeaponJumpAction;
+		}
+		return &module->tryTriggerWeaponJumpAction;
+	}
+
 	if( movementState->jumppadMovementState.hasTouchedJumppad ) {
 		if( movementState->jumppadMovementState.hasEnteredJumppad ) {
 			if( movementState->flyUntilLandingMovementState.IsActive() ) {
@@ -581,7 +613,12 @@ BaseMovementAction *MovementPredictionContext::SuggestSuitableAction() {
 	if( module->activeMovementFallback ) {
 		return &module->fallbackMovementAction;
 	}
-	return &module->walkCarefullyAction;
+
+	if( topOfStackIndex > 0 ) {
+		return &module->walkCarefullyAction;
+	}
+
+	return &module->scheduleWeaponJumpAction;
 }
 
 bool MovementPredictionContext::NextPredictionStep() {
@@ -690,7 +727,11 @@ bool MovementPredictionContext::NextPredictionStep() {
 			// Stop an action application sequence manually with a success.
 			action->OnApplicationSequenceStopped( this, BaseMovementAction::SUCCEEDED, this->topOfStackIndex );
 			// Save the predicted movement action
-			this->SaveActionOnStack( action );
+			// Note: this condition is put outside since it is valid only once per a BuildPlan() call
+			// and the method is called every prediction frame (up to hundreds of times per a bot per a game frame)
+			if( !this->isTruncated ) {
+				this->SaveActionOnStack( action );
+			}
 			// Stop planning by returning false
 			return false;
 		}
@@ -715,7 +756,9 @@ bool MovementPredictionContext::NextPredictionStep() {
 		if( this->isCompleted ) {
 			constexpr const char *format = "Movement prediction is completed on %s, ToS frame %d, %d millis ahead\n";
 			Debug( format, action->Name(), this->topOfStackIndex, this->totalMillisAhead );
-			SaveActionOnStack( action );
+			if( !this->isTruncated ) {
+				SaveActionOnStack( action );
+			}
 			// Stop action application sequence manually with a success.
 			// Prevent duplicated OnApplicationSequenceStopped() call
 			// (it might have been done in action->CheckPredictionStepResults() for this->activeAction)
@@ -796,6 +839,7 @@ void MovementPredictionContext::BuildPlan() {
 	this->actionSuggestedByAction = nullptr;
 	this->sequenceStopReason = UNSPECIFIED;
 	this->isCompleted = false;
+	this->isTruncated = false;
 	this->shouldRollback = false;
 
 #ifndef CHECK_INFINITE_NEXT_STEP_LOOPS
@@ -1065,6 +1109,11 @@ void MovementPredictionContext::CheatingAccelerate( float frac ) {
 		return;
 	}
 
+	// If the 2D velocity direction is not defined
+	if( entityPhysicsState.Speed2D() < 1 ) {
+		return;
+	}
+
 	const float speed = entityPhysicsState.Speed();
 	const float speedThreshold = this->GetRunSpeed() - 15.0f;
 	// Respect player class speed properties
@@ -1114,12 +1163,22 @@ void MovementPredictionContext::CheatingAccelerate( float frac ) {
 	frac = SQRTFAST( frac );
 
 	Vec3 newVelocity( entityPhysicsState.Velocity() );
+	// Preserve the old velocity Z.
+	// Note the old cheating acceleration code did not do that intentionally.
+	// This used to produce very spectacular bot movement but it leads to
+	// an increased rate of movement rejection by the prediction system
+	// once much more stricter buynnying tests were implemented.
+	float oldZ = newVelocity.Z();
+	// Convert boost direction to Z
+	newVelocity.Z() = 0;
 	// Normalize velocity boost direction
-	newVelocity *= 1.0f / speed;
+	newVelocity *= 1.0f / entityPhysicsState.Speed2D();
 	// Make velocity boost vector
 	newVelocity *= ( frac * speedGainPerSecond ) * ( 0.001f * this->oldStepMillis );
 	// Add velocity boost to the entity velocity in the given physics state
 	newVelocity += entityPhysicsState.Velocity();
+	// Keep old velocity Z
+	newVelocity.Z() = oldZ;
 
 	record->SetModifiedVelocity( newVelocity );
 }

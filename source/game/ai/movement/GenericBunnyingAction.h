@@ -5,10 +5,27 @@
 
 class GenericRunBunnyingAction : public BaseMovementAction
 {
+	friend class MovementPredictionContext;
 protected:
+	// If the current grounded area matches one of these areas, we can mark mayStopAtAreaNum
+	StaticVector<int, 8> checkStopAtAreaNums;
+
+	int travelTimeAtSequenceStart;
+	// Best results so far achieved in the action application sequence
 	int minTravelTimeToNavTargetSoFar;
 	int minTravelTimeAreaNumSoFar;
-	float minTravelTimeAreaGroundZ;
+
+	// If this is not a valid area num, try set it to a current grounded area if several conditions are met.
+	// If this area is set, we can truncate the built path later at mayStopAtStackFrame
+	// since this part of a trajectory is perfectly valid even if it has diverged after this frame.
+	// Thus further planning is deferred once the bot actually reaches it (or prediction results give a mismatch).
+	// This is a workaround for strict results tests and imperfect input suggested by various movement actions.
+	// We still have to continue prediction until the bot hits ground
+	// to ensure the bot is not going to land in a "bad" area in all possible cases.
+	int mayStopAtAreaNum;
+	int mayStopAtTravelTime;
+	int mayStopAtStackFrame;
+	vec3_t mayStopAtOrigin;
 
 	// A fraction of speed gain per frame time.
 	// Might be negative, in this case it limits allowed speed loss
@@ -33,6 +50,9 @@ protected:
 	// An application sequence will not start at the frame indexed by this value.
 	unsigned disabledForApplicationFrameIndex;
 
+	bool hasEnteredNavTargetArea;
+	bool hasTouchedNavTarget;
+
 	bool supportsObstacleAvoidance;
 	bool shouldTryObstacleAvoidance;
 	bool isTryingObstacleAvoidance;
@@ -55,14 +75,17 @@ protected:
 
 	// Can be overridden for finer control over tests
 	virtual bool CheckStepSpeedGainOrLoss( MovementPredictionContext *context );
-	bool IsMovingIntoNavEntity( MovementPredictionContext *context ) const;
 
+	inline void MarkForTruncation( MovementPredictionContext *context );
 public:
 	GenericRunBunnyingAction( BotMovementModule *module_, const char *name_, int debugColor_ = 0 )
 		: BaseMovementAction( module_, name_, debugColor_ )
+		, travelTimeAtSequenceStart( 0 )
 		, minTravelTimeToNavTargetSoFar( 0 )
 		, minTravelTimeAreaNumSoFar( 0 )
-		, minTravelTimeAreaGroundZ( 0 )
+		, mayStopAtAreaNum( 0 )
+		, mayStopAtTravelTime( 0 )
+		, mayStopAtStackFrame( -1 )
 		, minDesiredSpeedGainPerSecond( 0.0f )
 		, currentSpeedLossSequentialMillis( 0 )
 		, tolerableSpeedLossSequentialMillis( 300 )
@@ -72,6 +95,8 @@ public:
 		, disabledForApplicationFrameIndex( std::numeric_limits<unsigned>::max() )
 		, supportsObstacleAvoidance( false ) {
 		ResetObstacleAvoidanceState();
+		// Do NOT stop prediction on this! We have to check where the bot is going to land!
+		stopPredictionOnTouchingNavEntity = false;
 	}
 
 	void CheckPredictionStepResults( MovementPredictionContext *context ) override;
