@@ -51,6 +51,18 @@ void WalkCarefullyAction::PlanPredictionStep( Context *context ) {
 		return;
 	}
 
+	const auto *aasWorld = AiAasWorld::Instance();
+	if( currAasAreaNum != navTargetAasAreaNum ) {
+		const auto &nextReach = aasWorld->Reachabilities()[context->NextReachNum()];
+		if( nextReach.traveltype != TRAVEL_WALK ) {
+			if( Distance2DSquared( entityPhysicsState.Origin(), nextReach.start ) < SQUARE( 16 ) ) {
+				Debug( "Cannot apply action: should switch from walking for the next reachability\n" );
+				SwitchOrStop( context, suggestedAction );
+				return;
+			}
+		}
+	}
+
 	if( bot->ShouldMoveCarefully() || bot->ShouldBeSilent() ) {
 		context->SetDefaultBotInput();
 		context->record->botInput.ClearMovementDirections();
@@ -94,7 +106,6 @@ void WalkCarefullyAction::PlanPredictionStep( Context *context ) {
 	int gapSidesNum = 2;
 	int hazardSidesNum = 0;
 
-	const auto *aasWorld = AiAasWorld::Instance();
 	const auto *routeCache = bot->RouteCache();
 	const int currTravelTimeToNavTarget = context->TravelTimeToNavTarget();
 
