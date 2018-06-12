@@ -327,22 +327,28 @@ bool LandOnSavedAreasAction::TryLandingStepOnArea( int areaNum, Context *context
 	}
 	botInput->SetIntendedLookDir( intendedLookDir, true );
 
-	// Apply QW-like air control
-	float dotRight = entityPhysicsState.RightDir().Dot( intendedLookDir );
-	if( dotRight > 0.7f ) {
-		botInput->SetRightMovement( +1 );
-	} else if( dotRight < -0.7f ) {
-		botInput->SetRightMovement( -1 );
-	} else {
-		// While we do not use forwardbunny, there is still a little air control from forward key
-		float dotForward = entityPhysicsState.ForwardDir().Dot( intendedLookDir );
-		if( dotForward > 0.3f ) {
-			botInput->SetForwardMovement( +1 );
-		} else if( dotForward < -0.3f ) {
-			botInput->SetForwardMovement( -1 );
+	// Apply QW-like air control if possible:
+	// 1) Air-control feature must be enabled
+	// 2) This should be really spinning around Z-axis (a bot should look horizontally)
+	// Neglecting the second condition was a long-term source of poor bot behaviour
+	if( context->currPlayerState->pmove.stats[PM_STAT_FEATURES] & PMFEAT_AIRCONTROL ) {
+		if( entityPhysicsState.ForwardDir().Z() < 0.3f ) {
+			float dotRight = entityPhysicsState.RightDir().Dot( intendedLookDir );
+			if( dotRight > 0.7f ) {
+				botInput->SetRightMovement( +1 );
+				return true;
+			}
+			if( dotRight < -0.7f ) {
+				botInput->SetRightMovement( -1 );
+				return true;
+			}
 		}
 	}
 
+	// While we do not use forwardbunny, there is still a little air control
+	// from forward key, even without PMFEAT_AIRCONTROL feature
+	float dotForward = entityPhysicsState.ForwardDir().Dot( intendedLookDir );
+	botInput->SetForwardMovement( Q_sign( dotForward ) );
 	return true;
 }
 
@@ -413,19 +419,13 @@ void LandOnSavedAreasAction::PlanPredictionStep( Context *context ) {
 
 	auto *botInput = &context->record->botInput;
 	botInput->SetIntendedLookDir( toTargetDir );
-	// Try apply air control preferring QW-style one
-	float dotForward = toTargetDir.Dot( movementState->entityPhysicsState.ForwardDir() );
-	if( dotForward < -0.3f ) {
-		botInput->SetTurnSpeedMultiplier( 3.0f );
-	}
 
-	float dotRight = toTargetDir.Dot( movementState->entityPhysicsState.RightDir() );
-	if( dotRight > 0.5f ) {
-		botInput->SetRightMovement( +1 );
-	} else if( dotRight < -0.5f ) {
-		botInput->SetRightMovement( -1 );
-	} else if( dotForward > 0.5f ) {
-		botInput->SetForwardMovement( +1 );
+	// Use the simplest but the most reliable kind of movement in this case
+	float dotForward = toTargetDir.Dot( movementState->entityPhysicsState.ForwardDir() );
+	if( dotForward < 0.7f ) {
+		botInput->SetTurnSpeedMultiplier( 5.0f );
+	} else {
+		botInput->SetForwardMovement( 1 );
 	}
 
 	// Disallow any input rotation while landing, it relies on a side aircontrol.
