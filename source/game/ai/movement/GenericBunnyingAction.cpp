@@ -554,12 +554,18 @@ void GenericRunBunnyingAction::CheckPredictionStepResults( Context *context ) {
 
 	if( groundedAreaNum ) {
 		auto iter = std::find( checkStopAtAreaNums.begin(), checkStopAtAreaNums.end(), groundedAreaNum );
+		// We have reached an area that is was a "pivot" area at application sequence start.
 		if( iter != checkStopAtAreaNums.end() ) {
-			// We can interrupt here as we have reached a desired area that should be feasible by a-priori tests.
-			// This is not 100% confident but is producing fairly good results,
-			// otherwise an application sequence rarely succeeds at all
-			context->isCompleted = true;
-			return;
+			// In this case we can feel free to interrupt prediction, assuming AREA_NOFALL flags are fairly feasible.
+			if( aasWorld->AreaSettings()[groundedAreaNum].areaflags & AREA_NOFALL ) {
+				context->isCompleted = true;
+				return;
+			}
+			if( !mayStopAtAreaNum ) {
+				mayStopAtAreaNum = groundedAreaNum;
+				mayStopAtStackFrame = (int)context->topOfStackIndex;
+				mayStopAtTravelTime = currTravelTimeToNavTarget;
+			}
 		}
 	}
 

@@ -66,20 +66,28 @@
 #define AREACONTENTS_MODELNUM           ( AREACONTENTS_MAXMODELNUM << AREACONTENTS_MODELNUMSHIFT )
 
 //area flags
-#define AREA_GROUNDED               1       //bot can stand on the ground
-#define AREA_LADDER                 2       //area contains one or more ladder faces
-#define AREA_LIQUID                 4       //area contains a liquid
-#define AREA_DISABLED               8       //area is disabled for routing when set
-#define AREA_BRIDGE                 16      //area ontop of a bridge
+#define AREA_GROUNDED               1       // a bot can stand on the ground
+#define AREA_LADDER                 2       // an area contains one or more ladder faces
+#define AREA_LIQUID                 4       // an area contains a liquid
+#define AREA_DISABLED               8       // an area is disabled for routing when set
+#define AREA_BRIDGE                 16      // an area is on top of a bridge
+
 // These flags are specific to this engine and are set on world loading based on various computations
-#define AREA_LEDGE                  128     //area looks like a ledge. This flag is set on world loading.
-#define AREA_WALL                   256     //area has bounding solid walls.
-#define AREA_JUNK                   512     //area does not look like useful.
-#define AREA_INCLINED_FLOOR         1024    //area has an inclined floor (AAS treats these areas as having a flat one)
-#define AREA_SLIDABLE_RAMP          2048    //area is a slidable ramp (AREA_INCLINED_FLOOR is implied and set too)
-#define AREA_SKIP_COLLISION_16      4096    //if a bot is in any point of an area and is in air above ground,
-#define AREA_SKIP_COLLISION_32      8192    //it's legal to skip collision in PMove() for specified suffix
-#define AREA_SKIP_COLLISION_48      16384   //units around/above.
+#define AREA_LEDGE            ( 1 << 10 )  // an area looks like a ledge. This flag is set on world loading.
+#define AREA_WALL             ( 1 << 11 )  // an area has bounding solid walls.
+#define AREA_JUNK             ( 1 << 12 )  // an area does not look like useful.
+#define AREA_INCLINED_FLOOR   ( 1 << 13 )  // an area has an inclined floor (AAS treats these areas as having a flat one)
+#define AREA_SLIDABLE_RAMP    ( 1 << 14 )  // an area is a slidable ramp (AREA_INCLINED_FLOOR is implied and set too)
+
+// if a bot is in any point of an area and is in air above ground,
+// it's legal to skip collision in PMove() for specified suffix units around/above.
+#define AREA_SKIP_COLLISION_16   ( 1 << 20 )
+#define AREA_SKIP_COLLISION_32   ( 1 << 21 )
+#define AREA_SKIP_COLLISION_48   ( 1 << 22 )
+
+// a movement in an area is safe from falling/entering a hazard
+// (this is currently not a 100% guarantee but an optimistic estimation)
+#define AREA_NOFALL              ( 1 << 25 )
 
 //========== bounding box =========
 
@@ -296,6 +304,8 @@ class AiAasWorld
 	void TrySetAreaWallFlags( int areaNum );
 	void TrySetAreaJunkFlags( int areaNum );
 	void TrySetAreaRampFlags( int areaNum );
+
+	void TrySetAreaNoFallFlags( int areaNum );
 
 	// Should be called after all other flags are computed
 	void TrySetAreaSkipCollisionFlags();

@@ -475,6 +475,11 @@ void AiAasWorld::ComputeExtraAreaData() {
 	ComputeLogicalAreaClusters();
 	ComputeFace2DProjVertices();
 	ComputeAreasLeafsLists();
+
+	// These computations expect (are going to expect) that logical clusters are valid
+	for( int areaNum = 1; areaNum < numareas; ++areaNum ) {
+		TrySetAreaNoFallFlags( areaNum );
+	}
 }
 
 void AiAasWorld::TrySetAreaLedgeFlags( int areaNum ) {
@@ -610,6 +615,51 @@ void AiAasWorld::TrySetAreaRampFlags( int areaNum ) {
 			}
 		}
 	}
+}
+
+void AiAasWorld::TrySetAreaNoFallFlags( int areaNum ) {
+	// First, try to cut off extremely expensive computations at the end of this method
+	const auto &areaSettings = areasettings[areaNum];
+	if( areaSettings.areaflags & ( AREA_JUNK | AREA_LIQUID | AREA_DISABLED ) ) {
+		return;
+	}
+
+	constexpr auto badContents = AREACONTENTS_LAVA | AREACONTENTS_SLIME | AREACONTENTS_DONOTENTER;
+	// We also include triggers/movers as undesired to prevent trigger activation without intention
+	constexpr auto triggerContents = AREACONTENTS_JUMPPAD | AREACONTENTS_TELEPORTER | AREACONTENTS_MOVER;
+	constexpr auto undesiredContents = badContents | triggerContents;
+
+	if( areaSettings.contents & undesiredContents ) {
+		return;
+	}
+
+	// Inspect all outgoing reachabilities
+	int reachNum = areaSettings.firstreachablearea;
+	for(; reachNum < areaSettings.firstreachablearea + areaSettings.numreachableareas; ++reachNum ) {
+		const auto &reach = reachability[reachNum];
+		const auto &reachAreaSettings = areasettings[reach.areanum];
+		if( reachAreaSettings.areaflags & ( AREA_LIQUID | AREA_DISABLED ) ) {
+			return;
+		}
+		if( reachAreaSettings.contents & undesiredContents ) {
+			return;
+		}
+		const int travelType = reach.traveltype & TRAVELTYPE_MASK;
+		if( travelType == TRAVEL_JUMPPAD || travelType == TRAVEL_TELEPORT || travelType == TRAVEL_ELEVATOR ) {
+			return;
+		}
+		if( travelType == TRAVEL_WALKOFFLEDGE ) {
+			// Some reach. of this kind are really short and should not be considered as falling
+			if( DistanceSquared( reach.start, reach.end ) > 32 * 32 ) {
+				return;
+			}
+		}
+		// Note: TRAVEL_SWIM reach.-es are cut off by the reachable area contents test
+	}
+
+	// TODO: This is way too optimistic
+
+	areasettings[areaNum].areaflags |= AREA_NOFALL;
 }
 
 void AiAasWorld::TrySetAreaSkipCollisionFlags() {
