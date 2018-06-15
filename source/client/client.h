@@ -290,7 +290,6 @@ typedef struct {
 
 	// pure list
 	bool sv_pure;
-	bool sv_tv;
 	bool pure_restart;
 
 	purelist_t *purelist;

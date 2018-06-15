@@ -932,7 +932,6 @@ static void CL_ParseServerData( msg_t *msg ) {
 	old_sv_pure = cls.sv_pure;
 	cls.sv_pure = ( sv_bitflags & SV_BITFLAGS_PURE ) != 0;
 	cls.pure_restart = cls.sv_pure && old_sv_pure == false;
-	cls.sv_tv = ( sv_bitflags & SV_BITFLAGS_TVSERVER ) != 0;
 
 #ifdef PURE_CHEAT
 	cls.sv_pure = cls.pure_restart = false;

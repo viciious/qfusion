@@ -249,7 +249,6 @@ enum clc_ops_e {
 // serverdata flags
 #define SV_BITFLAGS_PURE            ( 1 << 0 )
 #define SV_BITFLAGS_RELIABLE        ( 1 << 1 )
-#define SV_BITFLAGS_TVSERVER        ( 1 << 2 )
 #define SV_BITFLAGS_HTTP            ( 1 << 3 )
 #define SV_BITFLAGS_HTTP_BASEURL    ( 1 << 4 )
 

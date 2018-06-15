@@ -1769,9 +1769,7 @@ void CL_SetClientState( int state ) {
 			CL_UIModule_ForceMenuOff();
 			CL_SetKeyDest( key_game );
 			//SCR_UpdateScreen();
-			if( !cls.sv_tv ) {
-				CL_AddReliableCommand( "svmotd 1" );
-			}
+			CL_AddReliableCommand( "svmotd 1" );
 			CL_SoundModule_Clear();
 			break;
 		default:

@@ -318,8 +318,7 @@ bool CL_MM_Connect( const netadr_t *address ) {
 * (ie logged in to MM or MM is disabled)
 */
 bool CL_MM_CanConnect( void ) {
-	// not sure if we're already aware of server's TV state at this point
-	return ( cl_mm_loginState == LOGIN_STATE_NONE ) || cls.sv_tv;
+	return ( cl_mm_loginState == LOGIN_STATE_NONE );
 }
 
 /*
