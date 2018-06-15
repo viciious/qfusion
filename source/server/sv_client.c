@@ -62,8 +62,9 @@ void SV_ClientCloseDownload( client_t *client ) {
 * accept the new client
 * this is the only place a client_t is ever initialized
 */
-bool SV_ClientConnect( const socket_t *socket, const netadr_t *address, client_t *client, char *userinfo,
-					   int game_port, int challenge, bool fakeClient, bool tvClient,
+bool SV_ClientConnect( const socket_t *socket, const netadr_t *address,
+					   client_t *client, char *userinfo,
+					   int game_port, int challenge, bool fakeClient,
 					   mm_uuid_t ticket_id, mm_uuid_t session_id ) {
 	int i;
 	edict_t *ent;
@@ -91,15 +92,13 @@ bool SV_ClientConnect( const socket_t *socket, const netadr_t *address, client_t
 	}
 
 	// get the game a chance to reject this connection or modify the userinfo
-	if( !ge->ClientConnect( ent, userinfo, fakeClient, tvClient ) ) {
+	if( !ge->ClientConnect( ent, userinfo, fakeClient ) ) {
 		return false;
 	}
 
 	// the connection is accepted, set up the client slot
 	client->edict = ent;
 	client->challenge = challenge; // save challenge for checksumming
-
-	client->tvclient = tvClient;
 
 	client->mm_session = session_id;
 	client->mm_ticket = ticket_id;
@@ -241,7 +240,6 @@ void SV_DropClient( client_t *drop, int type, const char *format, ... ) {
 		drop->mv = false;
 	}
 
-	drop->tvclient = false;
 	drop->state = CS_ZOMBIE;    // become free in a few seconds
 	drop->name[0] = 0;
 }
@@ -820,10 +818,10 @@ static void SV_Multiview_f( client_t *client ) {
 	if( client->mv == mv ) {
 		return;
 	}
-	if( !client->tvclient ) {
-		return;     // allow MV connections only for TV
 
-	}
+	// (Temporarily) disallow multi-view clients.
+	// It still seems to be useful in future
+#if 0
 	if( !ge->ClientMultiviewChanged( client->edict, mv ) ) {
 		return;
 	}
@@ -841,6 +839,7 @@ static void SV_Multiview_f( client_t *client ) {
 		client->mv = false;
 		sv.num_mv_clients--;
 	}
+#endif
 }
 
 typedef struct {
@@ -1044,9 +1043,7 @@ void SV_ParseClientMessage( client_t *client, msg_t *msg ) {
 		return;
 	}
 
-	if( !client->tvclient ) {
-		SV_UpdateActivity();
-	}
+	SV_UpdateActivity();
 
 	// only allow one move command
 	move_issued = false;

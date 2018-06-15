@@ -1217,7 +1217,7 @@ void ClientUserinfoChanged( edict_t *ent, char *userinfo ) {
 * Changing levels will NOT cause this to be called again, but
 * loadgames will.
 */
-bool ClientConnect( edict_t *ent, char *userinfo, bool fakeClient, bool tvClient ) {
+bool ClientConnect( edict_t *ent, char *userinfo, bool fakeClient ) {
 	char *value;
 
 	assert( ent );

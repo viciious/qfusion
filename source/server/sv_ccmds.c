@@ -356,10 +356,6 @@ static void SV_CvarCheck_f( void ) {
 				continue;
 			}
 
-			if( client->tvclient ) {
-				continue;
-			}
-
 			SV_SendServerCommand( client, "cvarinfo \"%s\"", Cmd_Argv( 2 ) );
 		}
 
