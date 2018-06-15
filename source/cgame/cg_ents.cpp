@@ -287,10 +287,6 @@ static void CG_SetFramePlayerState( snapshot_t *frame, int index ) {
 			frame->playerState.pmove.pm_type = PM_CHASECAM;
 		}
 	}
-
-	if( cgs.tv ) {
-		frame->playerState.stats[STAT_REALTEAM] = TEAM_SPECTATOR;
-	}
 }
 
 static void CG_UpdatePlayerState( void ) {
@@ -380,24 +376,6 @@ bool CG_NewFrameSnap( snapshot_t *frame, snapshot_t *lerpframe ) {
 
 	if( !cgs.precacheDone || !cg.frame.valid ) {
 		return false;
-	}
-
-	// request TV-channels if we haven't done so already
-	if( cgs.tv && !cgs.tvRequested ) {
-		const char *autowatch;
-
-		trap_Cmd_ExecuteText( EXEC_APPEND, "cmd channels\n" );
-
-		autowatch = trap_Cvar_String( "autowatch" );
-		if( autowatch && autowatch[0] ) {
-			trap_Cmd_ExecuteText( EXEC_APPEND, va( "cmd watch \"%s\"\n", autowatch ) ); // automatically join a channel
-			trap_Cvar_ForceSet( "autowatch", "" );
-		} else {
-			if( !cgs.configStrings[CS_WORLDMODEL][0] ) {
-				trap_Cmd_ExecuteText( EXEC_APPEND, "menu_open tv\n" ); // bring up the channels menu if in lobby
-			}
-		}
-		cgs.tvRequested = true;
 	}
 
 	cg.specStateChanged = SPECSTATECHANGED() || lerpframe == NULL || cg.firstFrame;

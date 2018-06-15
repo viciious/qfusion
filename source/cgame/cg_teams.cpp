@@ -162,7 +162,7 @@ bool CG_PModelForCentity( centity_t *cent, pmodelinfo_t **pmodelinfo, struct ski
 		if( ( team == TEAM_ALPHA ) || ( team == TEAM_BETA ) ||
 
 		    // Don't force the model for the local player in non-team modes to distinguish the sounds from enemies'
-			( ( team == TEAM_PLAYERS ) && ( cgs.tv || ( ownerNum != cgs.playerNum + 1 ) ) ) ) {
+			( ( team == TEAM_PLAYERS ) && ( ownerNum != cgs.playerNum + 1 ) ) ) {
 			if( cgs.teamModelInfo[team] ) {
 				// There is a force model for this team
 				if( pmodelinfo ) {

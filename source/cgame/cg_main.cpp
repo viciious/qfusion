@@ -996,21 +996,6 @@ void CG_Precache( void ) {
 }
 
 /*
-* CG_UpdateTVServerString
-*/
-void CG_UpdateTVServerString( void ) {
-	// if we got the server settings configstring, update our local copy of the data
-	if( cgs.configStrings[CS_TVSERVER][0] ) {
-		char *settings = cgs.configStrings[CS_TVSERVER];
-
-		cgs.tv = atoi( COM_Parse( &settings ) ) == 0 ? false : true;
-		if( cgs.demoPlaying ) {
-			cgs.tv = false;     // ignore the TV bit in demos
-		}
-	}
-}
-
-/*
 * CG_RegisterConfigStrings
 */
 static void CG_RegisterConfigStrings( void ) {
@@ -1044,9 +1029,6 @@ static void CG_RegisterConfigStrings( void ) {
 
 	// backup initial configstrings for CG_Reset
 	memcpy( &cgs.baseConfigStrings[0][0], &cgs.configStrings[0][0], MAX_CONFIGSTRINGS*MAX_CONFIGSTRING_CHARS );
-
-	// if we got the server settings configstring, update our local copy of the data
-	CG_UpdateTVServerString();
 
 	GS_SetGametypeName( cgs.configStrings[CS_GAMETYPENAME] );
 
@@ -1155,10 +1137,6 @@ void CG_Init( const char *serverName, unsigned int playerNum,
 
 	// whether to only allow pure files
 	cgs.pure = pure == true;
-
-	// whether we are connected to a tv-server
-	cgs.tv = false;
-	cgs.tvRequested = false;
 
 	// game protocol number
 	cgs.gameProtocol = protocol;

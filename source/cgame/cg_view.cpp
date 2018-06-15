@@ -1027,7 +1027,7 @@ void CG_RenderView( int frameTime, int realFrameTime, int64_t realTime, int64_t 
 	}
 
 	// bring up the game menu after reconnecting
-	if( !cgs.tv && !cgs.demoPlaying ) {
+	if( !cgs.demoPlaying ) {
 		if( ISREALSPECTATOR() && !cg.firstFrame ) {
 			if( !cgs.gameMenuRequested ) {
 				trap_Cmd_ExecuteText( EXEC_NOW, "gamemenu\n" );

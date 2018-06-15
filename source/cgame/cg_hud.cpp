@@ -365,9 +365,6 @@ static int CG_DownloadInProgress( const void *parameter ) {
 }
 
 static int CG_GetShowItemTimers( const void *parameter ) {
-	if( cgs.tv ) {
-		return (int)trap_Cvar_Value( (char *)parameter ) & 2;
-	}
 	return (int)trap_Cvar_Value( (char *)parameter ) & 1;
 }
 
