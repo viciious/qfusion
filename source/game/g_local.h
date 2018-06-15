@@ -564,7 +564,6 @@ bool CheckFlood( edict_t *ent, bool teamonly );
 void G_InitGameCommands( void );
 void G_PrecacheGameCommands( void );
 void G_AddCommand( const char *name, gamecommandfunc_t cmdfunc );
-void G_BOTvsay_f( edict_t *ent, const char *msg, bool team );
 
 //
 // g_items.c

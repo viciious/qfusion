@@ -49,12 +49,6 @@ static void CG_FixVolumeCvars( void ) {
 		trap_Cvar_SetValue( "cg_volume_announcer", 2.0f );
 	}
 
-	if( cg_volume_voicechats->value < 0.0f ) {
-		trap_Cvar_SetValue( "cg_volume_voicechats", 0.0f );
-	} else if( cg_volume_voicechats->value > 2.0f ) {
-		trap_Cvar_SetValue( "cg_volume_voicechats", 2.0f );
-	}
-
 	if( cg_volume_hitsound->value < 0.0f ) {
 		trap_Cvar_SetValue( "cg_volume_hitsound", 0.0f );
 	} else if( cg_volume_hitsound->value > 10.0f ) {

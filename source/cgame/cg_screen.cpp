@@ -893,10 +893,6 @@ void CG_DrawTeamMates( void ) {
 			media = cgs.media.shaderTeamMateIndicator;
 		}
 
-		if( cent->localEffects[LOCALEFFECT_VSAY_HEADICON_TIMEOUT] > cg.time && cent->localEffects[LOCALEFFECT_VSAY_HEADICON] < VSAY_TOTAL ) {
-			media = cgs.media.shaderVSayIcon[cent->localEffects[LOCALEFFECT_VSAY_HEADICON]];
-		}
-
 		trap_R_DrawStretchPic( coords[0], coords[1], pic_size, pic_size, 0, 0, 1, 1, color, CG_MediaShader( media ) );
 	}
 }
@@ -913,8 +909,6 @@ void CG_DrawTeamInfo( int x, int y, int align, struct qfontface_s *font, vec4_t 
 	int locationTag;
 	int health, armor;
 	centity_t *cent;
-	int icons[16][3], iconX = x;
-	unsigned int icon, numIcons = 0;
 	int xalign = align % 3;
 
 	if( !( cg.predictedPlayerState.stats[STAT_LAYOUTS] & STAT_LAYOUT_TEAMTAB ) ) {
@@ -947,11 +941,7 @@ void CG_DrawTeamInfo( int x, int y, int align, struct qfontface_s *font, vec4_t 
 		case 0:
 			x += height;
 			break;
-		case 1:
-			iconX -= height;
-			break;
 		case 2:
-			iconX -= height;
 			x -= height;
 			break;
 	}
@@ -1063,34 +1053,9 @@ void CG_DrawTeamInfo( int x, int y, int align, struct qfontface_s *font, vec4_t 
 
 		// draw the head-icon in the case this player has one
 		cent = &cg_entities[teammate + 1];
-		if( cent->localEffects[LOCALEFFECT_VSAY_HEADICON_TIMEOUT] > cg.time &&
-			cent->localEffects[LOCALEFFECT_VSAY_HEADICON] > 0 && cent->localEffects[LOCALEFFECT_VSAY_HEADICON] < VSAY_TOTAL ) {
-			// draw the text in one batch
-			icons[numIcons][0] = iconX;
-			if( xalign == 1 ) {
-				icons[numIcons][0] -= ( trap_SCR_strWidth( string, font, 0 ) >> 1 );
-			}
-			icons[numIcons][1] = y;
-			icons[numIcons][2] = cent->localEffects[LOCALEFFECT_VSAY_HEADICON];
-			numIcons++;
-
-			if( numIcons >= ( sizeof( icons ) / sizeof( icons[0] ) ) ) {
-				for( icon = 0; icon < numIcons; icon++ ) {
-					trap_R_DrawStretchPic( icons[icon][0], icons[icon][1], height, height, 0, 0, 1, 1, color,
-										   CG_MediaShader( cgs.media.shaderVSayIcon[icons[icon][2]] ) );
-				}
-				numIcons = 0;
-			}
-		}
-
 		trap_SCR_DrawString( x, y, xalign, string, font, color );
 
 		y += height;
-	}
-
-	for( icon = 0; icon < numIcons; icon++ ) {
-		trap_R_DrawStretchPic( icons[icon][0], icons[icon][1], height, height, 0, 0, 1, 1, color,
-							   CG_MediaShader( cgs.media.shaderVSayIcon[icons[icon][2]] ) );
 	}
 }
 

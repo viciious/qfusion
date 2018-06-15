@@ -129,42 +129,6 @@ void CG_RegisterMediaSounds( void ) {
 	cgs.media.sfxElectroboltHit = CG_RegisterMediaSfx( S_WEAPON_ELECTROBOLT_HIT, true );
 
 	cgs.media.sfxQuadFireSound = CG_RegisterMediaSfx( S_QUAD_FIRE, true );
-
-	//VSAY sounds
-	cgs.media.sfxVSaySounds[VSAY_GENERIC] = CG_RegisterMediaSfx( S_CHAT, true );
-	cgs.media.sfxVSaySounds[VSAY_NEEDHEALTH] = CG_RegisterMediaSfx( S_VSAY_NEEDHEALTH, true );
-	cgs.media.sfxVSaySounds[VSAY_NEEDWEAPON] = CG_RegisterMediaSfx( S_VSAY_NEEDWEAPON, true );
-	cgs.media.sfxVSaySounds[VSAY_NEEDARMOR] = CG_RegisterMediaSfx( S_VSAY_NEEDARMOR, true );
-	cgs.media.sfxVSaySounds[VSAY_AFFIRMATIVE] = CG_RegisterMediaSfx( S_VSAY_AFFIRMATIVE, true );
-	cgs.media.sfxVSaySounds[VSAY_NEGATIVE] = CG_RegisterMediaSfx( S_VSAY_NEGATIVE, true );
-	cgs.media.sfxVSaySounds[VSAY_YES] = CG_RegisterMediaSfx( S_VSAY_YES, true );
-	cgs.media.sfxVSaySounds[VSAY_NO] = CG_RegisterMediaSfx( S_VSAY_NO, true );
-	cgs.media.sfxVSaySounds[VSAY_ONDEFENSE] = CG_RegisterMediaSfx( S_VSAY_ONDEFENSE, true );
-	cgs.media.sfxVSaySounds[VSAY_ONOFFENSE] = CG_RegisterMediaSfx( S_VSAY_ONOFFENSE, true );
-	cgs.media.sfxVSaySounds[VSAY_OOPS] = CG_RegisterMediaSfx( S_VSAY_OOPS, true );
-	cgs.media.sfxVSaySounds[VSAY_SORRY] = CG_RegisterMediaSfx( S_VSAY_SORRY, true );
-	cgs.media.sfxVSaySounds[VSAY_THANKS] = CG_RegisterMediaSfx( S_VSAY_THANKS, true );
-	cgs.media.sfxVSaySounds[VSAY_NOPROBLEM] = CG_RegisterMediaSfx( S_VSAY_NOPROBLEM, true );
-	cgs.media.sfxVSaySounds[VSAY_YEEHAA] = CG_RegisterMediaSfx( S_VSAY_YEEHAA, true );
-	cgs.media.sfxVSaySounds[VSAY_GOODGAME] = CG_RegisterMediaSfx( S_VSAY_GOODGAME, true );
-	cgs.media.sfxVSaySounds[VSAY_DEFEND] = CG_RegisterMediaSfx( S_VSAY_DEFEND, true );
-	cgs.media.sfxVSaySounds[VSAY_ATTACK] = CG_RegisterMediaSfx( S_VSAY_ATTACK, true );
-	cgs.media.sfxVSaySounds[VSAY_NEEDBACKUP] = CG_RegisterMediaSfx( S_VSAY_NEEDBACKUP, true );
-	cgs.media.sfxVSaySounds[VSAY_BOOO] = CG_RegisterMediaSfx( S_VSAY_BOOO, true );
-	cgs.media.sfxVSaySounds[VSAY_NEEDDEFENSE] = CG_RegisterMediaSfx( S_VSAY_NEEDDEFENSE, true );
-	cgs.media.sfxVSaySounds[VSAY_NEEDOFFENSE] = CG_RegisterMediaSfx( S_VSAY_NEEDOFFENSE, true );
-	cgs.media.sfxVSaySounds[VSAY_NEEDHELP] = CG_RegisterMediaSfx( S_VSAY_NEEDHELP, true );
-	cgs.media.sfxVSaySounds[VSAY_ROGER] = CG_RegisterMediaSfx( S_VSAY_ROGER, true );
-	cgs.media.sfxVSaySounds[VSAY_ARMORFREE] = CG_RegisterMediaSfx( S_VSAY_ARMORFREE, true );
-	cgs.media.sfxVSaySounds[VSAY_AREASECURED] = CG_RegisterMediaSfx( S_VSAY_AREASECURED, true );
-	cgs.media.sfxVSaySounds[VSAY_BOOMSTICK] = CG_RegisterMediaSfx( S_VSAY_BOOMSTICK, true );
-	cgs.media.sfxVSaySounds[VSAY_GOTOPOWERUP] = CG_RegisterMediaSfx( S_VSAY_GOTOPOWERUP, true );
-	cgs.media.sfxVSaySounds[VSAY_GOTOQUAD] = CG_RegisterMediaSfx( S_VSAY_GOTOQUAD, true );
-	cgs.media.sfxVSaySounds[VSAY_OK] = CG_RegisterMediaSfx( S_VSAY_OK, true );
-	cgs.media.sfxVSaySounds[VSAY_DEFEND_A] = CG_RegisterMediaSfx( S_VSAY_DEFEND_A, true );
-	cgs.media.sfxVSaySounds[VSAY_ATTACK_A] = CG_RegisterMediaSfx( S_VSAY_ATTACK_A, true );
-	cgs.media.sfxVSaySounds[VSAY_DEFEND_B] = CG_RegisterMediaSfx( S_VSAY_DEFEND_B, true );
-	cgs.media.sfxVSaySounds[VSAY_ATTACK_B] = CG_RegisterMediaSfx( S_VSAY_ATTACK_B, true );
 }
 
 //======================================================================
@@ -405,42 +369,7 @@ void CG_RegisterMediaShaders( void ) {
 	cgs.media.shaderKeyIcon[KEYICON_SPECIAL] = CG_RegisterMediaShader( PATH_KEYICON_SPECIAL, true );
 
 	cgs.media.shaderSbNums = CG_RegisterMediaShader( "gfx/hud/sbnums", true );
-
-	// VSAY icons
-	cgs.media.shaderVSayIcon[VSAY_GENERIC] = CG_RegisterMediaShader( PATH_VSAY_GENERIC_ICON, true );
-	cgs.media.shaderVSayIcon[VSAY_NEEDHEALTH] = CG_RegisterMediaShader( PATH_VSAY_NEEDHEALTH_ICON, true );
-	cgs.media.shaderVSayIcon[VSAY_NEEDWEAPON] = CG_RegisterMediaShader( PATH_VSAY_NEEDWEAPON_ICON, true );
-	cgs.media.shaderVSayIcon[VSAY_NEEDARMOR] = CG_RegisterMediaShader( PATH_VSAY_NEEDARMOR_ICON, true );
-	cgs.media.shaderVSayIcon[VSAY_AFFIRMATIVE] = CG_RegisterMediaShader( PATH_VSAY_AFFIRMATIVE_ICON, true );
-	cgs.media.shaderVSayIcon[VSAY_NEGATIVE] = CG_RegisterMediaShader( PATH_VSAY_NEGATIVE_ICON, true );
-	cgs.media.shaderVSayIcon[VSAY_YES] = CG_RegisterMediaShader( PATH_VSAY_YES_ICON, true );
-	cgs.media.shaderVSayIcon[VSAY_NO] = CG_RegisterMediaShader( PATH_VSAY_NO_ICON, true );
-	cgs.media.shaderVSayIcon[VSAY_ONDEFENSE] = CG_RegisterMediaShader( PATH_VSAY_ONDEFENSE_ICON, true );
-	cgs.media.shaderVSayIcon[VSAY_ONOFFENSE] = CG_RegisterMediaShader( PATH_VSAY_ONOFFENSE_ICON, true );
-	cgs.media.shaderVSayIcon[VSAY_OOPS] = CG_RegisterMediaShader( PATH_VSAY_OOPS_ICON, true );
-	cgs.media.shaderVSayIcon[VSAY_SORRY] = CG_RegisterMediaShader( PATH_VSAY_SORRY_ICON, true );
-	cgs.media.shaderVSayIcon[VSAY_THANKS] = CG_RegisterMediaShader( PATH_VSAY_THANKS_ICON, true );
-	cgs.media.shaderVSayIcon[VSAY_NOPROBLEM] = CG_RegisterMediaShader( PATH_VSAY_NOPROBLEM_ICON, true );
-	cgs.media.shaderVSayIcon[VSAY_YEEHAA] = CG_RegisterMediaShader( PATH_VSAY_YEEHAA_ICON, true );
-	cgs.media.shaderVSayIcon[VSAY_GOODGAME] = CG_RegisterMediaShader( PATH_VSAY_GOODGAME_ICON, true );
-	cgs.media.shaderVSayIcon[VSAY_DEFEND] = CG_RegisterMediaShader( PATH_VSAY_DEFEND_ICON, true );
-	cgs.media.shaderVSayIcon[VSAY_ATTACK] = CG_RegisterMediaShader( PATH_VSAY_ATTACK_ICON, true );
-	cgs.media.shaderVSayIcon[VSAY_NEEDBACKUP] = CG_RegisterMediaShader( PATH_VSAY_NEEDBACKUP_ICON, true );
-	cgs.media.shaderVSayIcon[VSAY_BOOO] = CG_RegisterMediaShader( PATH_VSAY_BOOO_ICON, true );
-	cgs.media.shaderVSayIcon[VSAY_NEEDDEFENSE] = CG_RegisterMediaShader( PATH_VSAY_NEEDDEFENSE_ICON, true );
-	cgs.media.shaderVSayIcon[VSAY_NEEDOFFENSE] = CG_RegisterMediaShader( PATH_VSAY_NEEDOFFENSE_ICON, true );
-	cgs.media.shaderVSayIcon[VSAY_NEEDHELP] = CG_RegisterMediaShader( PATH_VSAY_NEEDHELP_ICON, true );
-	cgs.media.shaderVSayIcon[VSAY_ROGER] = CG_RegisterMediaShader( PATH_VSAY_ROGER_ICON, true );
-	cgs.media.shaderVSayIcon[VSAY_ARMORFREE] = CG_RegisterMediaShader( PATH_VSAY_ARMORFREE_ICON, true );
-	cgs.media.shaderVSayIcon[VSAY_AREASECURED] = CG_RegisterMediaShader( PATH_VSAY_AREASECURED_ICON, true );
-	cgs.media.shaderVSayIcon[VSAY_BOOMSTICK] = CG_RegisterMediaShader( PATH_VSAY_BOOMSTICK_ICON, true );
-	cgs.media.shaderVSayIcon[VSAY_GOTOPOWERUP] = CG_RegisterMediaShader( PATH_VSAY_GOTOPOWERUP_ICON, true );
-	cgs.media.shaderVSayIcon[VSAY_GOTOQUAD] = CG_RegisterMediaShader( PATH_VSAY_GOTOQUAD_ICON, true );
-	cgs.media.shaderVSayIcon[VSAY_OK] = CG_RegisterMediaShader( PATH_VSAY_OK_ICON, true );
-	cgs.media.shaderVSayIcon[VSAY_DEFEND_A] = CG_RegisterMediaShader( PATH_VSAY_DEFEND_A_ICON, true );
-	cgs.media.shaderVSayIcon[VSAY_ATTACK_A] = CG_RegisterMediaShader( PATH_VSAY_ATTACK_A_ICON, true );
-	cgs.media.shaderVSayIcon[VSAY_DEFEND_B] = CG_RegisterMediaShader( PATH_VSAY_DEFEND_B_ICON, true );
-	cgs.media.shaderVSayIcon[VSAY_ATTACK_B] = CG_RegisterMediaShader( PATH_VSAY_ATTACK_B_ICON, true );
+	cgs.media.shaderReadyIcon = CG_RegisterMediaShader( PATH_VSAY_YES_ICON, true );
 }
 
 void CG_RegisterLevelMinimap( void ) {

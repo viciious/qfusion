@@ -574,7 +574,6 @@ public:
 
 	void ChangeWeapons( const SelectedWeapons &selectedWeapons_ );
 	virtual void OnBlockedTimeout() override;
-	void SayVoiceMessages();
 	void GhostingFrame();
 	void ActiveFrame();
 	void CallGhostingClientThink( const BotInput &input );

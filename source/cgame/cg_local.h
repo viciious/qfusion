@@ -211,11 +211,6 @@ typedef struct {
 
 	cgs_media_handle_t *sfxQuadFireSound;
 
-	// VSAY sounds
-	cgs_media_handle_t *sfxVSaySounds[VSAY_TOTAL];
-
-	//no wsw
-
 	// models
 	//	cgs_media_handle_t		*modTeleportEffect;
 	cgs_media_handle_t *modDash;
@@ -318,9 +313,7 @@ typedef struct {
 	//no wsw
 
 	cgs_media_handle_t *shaderSbNums;
-
-	// VSAY icons
-	cgs_media_handle_t *shaderVSayIcon[VSAY_TOTAL];
+	cgs_media_handle_t *shaderReadyIcon;
 } cgs_media_t;
 
 typedef struct bonenode_s {
@@ -883,7 +876,6 @@ extern cvar_t *cg_simpleItemsSize; // simple items
 extern cvar_t *cg_volume_players; // players sound volume
 extern cvar_t *cg_volume_effects; // world sound volume
 extern cvar_t *cg_volume_announcer; // announcer sounds volume
-extern cvar_t *cg_volume_voicechats; //vsays volume
 extern cvar_t *cg_projectileTrail;
 extern cvar_t *cg_projectileFireTrail;
 extern cvar_t *cg_bloodTrail;

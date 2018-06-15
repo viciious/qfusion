@@ -1061,15 +1061,6 @@ static void G_VoteMutePassed( callvotedata_t *vote ) {
 	}
 }
 
-// vsay mute
-static void G_VoteVMutePassed( callvotedata_t *vote ) {
-	// TODO: Can be generalized but does not make sense since vsays should be removed anyway
-	if( edict_t *ent = G_Vote_GetValidDeferredVoteTarget( vote ) ) {
-		ent->r.client->muted |= 2;
-		ent->r.client->level.stats.AddToEntry( "muted_count", 1 );
-	}
-}
-
 static bool G_VoteUnmuteValidate( callvotedata_t *vote, bool first ) {
 	return G_SetOrValidateKickLikeCmdTarget( vote, first );
 }
@@ -1078,13 +1069,6 @@ static bool G_VoteUnmuteValidate( callvotedata_t *vote, bool first ) {
 static void G_VoteUnmutePassed( callvotedata_t *vote ) {
 	if( edict_t *ent = G_Vote_GetValidDeferredVoteTarget( vote ) ) {
 		ent->r.client->muted &= ~1;
-	}
-}
-
-// vsay unmute
-static void G_VoteVUnmutePassed( callvotedata_t *vote ) {
-	if( edict_t *ent = G_Vote_GetValidDeferredVoteTarget( vote ) ) {
-		ent->r.client->muted &= ~2;
 	}
 }
 
@@ -2558,17 +2542,6 @@ void G_CallVotes_Init( void ) {
 	callvote->webRequest = G_PlayerlistWebRequest;
 	callvote->help = G_LevelCopyString( "Disallows chat messages from the muted player" );
 
-	callvote = G_RegisterCallvote( "vmute" );
-	callvote->expectedargs = 1;
-	callvote->validate = G_VoteMuteValidate;
-	callvote->execute = G_VoteVMutePassed;
-	callvote->current = NULL;
-	callvote->extraHelp = G_VoteHelp_ShowPlayersList;
-	callvote->argument_format = G_LevelCopyString( "<player>" );
-	callvote->argument_type = G_LevelCopyString( "option" );
-	callvote->webRequest = G_PlayerlistWebRequest;
-	callvote->help = G_LevelCopyString( "Disallows voice chat messages from the muted player" );
-
 	callvote = G_RegisterCallvote( "unmute" );
 	callvote->expectedargs = 1;
 	callvote->validate = G_VoteUnmuteValidate;
@@ -2579,17 +2552,6 @@ void G_CallVotes_Init( void ) {
 	callvote->argument_type = G_LevelCopyString( "option" );
 	callvote->webRequest = G_PlayerlistWebRequest;
 	callvote->help = G_LevelCopyString( "Reallows chat messages from the unmuted player" );
-
-	callvote = G_RegisterCallvote( "vunmute" );
-	callvote->expectedargs = 1;
-	callvote->validate = G_VoteUnmuteValidate;
-	callvote->execute = G_VoteVUnmutePassed;
-	callvote->current = NULL;
-	callvote->extraHelp = G_VoteHelp_ShowPlayersList;
-	callvote->argument_format = G_LevelCopyString( "<player>" );
-	callvote->argument_type = G_LevelCopyString( "option" );
-	callvote->webRequest = G_PlayerlistWebRequest;
-	callvote->help = G_LevelCopyString( "Reallows voice chat messages from the unmuted player" );
 
 	callvote = G_RegisterCallvote( "set_antiwallhack_for" );
 	callvote->expectedargs = 1;

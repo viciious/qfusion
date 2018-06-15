@@ -846,7 +846,7 @@ static int SCR_DrawPlayerTab( const char **ptrptr, int team, int x, int y, int p
 
 			case 'r': // is a ready state tick that is hidden when not in warmup
 				if( atoi( token ) ) {
-					icon = CG_MediaShader( cgs.media.shaderVSayIcon[VSAY_YES] );
+					icon = CG_MediaShader( cgs.media.shaderReadyIcon );
 				}
 				break;
 		}

@@ -811,15 +811,6 @@ static void CG_AddHeadIcon( centity_t *cent ) {
 		iconShader = CG_MediaShader( cgs.media.shaderChatBalloon );
 		radius = 12;
 		upoffset = 2;
-	} else if( cent->localEffects[LOCALEFFECT_VSAY_HEADICON_TIMEOUT] > cg.time ) {
-		if( cent->localEffects[LOCALEFFECT_VSAY_HEADICON] < VSAY_TOTAL ) {
-			iconShader = CG_MediaShader( cgs.media.shaderVSayIcon[cent->localEffects[LOCALEFFECT_VSAY_HEADICON]] );
-		} else {
-			iconShader = CG_MediaShader( cgs.media.shaderVSayIcon[VSAY_GENERIC] );
-		}
-
-		radius = 12;
-		upoffset = 0;
 	}
 
 	stunned = ( ( cent->effects & EF_PLAYER_STUNNED || cent->prev.effects & EF_PLAYER_STUNNED ) ? true : false );

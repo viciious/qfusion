@@ -346,98 +346,6 @@ void Bot::ChangeWeapons( const SelectedWeapons &selectedWeapons_ ) {
 }
 
 //==========================================
-// BOT_DMclass_VSAYmessages
-//==========================================
-void Bot::SayVoiceMessages() {
-	if( GS_MatchState() != MATCH_STATE_PLAYTIME ) {
-		return;
-	}
-
-	if( self->snap.damageteam_given > 25 ) {
-		if( rand() & 1 ) {
-			if( rand() & 1 ) {
-				G_BOTvsay_f( self, "oops", true );
-			} else {
-				G_BOTvsay_f( self, "sorry", true );
-			}
-		}
-		return;
-	}
-
-	if( vsayTimeout > level.time ) {
-		return;
-	}
-
-	if( GS_MatchDuration() && game.serverTime + 4000 > GS_MatchEndTime() ) {
-		vsayTimeout = game.serverTime + ( 1000 + ( GS_MatchEndTime() - game.serverTime ) );
-		if( rand() & 1 ) {
-			G_BOTvsay_f( self, "goodgame", false );
-		}
-		return;
-	}
-
-	vsayTimeout = (int64_t)( level.time + ( ( 8 + random() * 12 ) * 1000 ) );
-
-	// the more bots, the less vsays to play
-	if( random() > 0.1 + 1.0f / game.numBots ) {
-		return;
-	}
-
-	if( GS_TeamBasedGametype() && !GS_InvidualGameType() ) {
-		if( self->health < 20 && random() > 0.3 ) {
-			G_BOTvsay_f( self, "needhealth", true );
-			return;
-		}
-
-		if( ( self->s.weapon == 0 || self->s.weapon == 1 ) && random() > 0.7 ) {
-			G_BOTvsay_f( self, "needweapon", true );
-			return;
-		}
-
-		if( self->r.client->resp.armor < 10 && random() > 0.8 ) {
-			G_BOTvsay_f( self, "needarmor", true );
-			return;
-		}
-	}
-
-	// NOT team based here
-
-	if( random() > 0.2 ) {
-		return;
-	}
-
-	switch( (int)brandom( 1, 8 ) ) {
-		default:
-			break;
-		case 1:
-			G_BOTvsay_f( self, "roger", false );
-			break;
-		case 2:
-			G_BOTvsay_f( self, "noproblem", false );
-			break;
-		case 3:
-			G_BOTvsay_f( self, "yeehaa", false );
-			break;
-		case 4:
-			G_BOTvsay_f( self, "yes", false );
-			break;
-		case 5:
-			G_BOTvsay_f( self, "no", false );
-			break;
-		case 6:
-			G_BOTvsay_f( self, "booo", false );
-			break;
-		case 7:
-			G_BOTvsay_f( self, "attack", false );
-			break;
-		case 8:
-			G_BOTvsay_f( self, "ok", false );
-			break;
-	}
-}
-
-
-//==========================================
 // BOT_DMClass_BlockedTimeout
 // the bot has been blocked for too long
 //==========================================
@@ -579,8 +487,6 @@ void Bot::ActiveFrame() {
 	// Apply modified botInput
 	movementModule.ApplyInput( &botInput );
 	CallActiveClientThink( botInput );
-
-	SayVoiceMessages();
 }
 
 void Bot::CallActiveClientThink( const BotInput &input ) {

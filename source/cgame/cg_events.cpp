@@ -832,41 +832,6 @@ void CG_ReleaseAnnouncerEvents( void ) {
 	}
 }
 
-/*
-* CG_StartVoiceTokenEffect
-*/
-static void CG_StartVoiceTokenEffect( int entNum, int type, int vsay ) {
-	centity_t *cent;
-	cgs_media_handle_t *sound = NULL;
-
-	if( !cg_voiceChats->integer || cg_volume_voicechats->value <= 0.0f ) {
-		return;
-	}
-	if( vsay < 0 || vsay >= VSAY_TOTAL ) {
-		return;
-	}
-
-	cent = &cg_entities[entNum];
-
-	// ignore repeated/flooded events
-	if( cent->localEffects[LOCALEFFECT_VSAY_HEADICON_TIMEOUT] > cg.time ) {
-		return;
-	}
-
-	// set the icon effect
-	cent->localEffects[LOCALEFFECT_VSAY_HEADICON] = vsay;
-	cent->localEffects[LOCALEFFECT_VSAY_HEADICON_TIMEOUT] = cg.time + HEADICON_TIMEOUT;
-
-	// play the sound
-	sound = cgs.media.sfxVSaySounds[vsay];
-	if( !sound ) {
-		return;
-	}
-
-	// played as it was received via radio by the 1st person player
-	trap_S_StartLocalSound( CG_MediaSfx( sound ), cg_volume_voicechats->value );
-}
-
 //==================================================================
 
 //==================================================================
@@ -1547,10 +1512,6 @@ void CG_EntityEvent( entity_state_t *ent, int ev, int parm, bool predicted ) {
 			trap_S_StartFixedSound( cgs.soundPrecache[parm], so, CHAN_AUTO, cg_volume_effects->value, ATTN_STATIC );
 		}
 		break;
-
-		case EV_VSAY:
-			CG_StartVoiceTokenEffect( ent->ownerNum, EV_VSAY, parm );
-			break;
 	}
 }
 
