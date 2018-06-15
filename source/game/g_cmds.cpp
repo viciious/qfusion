@@ -971,15 +971,6 @@ static void Cmd_Whois_f( edict_t *ent ) {
 }
 
 /*
-* Cmd_TVConnect_f
-*
-* Sends cmd to connect to a non-full TV server with round robin balancing
-*/
-static void Cmd_TVConnect_f( edict_t *ent ) {
-	G_MoveClientToTV( ent );
-}
-
-/*
 * Cmd_Upstate_f
 *
 * Update client on the state of things
@@ -1127,9 +1118,6 @@ void G_InitGameCommands( void ) {
 
 	// ch : added awards
 	G_AddCommand( "awards", Cmd_Awards_f );
-
-	// TV
-	G_AddCommand( "tvconnect", Cmd_TVConnect_f );
 
 	// misc
 	G_AddCommand( "upstate", Cmd_Upstate_f );

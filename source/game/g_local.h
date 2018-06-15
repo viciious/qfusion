@@ -862,7 +862,6 @@ void G_Client_InactivityRemove( gclient_t *client );
 void G_ClientRespawn( edict_t *self, bool ghost );
 void G_ClientClearStats( edict_t *ent );
 void G_GhostClient( edict_t *self );
-void G_MoveClientToTV( edict_t *ent );
 bool ClientMultiviewChanged( edict_t *ent, bool multiview );
 void ClientThink( edict_t *ent, usercmd_t *cmd, int timeDelta );
 void G_ClientThink( edict_t *ent );
@@ -1245,15 +1244,6 @@ struct gclient_s {
 	char ip[MAX_INFO_VALUE];
 	char socket[MAX_INFO_VALUE];
 
-	// port numbers reported by connected TV as part of userinfo
-	struct {
-		int port;
-		int port6;
-		int maxclients;
-		int numclients;
-		int channel;
-	} tv;
-
 	// is a zero UUID if a client is not authenticated
 	// is an all-bits-set UUID if the session is local
 	// is a valid UUID if a client is authenticated
@@ -1262,7 +1252,6 @@ struct gclient_s {
 
 	bool connecting;
 	bool multiview;
-	bool isTV;
 
 	byte_vec4_t color;
 	int team;
@@ -1298,14 +1287,11 @@ struct gclient_s {
 		memset( ip, 0, sizeof( ip ) );
 		memset( socket, 0, sizeof( socket ) );
 
-		memset( &tv, 0, sizeof( tv ) );
-
 		mm_session = Uuid_ZeroUuid();
 		ratings = nullptr;
 
 		connecting = false;
 		multiview = false;
-		isTV = false;
 
 		Vector4Clear( color );
 		team = 0;
