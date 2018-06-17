@@ -19,7 +19,7 @@ Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
 */
 
 #include "client.h"
-#include "../ui/ui_public.h"
+#include "../ui_cef/Api.h"
 #include "../qcommon/asyncstream.h"
 
 // Structure containing functions exported from user interface DLL
@@ -29,8 +29,6 @@ EXTERN_API_FUNC void *GetGameAPI( void * );
 
 static mempool_t *ui_mempool;
 static void *module_handle;
-
-static async_stream_module_t *ui_async_stream;
 
 //==============================================
 
@@ -83,38 +81,6 @@ static void CL_UIModule_MemFree( void *data, const char *filename, int fileline 
 }
 
 //==============================================
-
-
-/*
-* CL_UIModule_AsyncStream_Init
-*/
-static void CL_UIModule_AsyncStream_Init( void ) {
-	ui_async_stream = AsyncStream_InitModule( "UI", CL_UIModule_MemAlloc, CL_UIModule_MemFree );
-}
-
-/*
-* CL_UIModule_AsyncStream_PerformRequest
-*/
-static int CL_UIModule_AsyncStream_PerformRequest( const char *url, const char *method,
-												   const char *data, int timeout,
-												   ui_async_stream_read_cb_t read_cb, ui_async_stream_done_cb_t done_cb, void *privatep ) {
-	const char *headers[] = { NULL, NULL, NULL, NULL, NULL };
-
-	assert( ui_async_stream );
-
-	CL_AddSessionHttpRequestHeaders( url, headers );
-
-	return AsyncStream_PerformRequestExt( ui_async_stream, url, method, data, headers, timeout,
-										  0, read_cb, done_cb, NULL, privatep );
-}
-
-/*
-* CL_UIModule_AsyncStream_Shutdown
-*/
-static void CL_UIModule_AsyncStream_Shutdown( void ) {
-	AsyncStream_ShutdownModule( ui_async_stream );
-	ui_async_stream = NULL;
-}
 
 #define UI_L10N_DOMAIN  "ui"
 
@@ -218,19 +184,19 @@ void CL_UIModule_Init( void ) {
 	import.CL_ReadDemoMetaData = CL_ReadDemoMetaData;
 	import.CL_PlayerNum = CL_UIModule_PlayerNum;
 
-	import.Key_GetBindingBuf = Key_GetBindingBuf;
-	import.Key_KeynumToString = Key_KeynumToString;
-	import.Key_StringToKeynum = Key_StringToKeynum;
-	import.Key_SetBinding = Key_SetBinding;
-	import.Key_IsDown = Key_IsDown;
+	//import.Key_GetBindingBuf = Key_GetBindingBuf;
+	//import.Key_KeynumToString = Key_KeynumToString;
+	//import.Key_StringToKeynum = Key_StringToKeynum;
+	//import.Key_SetBinding = Key_SetBinding;
+	//import.Key_IsDown = Key_IsDown;
 
-	import.IN_GetThumbsticks = IN_GetThumbsticks;
-	import.IN_ShowSoftKeyboard = IN_ShowSoftKeyboard;
-	import.IN_SupportedDevices = IN_SupportedDevices;
+	//import.IN_GetThumbsticks = IN_GetThumbsticks;
+	//import.IN_ShowSoftKeyboard = IN_ShowSoftKeyboard;
+	//import.IN_SupportedDevices = IN_SupportedDevices;
 
 	import.R_ClearScene = re.ClearScene;
-	import.R_AddEntityToScene = re.AddEntityToScene;
-	import.R_AddLightToScene = re.AddLightToScene;
+	//import.R_AddEntityToScene = re.AddEntityToScene;
+	//import.R_AddLightToScene = re.AddLightToScene;
 	import.R_AddLightStyleToScene = re.AddLightStyleToScene;
 	import.R_AddPolyToScene = re.AddPolyToScene;
 	import.R_RenderScene = re.RenderScene;
@@ -249,6 +215,7 @@ void CL_UIModule_Init( void ) {
 	import.R_RegisterLinearPic = re.RegisterLinearPic;
 	import.R_LerpTag = re.LerpTag;
 	import.R_DrawStretchPic = re.DrawStretchPic;
+	import.R_DrawStretchRaw = re.DrawStretchRaw;
 	import.R_DrawRotatedStretchPic = re.DrawRotatedStretchPic;
 	import.R_DrawStretchPoly = re.DrawStretchPoly;
 	import.R_TransformVectorToScreen = re.TransformVectorToScreen;
@@ -266,6 +233,7 @@ void CL_UIModule_Init( void ) {
 	import.S_StartBackgroundTrack = CL_SoundModule_StartBackgroundTrack;
 	import.S_StopBackgroundTrack = CL_SoundModule_StopBackgroundTrack;
 
+	/*
 	import.SCR_RegisterFont = SCR_RegisterFont;
 	import.SCR_DrawString = SCR_DrawString;
 	import.SCR_DrawStringWidth = SCR_DrawStringWidth;
@@ -278,22 +246,23 @@ void CL_UIModule_Init( void ) {
 	import.SCR_SetDrawCharIntercept = SCR_SetDrawCharIntercept;
 	import.SCR_strWidth = SCR_strWidth;
 	import.SCR_StrlenForWidth = SCR_StrlenForWidth;
+	 */
 
 	import.GetConfigString = CL_UIModule_GetConfigString;
 
-	import.Milliseconds = Sys_Milliseconds;
-	import.Microseconds = Sys_Microseconds;
+	//import.Milliseconds = Sys_Milliseconds;
+	//import.Microseconds = Sys_Microseconds;
 
-	import.AsyncStream_UrlEncode = AsyncStream_UrlEncode;
-	import.AsyncStream_UrlDecode = AsyncStream_UrlDecode;
-	import.AsyncStream_PerformRequest = CL_UIModule_AsyncStream_PerformRequest;
+	//import.AsyncStream_UrlEncode = AsyncStream_UrlEncode;
+	//import.AsyncStream_UrlDecode = AsyncStream_UrlDecode;
+	//import.AsyncStream_PerformRequest = CL_UIModule_AsyncStream_PerformRequest;
 	import.GetBaseServerURL = CL_GetBaseServerURL;
 
 	import.VID_GetModeInfo = VID_GetModeInfo;
 	import.VID_FlashWindow = VID_FlashWindow;
 
-	import.Mem_Alloc = CL_UIModule_MemAlloc;
-	import.Mem_Free = CL_UIModule_MemFree;
+	//import.Mem_Alloc = CL_UIModule_MemAlloc;
+	//import.Mem_Free = CL_UIModule_MemFree;
 
 	import.ML_GetFilename = ML_GetFilename;
 	import.ML_GetFullname = ML_GetFullname;
@@ -306,7 +275,7 @@ void CL_UIModule_Init( void ) {
 	import.MM_GetProfileURL = CL_MM_GetProfileURL;
 	import.MM_GetBaseWebURL = CL_MM_GetBaseWebURL;
 
-	import.asGetAngelExport = Com_asGetAngelExport;
+	//import.asGetAngelExport = Com_asGetAngelExport;
 
 	import.L10n_LoadLangPOFile = &CL_UIModule_L10n_LoadLangPOFile;
 	import.L10n_TranslateString = &CL_UIModule_L10n_TranslateString;
@@ -317,7 +286,7 @@ void CL_UIModule_Init( void ) {
 	funcs[0].name = "GetUIAPI";
 	funcs[0].funcPointer = ( void ** ) &GetUIAPI;
 	funcs[1].name = NULL;
-	module_handle = Com_LoadLibrary( LIB_DIRECTORY "/" LIB_PREFIX "ui_" ARCH LIB_SUFFIX, funcs );
+	module_handle = Com_LoadLibrary( LIB_PREFIX "ui_cef_" ARCH LIB_SUFFIX, funcs );
 	if( !module_handle ) {
 		Mem_FreePool( &ui_mempool );
 		Com_Error( ERR_FATAL, "Failed to load UI dll" );
@@ -329,9 +298,7 @@ void CL_UIModule_Init( void ) {
 	uie = GetUIAPI( &import );
 	apiversion = uie->API();
 	if( apiversion == UI_API_VERSION ) {
-		CL_UIModule_AsyncStream_Init();
-
-		uie->Init( viddef.width, viddef.height, VID_GetPixelRatio(),
+		uie->Init( COM_Argc(), COM_Argv2(), NULL, viddef.width, viddef.height,
 				   APP_PROTOCOL_VERSION, APP_DEMO_EXTENSION_STR, APP_UI_BASEPATH );
 
 		uie->ShowQuickMenu( cls.quickmenu );
@@ -353,8 +320,6 @@ void CL_UIModule_Shutdown( void ) {
 	if( !uie ) {
 		return;
 	}
-
-	CL_UIModule_AsyncStream_Shutdown();
 
 	uie->Shutdown();
 	Mem_FreePool( &ui_mempool );

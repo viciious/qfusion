@@ -569,7 +569,8 @@ void R_DrawStretchPic( int x, int y, int w, int h, float s1, float t1, float s2,
 void R_UploadRawPic( image_t *texture, int cols, int rows, uint8_t *data ) {
 	if( texture->width != cols || texture->height != rows ) {
 		uint8_t *nodata[1] = { NULL };
-		R_ReplaceImage( texture, nodata, cols, rows, texture->flags, 1, 3 );
+		// Changed to 4 components as the only call site uses it to upload BGRA images
+		R_ReplaceImage( texture, nodata, cols, rows, texture->flags, 1, 4 );
 	}
 	R_ReplaceSubImage( texture, 0, 0, 0, &data, cols, rows );
 }

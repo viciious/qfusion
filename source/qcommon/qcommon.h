@@ -147,6 +147,7 @@ void Com_FreePureList( purelist_t **purelist );
 
 int COM_Argc( void );
 const char *COM_Argv( int arg );  // range and null checked
+char **COM_Argv2();
 void COM_ClearArgv( int arg );
 int COM_CheckParm( char *parm );
 void COM_AddParm( char *parm );

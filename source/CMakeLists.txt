@@ -62,6 +62,11 @@ set(LIBROCKET_DIR ${CMAKE_HOME_DIRECTORY}/../third-party/libRocket)
 set(LIBROCKET_INCLUDE_DIR ${LIBROCKET_DIR}/Include)
 set(LIBROCKET_SOURCE_DIR ${LIBROCKET_DIR}/Source)
 
+set(CEF_DIR ${CMAKE_HOME_DIRECTORY}/../third-party/cef)
+set(CEF_INCLUDE_DIR ${CEF_DIR})
+set(CEF_LINK_DIR ${CEF_DIR}/libcef_dll_wrapper)
+add_subdirectory(${CEF_DIR} ${CEF_DIR})
+
 # Windows specific settings
 if (${CMAKE_SYSTEM_NAME} MATCHES "Windows")
     set(QFUSION_WINDOWS_ARCH "x86")
@@ -131,12 +136,12 @@ endif()
 if (${CMAKE_SYSTEM_NAME} MATCHES "Linux" OR MINGW)
     # If no build type was specified - use release build settings
     if (NOT CMAKE_BUILD_TYPE)
-        set(CMAKE_BUILD_TYPE "Release")
+        set(CMAKE_BUILD_TYPE "Debug")
     endif()
 
     add_definitions(-D_LARGEFILE64_SOURCE -D_LARGEFILE_SOURCE)
 
-    set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -pipe -Wall -Wno-unused-function -fvisibility=hidden -Winvalid-pch")
+    set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -pipe -Wall -g -fno-omit-frame-pointer -Wno-unused-function -fvisibility=hidden -Winvalid-pch")
     set(CMAKE_C_FLAGS_DEBUG "${CMAKE_C_FLAGS_DEBUG} -O0 -D_DEBUG")
     set(CMAKE_C_FLAGS_RELEASE "${CMAKE_C_FLAGS_RELEASE} -fno-strict-aliasing -ffast-math -funroll-loops -msse2 -O2")
 
@@ -295,7 +300,7 @@ if (NOT GAME_MODULES_ONLY)
         add_subdirectory(ref_gl)
         add_subdirectory(snd_openal)
         add_subdirectory(snd_qf)
-        add_subdirectory(ui)
+        add_subdirectory(ui_cef)
         add_subdirectory(steamlib)
         add_subdirectory(client)
     endif()
