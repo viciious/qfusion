@@ -12,6 +12,11 @@ inline CefString AsCefString( const char *ascii ) {
 	return cs;
 }
 
+template <typename T>
+inline CefRefPtr<T> AsCefPtr( T *value ) {
+	return CefRefPtr<T>( value );
+}
+
 class WswCefApp: public CefApp {
 	CefRefPtr<CefBrowserProcessHandler> browserProcessHandler;
 	CefRefPtr<CefRenderProcessHandler> renderProcessHandler;
@@ -23,6 +28,7 @@ public:
 	WswCefApp();
 
 	void OnBeforeCommandLineProcessing( const CefString& process_type, CefRefPtr<CefCommandLine> command_line ) override;
+	void OnRegisterCustomSchemes( CefRawPtr<CefSchemeRegistrar> registrar) override;
 
 	CefRefPtr<CefBrowserProcessHandler> GetBrowserProcessHandler() override {
 		return browserProcessHandler;
