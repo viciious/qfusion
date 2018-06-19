@@ -182,7 +182,7 @@ static void ENV_InitRandomTables() {
 	}
 }
 
-static constexpr float REVERB_ENV_DISTANCE_THRESHOLD = 2048.0f;
+static constexpr float REVERB_ENV_DISTANCE_THRESHOLD = 3072.0f;
 
 struct alignas( 4 )LeafProps {
 	uint8_t roomSizeFactor;
@@ -210,30 +210,32 @@ struct LeafPropsBuilder {
 	float skyFactor;
 	float waterFactor;
 	float metalFactor;
+	int numProps;
 
-	LeafPropsBuilder( const LeafProps &initialProps ) {
-		roomSizeFactor = initialProps.RoomSizeFactor();
-		skyFactor = initialProps.SkyFactor();
-		waterFactor = initialProps.WaterFactor();
-		metalFactor = initialProps.MetalFactor();
-	}
+	LeafPropsBuilder()
+		: roomSizeFactor( 0.0f )
+		, skyFactor( 0.0f )
+		, waterFactor( 0.0f )
+		, metalFactor( 0.0f )
+		, numProps( 0 ) {}
 
 	void operator+=( const LeafProps &propsToAdd ) {
 		roomSizeFactor += propsToAdd.RoomSizeFactor();
 		skyFactor += propsToAdd.SkyFactor();
 		waterFactor += propsToAdd.WaterFactor();
 		metalFactor += propsToAdd.MetalFactor();
-	}
-
-	void operator*=( float scale ) {
-		roomSizeFactor *= scale;
-		skyFactor *= scale;
-		waterFactor *= scale;
-		metalFactor *= scale;
+		++numProps;
 	}
 
 	LeafProps Result() {
 		LeafProps result;
+		if( numProps ) {
+			float scale = 1.0f / numProps;
+			roomSizeFactor *= scale;
+			skyFactor *= scale;
+			waterFactor *= scale;
+			metalFactor *= scale;
+		}
 		result.SetRoomSizeFactor( roomSizeFactor );
 		result.SetSkyFactor( skyFactor );
 		result.SetWaterFactor( waterFactor );
@@ -338,7 +340,7 @@ public:
 		ENV_SetupSamplingRayDirs( dirs, NUM_RAYS );
 	}
 
-	LeafProps ComputeLeafProps( const vec3_t origin );
+	bool ComputeLeafProps( const vec3_t origin, LeafProps *props );
 };
 
 class LeafPropsIOHelper {
@@ -587,7 +589,8 @@ void LeafPropsCache::EnsureValid() {
 
 	sampler = new( S_Malloc( sizeof( LeafPropsSampler ) ) )LeafPropsSampler;
 
-	for( int i = 0; i < actualNumLeafs; ++i ) {
+	leafProps[0] = LeafProps();
+	for( int i = 1; i < actualNumLeafs; ++i ) {
 		leafProps[i] = ComputeLeafProps( i, sampler );
 	}
 
@@ -632,18 +635,21 @@ void LeafPropsCache::SaveToFile( const char *actualMap, const char *actualChecks
 	}
 }
 
-LeafProps LeafPropsSampler::ComputeLeafProps( const vec3_t origin ) {
+bool LeafPropsSampler::ComputeLeafProps( const vec3_t origin, LeafProps *props ) {
 	ResetMutableState( dirs, nullptr, distances, origin );
 	this->numPrimaryRays = NUM_RAYS;
 
 	EmitPrimaryRays();
+	// Happens mostly if rays outgoing from origin start in solid
+	if( !numPrimaryHits ) {
+		return false;
+	}
 
-	LeafProps result;
-	result.SetRoomSizeFactor( ComputeRoomSizeFactor() );
-	result.SetWaterFactor( ComputeWaterFactor() );
-	result.SetSkyFactor( ComputeSkyFactor() );
-	result.SetMetalFactor( ComputeMetalFactor() );
-	return result;
+	props->SetRoomSizeFactor( ComputeRoomSizeFactor() );
+	props->SetWaterFactor( ComputeWaterFactor() );
+	props->SetSkyFactor( ComputeSkyFactor() );
+	props->SetMetalFactor( ComputeMetalFactor() );
+	return true;
 }
 
 LeafProps LeafPropsCache::ComputeLeafProps( int leafNum, LeafPropsSampler *sampler ) {
@@ -651,48 +657,56 @@ LeafProps LeafPropsCache::ComputeLeafProps( int leafNum, LeafPropsSampler *sampl
 	const float *leafMins = leafBounds[0];
 	const float *leafMaxs = leafBounds[1];
 
-	vec3_t center;
 	vec3_t extent;
 	VectorSubtract( leafMaxs, leafMins, extent );
-	VectorMA( leafMins, 0.5f, extent, center );
+	const float squareExtent = VectorLengthSquared( extent );
 
-	LeafProps centerProps = sampler->ComputeLeafProps( center );
-	float squareExtent = VectorLengthSquared( extent );
-	if( squareExtent < 96 * 96 ) {
-		return centerProps;
-	}
-
-	LeafPropsBuilder propsBuilder( centerProps );
+	LeafProps tmpProps;
+	LeafPropsBuilder propsBuilder;
 
 	// Let maxSamples grow quadratic depending linearly of square extent value.
 	// Cubic growth is more "natural" but leads to way too expensive computations.
 	const int maxSamples = 2 + (int)( squareExtent / ( 256.0f * 256.0f ) );
-	int numSamples = 1;
+	int numSamples = 0;
 	int numAttempts = 0;
+
+	// Always start at the leaf center
+	vec3_t point;
+	VectorMA( leafMins, 0.5f, extent, point );
+	bool hasValidPoint = true;
+
 	while( numSamples < maxSamples ) {
 		numAttempts++;
-		// Generate a random point that is within the leaf bounds and is maybe in the leaf
-		vec3_t point = {
-			leafMins[0] + SamplingRandom() * extent[0],
-			leafMins[1] + SamplingRandom() * extent[1],
-			leafMins[2] + SamplingRandom() * extent[2]
-		};
-
-		// Check whether the point is really in leaf (the leaf is not a box but is inscribed in the bounds box)
-		if( trap_PointLeafNum( point ) != leafNum ) {
-			// Some bogus leafs (that are probably degenerate planes) lead to infinite looping otherwise
-			if( numAttempts > maxSamples * 2 ) {
-				propsBuilder *= 1.0f / numSamples;
-				return propsBuilder.Result();
-			}
-			continue;
+		// Attempts may fail for 2 reasons: can't pick a valid point and a point sampling has failed.
+		// Use the shared loop termination condition for these cases.
+		if( numAttempts > 7 + 2 * maxSamples ) {
+			return propsBuilder.Result();
 		}
 
-		propsBuilder += sampler->ComputeLeafProps( point );
-		numSamples++;
+		if( !hasValidPoint ) {
+			for( int i = 0; i < 3; ++i ) {
+				point[i] = leafMins[i] + ( 0.1f + 0.9f * SamplingRandom() ) * extent[i];
+			}
+
+			// Check whether the point is really in leaf (the leaf is not a box but is inscribed in the bounds box)
+			// Some bogus leafs (that are probably degenerate planes) lead to infinite looping otherwise
+			if( trap_PointLeafNum( point ) != leafNum ) {
+				continue;
+			}
+
+			hasValidPoint = true;
+		}
+
+		// Might fail if the rays outgoing from the point start in solid
+		if( sampler->ComputeLeafProps( point, &tmpProps ) ) {
+			propsBuilder += tmpProps;
+			numSamples++;
+			// Invalidate previous point used for sampling
+			hasValidPoint = false;
+			continue;
+		}
 	}
 
-	propsBuilder *= 1.0f / numSamples;
 	return propsBuilder.Result();
 }
 
@@ -1451,7 +1465,11 @@ void GenericRaycastSampler::EmitPrimaryRays() {
 		VectorAdd( testedRayPoint, emissionOrigin, testedRayPoint );
 		trap_Trace( &trace, emissionOrigin, testedRayPoint, vec3_origin, vec3_origin, MASK_SOLID | MASK_WATER );
 
-		if( trace.fraction == 1.0f || trace.startsolid ) {
+		if( trace.startsolid || trace.allsolid ) {
+			continue;
+		}
+
+		if( trace.fraction == 1.0f ) {
 			continue;
 		}
 
@@ -1547,7 +1565,7 @@ float GenericRaycastSampler::ComputeRoomSizeFactor() const {
 	// Sort hit distances so the nearest one is the first
 	std::sort( contestedDistances, contestedDistances + numContestedDistances );
 
-	const float connectivityDistance = std::max( 384.0f, sigma );
+	const float connectivityDistance = std::max( 256.0f, sigma );
 
 	float prevDistance = contestedDistances[0];
 	// Stop on first distance that violates "connectivity".
