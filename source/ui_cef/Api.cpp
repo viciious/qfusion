@@ -6,8 +6,6 @@
 #include "include/cef_app.h"
 #include "include/wrapper/cef_helpers.h"
 
-static UiFacade *facade = nullptr;
-
 // if API is different, the dll cannot be used
 extern "C" int UI_API( void ) {
 	return UI_API_VERSION;
@@ -16,13 +14,11 @@ extern "C" int UI_API( void ) {
 // We have to provide arguments for process/sub process creation
 bool UI_Init( int argc, char **argv, void *hInstance, int vidWidth, int vidHeight,
 			  int protocol, const char *demoExtension, const char *basePath ) {
-	facade = UiFacade::Create( argc, argv, hInstance, vidWidth, vidHeight, protocol, demoExtension, basePath );
-	return facade != nullptr;
+	return UiFacade::Init( argc, argv, hInstance, vidWidth, vidHeight, protocol, demoExtension, basePath );
 }
 
 void UI_Shutdown() {
-	delete ::facade;
-	facade = nullptr;
+	UiFacade::Shutdown();
 }
 
 void UI_TouchAllAssets() {
@@ -33,8 +29,8 @@ void UI_TouchAllAssets() {
 extern "C" void UI_Refresh( int64_t time, int clientState, int serverState,
 							bool demoPlaying, const char *demoName, bool demoPaused,
 							unsigned int demoTime, bool backGround, bool showCursor ) {
-	::facade->Refresh( time, clientState, serverState, demoPlaying, demoName,
-					   demoPaused, demoTime, backGround, showCursor );
+	UiFacade::Instance()->Refresh( time, clientState, serverState, demoPlaying, demoName,
+								   demoPaused, demoTime, backGround, showCursor );
 }
 
 // Same applies to here
@@ -42,32 +38,32 @@ extern "C" void UI_UpdateConnectScreen( const char *serverName, const char *reje
 										int downloadType, const char *downloadFilename,
 										float downloadPercent, int downloadSpeed,
 										int connectCount, bool backGround ) {
-	::facade->UpdateConnectScreen( serverName, rejectMessage, downloadType, downloadFilename,
-								   downloadPercent, downloadSpeed, connectCount, backGround );
+	UiFacade::Instance()->UpdateConnectScreen( serverName, rejectMessage, downloadType, downloadFilename,
+											   downloadPercent, downloadSpeed, connectCount, backGround );
 }
 
 extern "C" void UI_Keydown( int context, int key ) {
-	::facade->Keydown( context, key );
+	UiFacade::Instance()->Keydown( context, key );
 }
 
 extern "C" void UI_Keyup( int context, int key ) {
-	::facade->Keyup( context, key );
+	UiFacade::Instance()->Keyup( context, key );
 }
 
 extern "C" void UI_CharEvent( int context, wchar_t key ) {
-	::facade->CharEvent( context, key );
+	UiFacade::Instance()->CharEvent( context, key );
 }
 
 extern "C" void UI_MouseMove( int context, int frameTime, int dx, int dy ) {
-	::facade->MouseMove( context, frameTime, dx, dy );
+	UiFacade::Instance()->MouseMove( context, frameTime, dx, dy );
 }
 
 extern "C" void UI_MouseSet( int context, int mx, int my, bool showCursor ) {
-	::facade->MouseSet( context, mx, my, showCursor );
+	UiFacade::Instance()->MouseSet( context, mx, my, showCursor );
 }
 
 extern "C" void UI_ForceMenuOff( void ) {
-	::facade->ForceMenuOff();
+	UiFacade::Instance()->ForceMenuOff();
 }
 
 extern "C" bool UI_HaveQuickMenu( void ) {
@@ -91,7 +87,7 @@ void UI_CancelTouches( int context ) {
 }
 
 void UI_ShowQuickMenu( bool show ) {
-	::facade->ShowQuickMenu( show );
+	UiFacade::Instance()->ShowQuickMenu( show );
 }
 
 void UI_AddToServerList( const char *adr, const char *info ) {

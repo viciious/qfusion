@@ -4,8 +4,17 @@
 #include "MessagePipe.h"
 
 #include <string>
+#include <include/cef_render_handler.h>
+
+class CefBrowser;
+class WswCefRenderHandler;
 
 class UiFacade {
+	friend class MessagePipe;
+
+	CefRefPtr<CefBrowser> browser;
+	WswCefRenderHandler *renderHandler;
+
 	const int width;
 	const int height;
 
@@ -43,18 +52,39 @@ class UiFacade {
 
 	MessagePipe messagePipe;
 
-	UiFacade( int width_, int height_, int demoProtocol_, const char *demoExtension_, const char *basePath_ )
-		: width( width_ )
-		, height( height_ )
-		, demoProtocol( demoProtocol_ )
-		, demoExtension( demoExtension_ )
-		, basePath( basePath_ )
-		, interleavedStateIndex( 0 ) {}
-public:
-	static UiFacade *Create( int argc, char **argv, void *hInstance, int width_, int height_,
-							 int demoProtocol_, const char *demoExtension_, const char *basePath_ );
-
+	UiFacade( int width_, int height_, int demoProtocol_, const char *demoExtension_, const char *basePath_ );
 	~UiFacade();
+
+	static void MenuOpenHandler() { Instance()->MenuCommand(); }
+	static void MenuCloseHandler() { Instance()->MenuCommand(); }
+	static void MenuForceHandler() { Instance()->MenuCommand(); }
+	static void MenuModalHandler() { Instance()->MenuCommand(); }
+
+	void MenuCommand();
+
+	static UiFacade *instance;
+
+	CefBrowser *GetBrowser() { return browser.get(); }
+
+	static bool InitCef( int argc, char **argv, void *hInstance );
+public:
+	static bool Init( int argc, char **argv, void *hInstance, int width_, int height_,
+					  int demoProtocol_, const char *demoExtension_, const char *basePath_ );
+
+	static void Shutdown() {
+		delete instance;
+		instance = nullptr;
+	}
+
+	static UiFacade *Instance() { return instance; }
+
+	void RegisterRenderHandler( CefRenderHandler *handler_ );
+	void RegisterBrowser( CefRefPtr<CefBrowser> browser_ );
+	void UnregisterBrowser( CefRefPtr<CefBrowser> browser_ );
+
+	void OnUiPageReady() {
+		messagePipe.OnUiPageReady();
+	}
 
 	int Width() const { return width; }
 	int Height() const { return height; }

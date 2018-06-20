@@ -4,6 +4,8 @@
 
 #include "include/wrapper/cef_helpers.h"
 
+#include <chrono>
+
 WswCefApp::WswCefApp()
 	: browserProcessHandler( new WswCefBrowserProcessHandler )
 	, renderProcessHandler( new WswCefRenderProcessHandler ) {}
@@ -316,10 +318,8 @@ void WswCefBrowserProcessHandler::OnContextInitialized() {
 	CefBrowserSettings settings;
 	CefRefPtr<WswCefClient> client( new WswCefClient );
 	CefString url( AsCefString( "ui://index.html" ) );
-	CefBrowserHost::CreateBrowser( info, client, url, settings, nullptr );
+	CefBrowserHost::CreateBrowserSync( info, client, url, settings, nullptr );
 }
-
-WswCefRenderHandler *globalRenderHandler = nullptr;
 
 void WswCefRenderHandler::OnPaint( CefRefPtr<CefBrowser> browser,
 								   CefRenderHandler::PaintElementType type,
@@ -330,4 +330,135 @@ void WswCefRenderHandler::OnPaint( CefRefPtr<CefBrowser> browser,
 	// TODO: If the total amount of pixel data is small, copy piecewise
 	// TODO: I'm unsure if this would be faster due to non-optimal cache access patterns
 	memcpy( drawnEveryFrameBuffer, buffer, width * height * 4u );
+}
+
+void WswCefRenderProcessHandler::OnWebKitInitialized() {
+	const char *code =
+		"var ui; if (!ui) { ui = {}; }"
+		"(function() {"
+		"	ui.notifyUiPageReady = function() {"
+		"		native function notifyUiPageReady();"
+		"		notifyUiPageReady();"
+		"	};"
+		"})();";
+
+	if( !CefRegisterExtension( "v8/notifyUiPageReady", code, CefRefPtr<CefV8Handler>( new WswCefV8Handler ) ) ) {
+		// TODO: We do not have a browser instance at this moment
+	}
+}
+
+void WswCefRenderProcessHandler::SendLogMessage( CefRefPtr<CefBrowser> browser, const CefString &message ) {
+	auto processMessage( CefProcessMessage::Create( "log" ) );
+	auto messageArgs( processMessage->GetArgumentList() );
+	messageArgs->SetString( 0, message );
+	messageArgs->SetInt( 1, LOGSEVERITY_INFO );
+	browser->SendProcessMessage( PID_BROWSER, processMessage );
+}
+
+bool WswCefRenderProcessHandler::OnProcessMessageReceived( CefRefPtr<CefBrowser> browser,
+														   CefProcessId source_process,
+														   CefRefPtr<CefProcessMessage> message ) {
+	const CefString &name = message->GetName();
+	if( !name.compare( "command" ) ) {
+		ExecuteJavascript( browser, MakeGameCommandCall( message ) );
+		return true;
+	}
+
+	SendLogMessage( browser, std::string( "Unexpected message name `" ) + name.ToString() + '`' );
+	return false;
+}
+
+std::string WswCefRenderProcessHandler::MakeGameCommandCall( CefRefPtr<CefProcessMessage> &message ) {
+	auto messageArgs( message->GetArgumentList() );
+	size_t numArgs = messageArgs->GetSize();
+
+	CefString s;
+	std::string result;
+	// TODO: We can compute an exact amount using 2 passes and precache GetString() result calls
+	// but this is pointless as there will be many other allocations in CefString -> Std::string conversion
+	result.reserve( numArgs * 32u + 32 );
+	result += "ui.onGameCommand.apply(null, [";
+	for( size_t i = 0; i < numArgs; ++i ) {
+		result += '"';
+		result += messageArgs->GetString( i ).ToString();
+		result += '"';
+		result += ',';
+	}
+	if( numArgs ) {
+		// Chop the last comma
+		result.pop_back();
+	}
+	result += "])";
+	return result;
+}
+
+std::string WswCefRenderProcessHandler::DescribeException( const std::string &code, CefRefPtr<CefV8Exception> exception ) {
+	std::stringstream s;
+	s << "An execution of `" << code << "` has failed with exception: ";
+	s << "message=`" << exception->GetMessage().ToString() << "`,";
+	s << "line=" << exception->GetLineNumber() << ",";
+	s << "column=" << exception->GetStartColumn();
+	return s.str();
+}
+
+bool WswCefRenderProcessHandler::ExecuteJavascript( CefRefPtr<CefBrowser> browser, const std::string &code ) {
+	auto frame = browser->GetMainFrame();
+	auto context = frame->GetV8Context();
+	if( !context->Enter() ) {
+		return false;
+	}
+
+	CefRefPtr<CefV8Value> retVal;
+	CefRefPtr<CefV8Exception> exception;
+	if( context->Eval( code, frame->GetURL(), 0, retVal, exception ) ) {
+		if( !context->Exit() ) {
+			SendLogMessage( browser, "Warning: context->Exit() call failed after successful Eval() call" );
+		}
+		return true;
+	}
+
+	SendLogMessage( browser, DescribeException( code, exception ) );
+	if( !context->Exit() ) {
+		SendLogMessage( browser, "Warning: context->Exit() call failed after unsuccessful Eval() call" );
+	}
+	return true;
+}
+
+bool WswCefClient::OnProcessMessageReceived( CefRefPtr<CefBrowser> browser,
+											 CefProcessId source_process,
+											 CefRefPtr<CefProcessMessage> processMessage ) {
+	CEF_REQUIRE_UI_THREAD();
+
+	auto name( processMessage->GetName() );
+	if( !name.compare( "log" ) ) {
+		auto messageArgs( processMessage->GetArgumentList() );
+		std::string message( messageArgs->GetString( 0 ).ToString() );
+		//cef_log_severity_t severity = (cef_log_severity_t)messageArgs->GetInt( 1 );
+		// TODO: Use the severity for console character codes output
+		printf("Log message from browser process: \n%s\n", message.c_str() );
+		return true;
+	}
+
+	if( !name.compare( "uiPageReady" ) ) {
+		UiFacade::Instance()->OnUiPageReady();
+		return true;
+	}
+
+	return false;
+}
+
+bool WswCefV8Handler::Execute( const CefString& name,
+							   CefRefPtr<CefV8Value> object,
+							   const CefV8ValueList& arguments,
+							   CefRefPtr<CefV8Value>& retval,
+							   CefString& exception ) {
+	if( !name.compare( "notifyUiPageReady" ) ) {
+		retval = CefV8Value::CreateNull();
+		auto message( CefProcessMessage::Create( "uiPageReady" ) );
+		CefV8Context::GetCurrentContext()->GetBrowser()->SendProcessMessage( PID_BROWSER, message );
+
+		return true;
+	}
+
+	return false;
 }

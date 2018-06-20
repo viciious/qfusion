@@ -3,6 +3,7 @@
 
 #include "include/cef_app.h"
 #include "include/cef_client.h"
+#include "UiFacade.h"
 
 inline CefString AsCefString( const char *ascii ) {
 	CefString cs;
@@ -47,11 +48,28 @@ public:
 };
 
 class WswCefRenderProcessHandler: public CefRenderProcessHandler {
+	void SendLogMessage( CefRefPtr<CefBrowser> browser, const std::string &message ) {
+		return SendLogMessage( browser, CefString( message ) );
+	}
+	void SendLogMessage( CefRefPtr<CefBrowser> browser, const char *message ) {
+		return SendLogMessage( browser, CefString( message ) );
+	}
+
+	void SendLogMessage( CefRefPtr<CefBrowser> browser, const CefString &message );
+
+	std::string MakeGameCommandCall( CefRefPtr<CefProcessMessage> &message );
+	std::string DescribeException( const std::string &code, CefRefPtr<CefV8Exception> exception );
+
+	bool ExecuteJavascript( CefRefPtr<CefBrowser> browser, const std::string &code );
 public:
 	IMPLEMENT_REFCOUNTING( WswCefRenderProcessHandler );
-};
 
-class UiFacade;
+	void OnWebKitInitialized() override;
+
+	bool OnProcessMessageReceived( CefRefPtr<CefBrowser> browser,
+								   CefProcessId source_process,
+								   CefRefPtr<CefProcessMessage> message ) override;
+};
 
 class WswCefRenderHandler: public CefRenderHandler {
 	const int width;
@@ -91,25 +109,45 @@ public:
 				  const void* buffer, int width, int height ) override;
 };
 
-extern WswCefRenderHandler *globalRenderHandler;
-
 class WswCefClient: public CefClient, public CefLifeSpanHandler {
 public:
 	IMPLEMENT_REFCOUNTING( WswCefClient );
 public:
 	CefRefPtr<WswCefRenderHandler> renderHandler;
 
-	WswCefClient(): renderHandler( new WswCefRenderHandler ) {
-		globalRenderHandler = renderHandler.get();
+	WswCefClient() : renderHandler( new WswCefRenderHandler ) {
+		UiFacade::Instance()->RegisterRenderHandler( renderHandler.get() );
 	}
 
 	CefRefPtr<CefRenderHandler> GetRenderHandler() override {
 		return renderHandler;
 	}
+
+	CefRefPtr<CefLifeSpanHandler> GetLifeSpanHandler() override {
+		return this;
+	}
+
+	void OnAfterCreated( CefRefPtr<CefBrowser> browser ) override {
+		UiFacade::Instance()->RegisterBrowser( browser );
+	}
+
+	void OnBeforeClose( CefRefPtr<CefBrowser> browser ) override {
+		UiFacade::Instance()->UnregisterBrowser( browser );
+	}
+
+	bool OnProcessMessageReceived( CefRefPtr<CefBrowser> browser,
+								   CefProcessId source_process,
+								   CefRefPtr<CefProcessMessage> message ) override;
 };
 
 class WswCefV8Handler: public CefV8Handler {
 public:
+	bool Execute( const CefString& name,
+				  CefRefPtr<CefV8Value> object,
+				  const CefV8ValueList& arguments,
+				  CefRefPtr<CefV8Value>& retval,
+				  CefString& exception ) override;
+
 	IMPLEMENT_REFCOUNTING( WswCefV8Handler );
 };
 

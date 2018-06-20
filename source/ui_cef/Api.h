@@ -48,7 +48,7 @@ typedef struct {
 	const char *( *Cvar_String )( const char *name );
 
 	int ( *Cmd_Argc )( void );
-	char *( *Cmd_Argv )( int arg );
+	const char *( *Cmd_Argv )( int arg );
 	char *( *Cmd_Args )( void );        // concatenation of all argv >= 1
 
 	void ( *Cmd_AddCommand )( const char *name, void ( *cmd )( void ) );
