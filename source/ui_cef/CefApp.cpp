@@ -340,9 +340,18 @@ void WswCefRenderProcessHandler::OnWebKitInitialized() {
 		"		native function notifyUiPageReady();"
 		"		notifyUiPageReady();"
 		"	};"
+		"	ui.getCVar = function(name, defaultValue, callback) {"
+		"   	native function getCVar(name, defaultValue, callback);"
+		"		getCVar(name, defaultValue, callback);"
+		"	};"
+		"	ui.setCVar = function(name, value, callback) {"
+		"		native function setCVar(name, value, callback);"
+		"       setCVar(name, value, callback);"
+		"	};"
 		"})();";
 
-	if( !CefRegisterExtension( "v8/notifyUiPageReady", code, CefRefPtr<CefV8Handler>( new WswCefV8Handler ) ) ) {
+	v8Handler = CefRefPtr<WswCefV8Handler>( new WswCefV8Handler );
+	if( !CefRegisterExtension( "v8/notifyUiPageReady", code, v8Handler ) ) {
 		// TODO: We do not have a browser instance at this moment
 	}
 }
@@ -361,6 +370,18 @@ bool WswCefRenderProcessHandler::OnProcessMessageReceived( CefRefPtr<CefBrowser>
 	const CefString &name = message->GetName();
 	if( !name.compare( "command" ) ) {
 		ExecuteJavascript( browser, MakeGameCommandCall( message ) );
+		return true;
+	}
+
+	// Got reply for a JS-initiated call
+	if( !name.compare( "getCVar" ) ) {
+		v8Handler->FireGetCVarCallback( message );
+		return true;
+	}
+
+	// Got reply for a JS-initiated call
+	if( !name.compare( "setCVar" ) ) {
+		v8Handler->FireSetCVarCallback( message );
 		return true;
 	}
 
@@ -424,6 +445,51 @@ bool WswCefRenderProcessHandler::ExecuteJavascript( CefRefPtr<CefBrowser> browse
 	return true;
 }
 
+void WswCefClient::ReplyForGetCVarRequest( CefRefPtr<CefBrowser> browser, CefRefPtr<CefProcessMessage> ingoing ) {
+	auto ingoingArgs( ingoing->GetArgumentList() );
+	int id = ingoingArgs->GetInt( 1 );
+	std::string name( ingoingArgs->GetString( 1 ).ToString() );
+	std::string value( ingoingArgs->GetString( 2 ).ToString() );
+	int flags = 0;
+	if( ingoingArgs->GetSize() == 4 ) {
+		flags = ingoingArgs->GetInt( 3 );
+	}
+
+	cvar_t *var = api->Cvar_Get( name.c_str(), value.c_str(), flags );
+	auto outgoing( CefProcessMessage::Create( "getCVar" ) );
+	auto outgoingArgs( outgoing->GetArgumentList() );
+	outgoingArgs->SetInt( 0, id );
+	outgoingArgs->SetString( 1, name );
+	outgoingArgs->SetString( 2, var->string );
+	browser->SendProcessMessage( PID_RENDERER, outgoing );
+}
+
+void WswCefClient::ReplyForSetCVarRequest( CefRefPtr<CefBrowser> browser, CefRefPtr<CefProcessMessage> ingoing ) {
+	auto ingoingArgs( ingoing->GetArgumentList() );
+	const int id = ingoingArgs->GetInt( 0 );
+	std::string name( ingoingArgs->GetString( 1 ).ToString() );
+	std::string value( ingoingArgs->GetString( 2 ).ToString() );
+	bool force = false;
+	if( ingoingArgs->GetSize() == 4 ) {
+		force = ingoingArgs->GetBool( 3 );
+	}
+
+	bool forced = false;
+	if( force ) {
+		forced = ( api->Cvar_ForceSet( name.c_str(), value.c_str() ) ) != nullptr;
+	} else {
+		api->Cvar_Set( name.c_str(), value.c_str() );
+	}
+
+	auto outgoing( CefProcessMessage::Create( "setCVar" ) );
+	outgoing->GetArgumentList()->SetInt( 0, id );
+	if( force ) {
+		outgoing->GetArgumentList()->SetBool( 1, forced );
+	}
+
+	browser->SendProcessMessage( PID_RENDERER, outgoing );
+}
+
 bool WswCefClient::OnProcessMessageReceived( CefRefPtr<CefBrowser> browser,
 											 CefProcessId source_process,
 											 CefRefPtr<CefProcessMessage> processMessage ) {
@@ -444,7 +510,222 @@ bool WswCefClient::OnProcessMessageReceived( CefRefPtr<CefBrowser> browser,
 		return true;
 	}
 
+	if( !name.compare( "getCVar" ) ) {
+		ReplyForGetCVarRequest( browser, processMessage );
+		return true;
+	}
+
+	if( !name.compare( "setCVar" ) ) {
+		ReplyForSetCVarRequest( browser, processMessage );
+		return true;
+	}
+
 	return false;
+}
+
+inline bool WswCefV8Handler::TryGetString( const CefRefPtr<CefV8Value> &jsValue,
+										   const char *tag,
+										   CefString &value,
+										   CefString &exception ) {
+	if( !jsValue->IsString() ) {
+		exception = std::string( "The value of argument `" ) + tag + "` is not a string";
+		return false;
+	}
+
+	value = jsValue->GetStringValue();
+	return true;
+}
+
+inline bool WswCefV8Handler::ValidateCallback( const CefRefPtr<CefV8Value> &jsValue, CefString &exception ) {
+	if( !jsValue->IsFunction() ) {
+		exception = "The value of the last argument that is supposed to be a callback is not a function";
+		return false;
+	}
+
+	return true;
+}
+
+static const std::map<CefString, int> cvarFlagNamesTable = {
+	{ "archive"       , CVAR_ARCHIVE },
+	{ "userinfo"      , CVAR_USERINFO },
+	{ "serverinfo"    , CVAR_SERVERINFO },
+	{ "noset"         , CVAR_NOSET },
+	{ "latch"         , CVAR_LATCH },
+	{ "latch_video"   , CVAR_LATCH_VIDEO },
+	{ "latch_sound"   , CVAR_LATCH_SOUND },
+	{ "cheat"         , CVAR_CHEAT },
+	{ "readonly"      , CVAR_READONLY },
+	{ "developer"     , CVAR_DEVELOPER }
+};
+
+void WswCefV8Handler::PostGetCVarRequest( const CefV8ValueList &arguments,
+										  CefRefPtr<CefV8Value> &retval,
+										  CefString &exception ) {
+	if( arguments.size() < 3 ) {
+		exception = "Illegal arguments list size, should be 3 or 4";
+		return;
+	}
+	CefString name, defaultValue;
+	if( !TryGetString( arguments[0], "name", name, exception ) ) {
+		return;
+	}
+	if( !TryGetString( arguments[1], "defaultValue", defaultValue, exception ) ) {
+		return;
+	}
+
+	int flags = 0;
+	if( arguments.size() == 4 ) {
+		auto flagsArray( arguments[2] );
+		if( !flagsArray->IsArray() ) {
+			exception = "An array of flags is expected for a 3rd argument in this case";
+			return;
+		}
+		for( int i = 0, end = flagsArray->GetArrayLength(); i < end; ++i ) {
+			CefRefPtr<CefV8Value> flagValue( flagsArray->GetValue( i ) );
+			// See GetValue() documentation
+			if( !flagValue.get() ) {
+				exception = "Can't get an array value";
+				return;
+			}
+			if( !flagValue->IsString() ) {
+				exception = "A flags array is allowed to hold only string values";
+				return;
+			}
+			auto flagString( flagValue->GetStringValue() );
+			auto it = ::cvarFlagNamesTable.find( flagString );
+			if( it == ::cvarFlagNamesTable.end() ) {
+				exception = std::string( "Unknown CVar flag value " ) + flagString.ToString();
+				return;
+			}
+			flags |= ( *it ).second;
+		}
+	}
+
+	if( !ValidateCallback( arguments.back(), exception ) ) {
+		return;
+	}
+
+	auto context( CefV8Context::GetCurrentContext() );
+	const int id = NextCallId();
+	callbacks[id] = std::make_pair( context, arguments.back() );
+
+	auto message( CefProcessMessage::Create( "getCVar" ) );
+	auto messageArgs( message->GetArgumentList() );
+	messageArgs->SetInt( 0, id );
+	messageArgs->SetString( 1, name );
+	messageArgs->SetString( 2, defaultValue );
+	messageArgs->SetInt( 3, flags );
+
+	retval = CefV8Value::CreateNull();
+	context->GetBrowser()->SendProcessMessage( PID_BROWSER, message );
+}
+
+void WswCefV8Handler::PostSetCVarRequest( const CefV8ValueList &arguments,
+										  CefRefPtr<CefV8Value> &retval,
+										  CefString &exception ) {
+	if( arguments.size() != 3 && arguments.size() != 4 ) {
+		exception = "Illegal arguments list size, should be 2 or 3";
+		return;
+	}
+
+	CefString name, value;
+	if( !TryGetString( arguments[0], "name", name, exception ) ) {
+		return;
+	}
+	if( !TryGetString( arguments[1], "value", value, exception ) ) {
+		return;
+	}
+
+	bool forceSet = false;
+	if( arguments.size() == 4 ) {
+		CefString s;
+		if( !TryGetString( arguments[2], "force", s, exception ) ) {
+			return;
+		}
+		if( s.compare( "force" ) ) {
+			exception = "Only a string literal \"force\" is expected for a 3rd argument in this case";
+			return;
+		}
+		forceSet = true;
+	}
+
+	if( !ValidateCallback( arguments.back(), exception ) ) {
+		return;
+	}
+
+	auto context( CefV8Context::GetCurrentContext() );
+	const int id = NextCallId();
+	callbacks[id] = std::make_pair( context, arguments.back() );
+
+	auto message( CefProcessMessage::Create( "setCVar" ) );
+	auto messageArgs( message->GetArgumentList() );
+	messageArgs->SetInt( 0, id );
+	messageArgs->SetString( 1, name );
+	messageArgs->SetString( 2, value );
+	if( forceSet ) {
+		messageArgs->SetBool( 3, forceSet );
+	}
+
+	retval = CefV8Value::CreateNull();
+	context->GetBrowser()->SendProcessMessage( PID_BROWSER, message );
+}
+
+bool WswCefV8Handler::TryUnregisterCallback( int id, CefRefPtr<CefV8Context> &context, CefRefPtr<CefV8Value> &callback ) {
+	auto it = callbacks.find( id );
+	if( it != callbacks.end() ) {
+		context = ( *it ).second.first;
+		callback = ( *it ).second.second;
+		callbacks.erase( it );
+		return true;
+	}
+
+	// TODO: Report an error...
+	return false;
+}
+
+void WswCefV8Handler::FireGetCVarCallback( CefRefPtr<CefProcessMessage> reply ) {
+	auto args( reply->GetArgumentList() );
+	if( args->GetSize() != 3 ) {
+		// TODO: Report an error...
+		return;
+	}
+
+	CefRefPtr<CefV8Context> context;
+	CefRefPtr<CefV8Value> callback;
+	if( !TryUnregisterCallback( args->GetInt( 0 ), context, callback ) ) {
+		return;
+	}
+
+	CefV8ValueList callbackArgs;
+	callbackArgs.emplace_back( CefV8Value::CreateString( args->GetString( 1 ) ) );
+	if( !callback->ExecuteFunctionWithContext( context, nullptr, callbackArgs ).get() ) {
+		// TODO: Report execution error
+		return;
+	}
+}
+
+void WswCefV8Handler::FireSetCVarCallback( CefRefPtr<CefProcessMessage> reply ) {
+	auto args( reply->GetArgumentList() );
+	auto size = args->GetSize();
+	if( size != 1 && size != 2 ) {
+		// TODO: Report an error...
+		return;
+	}
+
+	CefRefPtr<CefV8Context> context;
+	CefRefPtr<CefV8Value> callback;
+	if( !TryUnregisterCallback( args->GetInt( 0 ), context, callback ) ) {
+		return;
+	}
+
+	CefV8ValueList callbackArgs;
+	if( size == 2 ) {
+		callbackArgs.emplace_back( CefV8Value::CreateBool( args->GetBool( 1 ) ) );
+	}
+	if( !callback->ExecuteFunctionWithContext( context, nullptr, callbackArgs ).get() ) {
+		// TODO: Report execution error
+		return;
+	}
 }
 
 bool WswCefV8Handler::Execute( const CefString& name,
@@ -456,7 +737,16 @@ bool WswCefV8Handler::Execute( const CefString& name,
 		retval = CefV8Value::CreateNull();
 		auto message( CefProcessMessage::Create( "uiPageReady" ) );
 		CefV8Context::GetCurrentContext()->GetBrowser()->SendProcessMessage( PID_BROWSER, message );
+		return true;
+	}
 
+	if( !name.compare( "getCVar" ) ) {
+		PostGetCVarRequest( arguments, retval, exception );
+		return true;
+	}
+
+	if( !name.compare( "setCVar" ) ) {
+		PostSetCVarRequest( arguments, retval, exception );
 		return true;
 	}
 

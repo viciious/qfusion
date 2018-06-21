@@ -5,6 +5,9 @@
 #include "include/cef_client.h"
 #include "UiFacade.h"
 
+#include <unordered_map>
+#include <atomic>
+
 inline CefString AsCefString( const char *ascii ) {
 	CefString cs;
 	if( !cs.FromASCII( ascii ) ) {
@@ -47,6 +50,37 @@ public:
 	void OnContextInitialized() override;
 };
 
+class WswCefV8Handler: public CefV8Handler {
+	friend class WswCefRenderProcessHandler;
+
+	std::unordered_map<int, std::pair<CefRefPtr<CefV8Context>, CefRefPtr<CefV8Value>>> callbacks;
+	// We use an unsigned counter to ensure that the overflow behaviour is defined
+	unsigned callId;
+
+	inline int NextCallId() { return (int)( callId++ ); }
+
+	void PostGetCVarRequest( const CefV8ValueList &arguments, CefRefPtr<CefV8Value> &retval, CefString &exception );
+	void PostSetCVarRequest( const CefV8ValueList &arguments, CefRefPtr<CefV8Value> &retval, CefString &exception );
+
+	inline bool TryGetString( const CefRefPtr<CefV8Value> &jsValue, const char *tag, CefString &value, CefString &ex );
+	inline bool ValidateCallback( const CefRefPtr<CefV8Value> &jsValue, CefString &exception );
+
+	void FireGetCVarCallback( CefRefPtr<CefProcessMessage> reply );
+	void FireSetCVarCallback( CefRefPtr<CefProcessMessage> reply );
+
+	inline bool TryUnregisterCallback( int id, CefRefPtr<CefV8Context> &context, CefRefPtr<CefV8Value> &callback );
+public:
+	WswCefV8Handler(): callId( 0 ) {}
+
+	bool Execute( const CefString& name,
+				  CefRefPtr<CefV8Value> object,
+				  const CefV8ValueList& arguments,
+				  CefRefPtr<CefV8Value>& retval,
+				  CefString& exception ) override;
+
+	IMPLEMENT_REFCOUNTING( WswCefV8Handler );
+};
+
 class WswCefRenderProcessHandler: public CefRenderProcessHandler {
 	void SendLogMessage( CefRefPtr<CefBrowser> browser, const std::string &message ) {
 		return SendLogMessage( browser, CefString( message ) );
@@ -61,6 +95,8 @@ class WswCefRenderProcessHandler: public CefRenderProcessHandler {
 	std::string DescribeException( const std::string &code, CefRefPtr<CefV8Exception> exception );
 
 	bool ExecuteJavascript( CefRefPtr<CefBrowser> browser, const std::string &code );
+
+	CefRefPtr<WswCefV8Handler> v8Handler;
 public:
 	IMPLEMENT_REFCOUNTING( WswCefRenderProcessHandler );
 
@@ -112,6 +148,9 @@ public:
 class WswCefClient: public CefClient, public CefLifeSpanHandler {
 public:
 	IMPLEMENT_REFCOUNTING( WswCefClient );
+
+	void ReplyForGetCVarRequest( CefRefPtr<CefBrowser> browser, CefRefPtr<CefProcessMessage> message );
+	void ReplyForSetCVarRequest( CefRefPtr<CefBrowser> browser, CefRefPtr<CefProcessMessage> message );
 public:
 	CefRefPtr<WswCefRenderHandler> renderHandler;
 
@@ -140,15 +179,6 @@ public:
 								   CefRefPtr<CefProcessMessage> message ) override;
 };
 
-class WswCefV8Handler: public CefV8Handler {
-public:
-	bool Execute( const CefString& name,
-				  CefRefPtr<CefV8Value> object,
-				  const CefV8ValueList& arguments,
-				  CefRefPtr<CefV8Value>& retval,
-				  CefString& exception ) override;
 
-	IMPLEMENT_REFCOUNTING( WswCefV8Handler );
-};
 
 #endif
