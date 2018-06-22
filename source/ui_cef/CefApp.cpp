@@ -348,10 +348,22 @@ void WswCefRenderProcessHandler::OnWebKitInitialized() {
 		"		native function setCVar(name, value, callback);"
 		"       setCVar(name, value, callback);"
 		"	};"
+		"	ui.executeNow = function(text, callback) {"
+		"		native function executeCmd(whence, text, callback);"
+		"		executeCmd('now', text, callback);"
+		"	};"
+		"	ui.insertToExecute = function(text, callback) {"
+		"		native function executeCmd(whence, text, callback);"
+		"		executeCmd('insert', text, callback);"
+		"	};"
+		"	ui.appendToExecute = function(text, callback) {"
+		"		native function executeCmd(whence, text, callback);"
+		"		executeCmd('append', text, callback);"
+		"	};"
 		"})();";
 
 	v8Handler = CefRefPtr<WswCefV8Handler>( new WswCefV8Handler );
-	if( !CefRegisterExtension( "v8/notifyUiPageReady", code, v8Handler ) ) {
+	if( !CefRegisterExtension( "v8/gameUi", code, v8Handler ) ) {
 		// TODO: We do not have a browser instance at this moment
 	}
 }
@@ -370,6 +382,12 @@ bool WswCefRenderProcessHandler::OnProcessMessageReceived( CefRefPtr<CefBrowser>
 	const CefString &name = message->GetName();
 	if( !name.compare( "command" ) ) {
 		ExecuteJavascript( browser, MakeGameCommandCall( message ) );
+		return true;
+	}
+
+	// Got confirmation for command execution request
+	if( !name.compare( "executeCmd" ) ) {
+		v8Handler->FireExecuteCmdCallback( message );
 		return true;
 	}
 
@@ -490,6 +508,17 @@ void WswCefClient::ReplyForSetCVarRequest( CefRefPtr<CefBrowser> browser, CefRef
 	browser->SendProcessMessage( PID_RENDERER, outgoing );
 }
 
+void WswCefClient::ReplyForExecuteCmdRequest( CefRefPtr<CefBrowser> browser, CefRefPtr<CefProcessMessage> ingoing ) {
+	auto ingoingArgs( ingoing->GetArgumentList() );
+	const int id = ingoingArgs->GetInt( 0 );
+
+	api->Cmd_ExecuteText( ingoingArgs->GetInt( 1 ), ingoingArgs->GetString( 2 ).ToString().c_str() );
+
+	auto outgoing( CefProcessMessage::Create( "executeCmd" ) );
+	outgoing->GetArgumentList()->SetInt( 0, id );
+	browser->SendProcessMessage( PID_RENDERER, outgoing );
+}
+
 bool WswCefClient::OnProcessMessageReceived( CefRefPtr<CefBrowser> browser,
 											 CefProcessId source_process,
 											 CefRefPtr<CefProcessMessage> processMessage ) {
@@ -502,6 +531,11 @@ bool WswCefClient::OnProcessMessageReceived( CefRefPtr<CefBrowser> browser,
 		//cef_log_severity_t severity = (cef_log_severity_t)messageArgs->GetInt( 1 );
 		// TODO: Use the severity for console character codes output
 		printf("Log message from browser process: \n%s\n", message.c_str() );
+		return true;
+	}
+
+	if( !name.compare( "executeCmd" ) ) {
+		ReplyForExecuteCmdRequest( browser, processMessage );
 		return true;
 	}
 
@@ -670,6 +704,55 @@ void WswCefV8Handler::PostSetCVarRequest( const CefV8ValueList &arguments,
 	context->GetBrowser()->SendProcessMessage( PID_BROWSER, message );
 }
 
+void WswCefV8Handler::PostExecuteCmdRequest( const CefV8ValueList &arguments,
+											 CefRefPtr<CefV8Value> &retval,
+											 CefString &exception ) {
+	if( arguments.size() != 3 ) {
+		exception = "Illegal arguments list size, expected 3";
+		return;
+	}
+
+	// We prefer passing `whence` as a string to simplify debugging, even if an integer is sufficient.
+	CefString whenceString;
+	if( !TryGetString( arguments[0], "whence", whenceString, exception ) ) {
+		return;
+	}
+
+	int whence;
+	if( !whenceString.compare( "now" ) ) {
+		whence = EXEC_NOW;
+	} else if( !whenceString.compare( "insert" ) ) {
+		whence = EXEC_INSERT;
+	} else if( !whenceString.compare( "append" ) ) {
+		whence = EXEC_APPEND;
+	} else {
+		exception = "Illegal `whence` parameter. `now`, `insert` or `append` are expected";
+		return;
+	}
+
+	CefString text;
+	if( !TryGetString( arguments[1], "text", text, exception ) ) {
+		return;
+	}
+
+	if( !ValidateCallback( arguments.back(), exception ) ) {
+		return;
+	}
+
+	auto context( CefV8Context::GetCurrentContext() );
+	const int id = NextCallId();
+	callbacks[id] = std::make_pair( context, arguments.back() );
+
+	auto message( CefProcessMessage::Create( "executeCmd" ) );
+	auto messageArgs( message->GetArgumentList() );
+	messageArgs->SetInt( 0, id );
+	messageArgs->SetInt( 1, whence );
+	messageArgs->SetString( 2, text );
+
+	retval = CefV8Value::CreateNull();
+	context->GetBrowser()->SendProcessMessage( PID_BROWSER, message );
+}
+
 bool WswCefV8Handler::TryUnregisterCallback( int id, CefRefPtr<CefV8Context> &context, CefRefPtr<CefV8Value> &callback ) {
 	auto it = callbacks.find( id );
 	if( it != callbacks.end() ) {
@@ -728,11 +811,36 @@ void WswCefV8Handler::FireSetCVarCallback( CefRefPtr<CefProcessMessage> reply ) 
 	}
 }
 
+void WswCefV8Handler::FireExecuteCmdCallback( CefRefPtr<CefProcessMessage> reply ) {
+	auto args( reply->GetArgumentList() );
+	if( args->GetSize() != 1 ) {
+		// TODO: Report an error...
+		return;
+	}
+
+	CefRefPtr<CefV8Context> context;
+	CefRefPtr<CefV8Value> callback;
+	if( !TryUnregisterCallback( args->GetInt( 0 ), context, callback ) ) {
+		return;
+	}
+
+	CefV8ValueList callbackArgs;
+	if( !callback->ExecuteFunctionWithContext( context, nullptr, callbackArgs ).get() ) {
+		// TODO: Report execution error
+		return;
+	}
+}
+
 bool WswCefV8Handler::Execute( const CefString& name,
 							   CefRefPtr<CefV8Value> object,
 							   const CefV8ValueList& arguments,
 							   CefRefPtr<CefV8Value>& retval,
 							   CefString& exception ) {
+	if( !name.compare( "executeCmd" ) ) {
+		PostExecuteCmdRequest( arguments, retval, exception );
+		return true;
+	}
+
 	if( !name.compare( "notifyUiPageReady" ) ) {
 		retval = CefV8Value::CreateNull();
 		auto message( CefProcessMessage::Create( "uiPageReady" ) );
