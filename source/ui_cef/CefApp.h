@@ -62,6 +62,7 @@ class WswCefV8Handler: public CefV8Handler {
 	void PostGetCVarRequest( const CefV8ValueList &arguments, CefRefPtr<CefV8Value> &retval, CefString &exception );
 	void PostSetCVarRequest( const CefV8ValueList &arguments, CefRefPtr<CefV8Value> &retval, CefString &exception );
 	void PostExecuteCmdRequest( const CefV8ValueList &arguments, CefRefPtr<CefV8Value> &retval, CefString &exception );
+	void PostGetVideoModesRequest( const CefV8ValueList &arguments, CefRefPtr<CefV8Value> &retval, CefString &exception );
 
 	inline bool TryGetString( const CefRefPtr<CefV8Value> &jsValue, const char *tag, CefString &value, CefString &ex );
 	inline bool ValidateCallback( const CefRefPtr<CefV8Value> &jsValue, CefString &exception );
@@ -69,6 +70,7 @@ class WswCefV8Handler: public CefV8Handler {
 	void FireGetCVarCallback( CefRefPtr<CefProcessMessage> reply );
 	void FireSetCVarCallback( CefRefPtr<CefProcessMessage> reply );
 	void FireExecuteCmdCallback( CefRefPtr<CefProcessMessage> reply );
+	void FireGetVideoModesCallback( CefRefPtr<CefProcessMessage> reply );
 
 	inline bool TryUnregisterCallback( int id, CefRefPtr<CefV8Context> &context, CefRefPtr<CefV8Value> &callback );
 public:
@@ -159,6 +161,8 @@ public:
 				  const void* buffer, int width, int height ) override;
 };
 
+class WswCefClient;
+
 class WswCefClient: public CefClient, public CefLifeSpanHandler {
 public:
 	IMPLEMENT_REFCOUNTING( WswCefClient );
@@ -166,6 +170,7 @@ public:
 	void ReplyForGetCVarRequest( CefRefPtr<CefBrowser> browser, CefRefPtr<CefProcessMessage> message );
 	void ReplyForSetCVarRequest( CefRefPtr<CefBrowser> browser, CefRefPtr<CefProcessMessage> message );
 	void ReplyForExecuteCmdRequest( CefRefPtr<CefBrowser> browser, CefRefPtr<CefProcessMessage> message );
+	void ReplyToGetVideoModesRequest( CefRefPtr<CefBrowser> browser, CefRefPtr<CefProcessMessage> message );
 public:
 	CefRefPtr<WswCefRenderHandler> renderHandler;
 

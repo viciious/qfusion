@@ -163,6 +163,8 @@ public:
 	void ShowQuickMenu( bool show ) {
 		messagePipe.ShowQuickMenu( show );
 	}
+
+	static std::vector<std::pair<int, int>> GetVideoModes();
 };
 
 #endif

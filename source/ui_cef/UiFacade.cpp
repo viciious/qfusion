@@ -141,3 +141,26 @@ void UiFacade::DrawUi() {
 	vec4_t color = { 1.0f, 1.0f, 1.0f, 1.0f };
 	api->R_DrawStretchPic( 0, 0, width, height, 0.0f, 0.0f, 1.0f, 1.0f, color, uiImage );
 }
+
+std::vector<std::pair<int, int>> UiFacade::GetVideoModes() {
+	std::vector<std::pair<int, int>> result;
+	result.reserve( 32 );
+
+	const auto currWidth = (int)api->Cvar_Value( "vid_width" );
+	const auto currHeight = (int)api->Cvar_Value( "vid_height" );
+
+	bool isCurrModeListed = false;
+	int width, height;
+	for( unsigned i = 0; api->VID_GetModeInfo( &width, &height, i ); ++i ) {
+		if( currWidth == width && currHeight == height ) {
+			isCurrModeListed = true;
+		}
+		result.emplace_back( std::make_pair( width, height ) );
+	}
+
+	if( !isCurrModeListed ) {
+		result.emplace_back( std::make_pair( currWidth, currHeight ) );
+	}
+
+	return result;
+};
