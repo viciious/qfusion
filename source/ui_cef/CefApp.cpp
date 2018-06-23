@@ -5,6 +5,8 @@
 #include "include/wrapper/cef_helpers.h"
 
 #include <chrono>
+#include "../gameshared/q_comref.h"
+#include "../server/server.h"
 
 WswCefApp::WswCefApp()
 	: browserProcessHandler( new WswCefBrowserProcessHandler )
@@ -385,6 +387,21 @@ bool WswCefRenderProcessHandler::OnProcessMessageReceived( CefRefPtr<CefBrowser>
 		return true;
 	}
 
+	if( !name.compare( "updateMainScreenState" ) ) {
+		ExecuteJavascript( browser, MakeUpdateMainScreenStateCall( message ) );
+		return true;
+	}
+
+	if( !name.compare( "updateConnectScreenState" ) ) {
+		ExecuteJavascript( browser, MakeUpdateConnectScreenStateCall( message ) );
+		return true;
+	}
+
+	if( !name.compare( "mouseSet" ) ) {
+		ExecuteJavascript( browser, MakeMouseSetCall( message ) );
+		return true;
+	}
+
 	// Got confirmation for command execution request
 	if( !name.compare( "executeCmd" ) ) {
 		v8Handler->FireExecuteCmdCallback( message );
@@ -407,7 +424,7 @@ bool WswCefRenderProcessHandler::OnProcessMessageReceived( CefRefPtr<CefBrowser>
 	return false;
 }
 
-std::string WswCefRenderProcessHandler::MakeGameCommandCall( CefRefPtr<CefProcessMessage> &message ) {
+std::string WswCefRenderProcessHandler::MakeGameCommandCall( const CefRefPtr<CefProcessMessage> &message ) {
 	auto messageArgs( message->GetArgumentList() );
 	size_t numArgs = messageArgs->GetSize();
 
@@ -429,6 +446,108 @@ std::string WswCefRenderProcessHandler::MakeGameCommandCall( CefRefPtr<CefProces
 	}
 	result += "])";
 	return result;
+}
+
+std::string WswCefRenderProcessHandler::MakeMouseSetCall( const CefRefPtr<CefProcessMessage> &message ) {
+	auto args( message->GetArgumentList() );
+	std::stringstream s;
+	s << "ui.onMouseSet({ ";
+	s << "context : "      << args->GetInt( 0 ) << ',';
+	s << "mx : "           << args->GetInt( 1 ) << ',';
+	s << "my : "           << args->GetInt( 2 ) << ',';
+	s << "showCursor : "   << BoolAsParam( args->GetBool( 3 ) );
+	s << " })";
+	return s.str();
+}
+
+const char *WswCefRenderProcessHandler::DownloadTypeAsParam( int type ) {
+	switch( type ) {
+		case DOWNLOADTYPE_NONE:
+			return "\"none\"";
+		case DOWNLOADTYPE_WEB:
+			return "\"http\"";
+		case DOWNLOADTYPE_SERVER:
+			return "\"builtin\"";
+		default:
+			return "\"\"";
+	}
+}
+
+const char *WswCefRenderProcessHandler::ClientStateAsParam( int state ) {
+	switch( state ) {
+		case CA_GETTING_TICKET:
+		case CA_CONNECTING:
+		case CA_HANDSHAKE:
+		case CA_CONNECTED:
+		case CA_LOADING:
+			return "\"connecting\"";
+		case CA_ACTIVE:
+			return "\"active\"";
+		case CA_CINEMATIC:
+			return "\"cinematic\"";
+		default:
+			return "\"disconnected\"";
+	}
+}
+
+const char *WswCefRenderProcessHandler::ServerStateAsParam( int state ) {
+	switch( state ) {
+		case ss_game:
+			return "\"active\"";
+		case ss_loading:
+			return "\"loading\"";
+		default:
+			return "\"off\"";
+	}
+}
+
+std::string WswCefRenderProcessHandler::MakeUpdateConnectScreenStateCall( const CefRefPtr<CefProcessMessage> &message ) {
+	auto args( message->GetArgumentList() );
+
+	CefString rejectMessage( args->GetString( 1 ) );
+
+	std::stringstream s;
+
+	s << "ui.updateConnectScreenState({ ";
+	s << " serverName : \""  << args->GetString( 0 ).ToString() << "\",";
+	s << " connectCount: "   << args->GetInt( 6 ) << ",";
+	s << " background : "    << BoolAsParam( args->GetBool( 7 ) );
+
+	if( !rejectMessage.empty() ) {
+		s << " rejectMessage: \"" << rejectMessage.ToString() << "\",";
+	}
+
+	int downloadType = args->GetInt( 3 );
+	if( downloadType != DOWNLOADTYPE_NONE ) {
+		s << " download: { ";
+		s << " file: \""   << args->GetString( 2 ).ToString() << "\",";
+		s << " type: "     << DownloadTypeAsParam( downloadType );
+		s << " percent: "  << args->GetDouble( 4 ) << ',';
+		s << " speed: "    << args->GetDouble( 5 ) << ',';
+		s << " }";
+	}
+
+	s << " })";
+	return s.str();
+}
+
+std::string WswCefRenderProcessHandler::MakeUpdateMainScreenStateCall( const CefRefPtr<CefProcessMessage> &message ) {
+	auto args( message->GetArgumentList() );
+	std::stringstream s;
+	s << "ui.updateMainScreenState({ ";
+	s << " clientState : "    << ClientStateAsParam( args->GetInt( 0 ) ) << ',';
+	s << " serverState : "    << ServerStateAsParam( args->GetInt( 1 ) ) << ',';
+	if( args->GetBool( 4 ) ) {
+		s << "demoPlayback : { ";
+		s << " state: \"" << ( args->GetBool( 5 ) ? "paused" : "playing" ) << "\",";
+		s << " file: \"" << args->GetString( 3 ).ToString() << "\",",
+		s << " time: " << args->GetInt( 2 );
+		s << " },";
+	}
+	s << " showCursor : "     << BoolAsParam( args->GetBool( 6 ) ) << ',';
+	s << " background : "     << BoolAsParam( args->GetBool( 7 ) );
+	s << " })";
+	return s.str();
 }
 
 std::string WswCefRenderProcessHandler::DescribeException( const std::string &code, CefRefPtr<CefV8Exception> exception ) {

@@ -5,10 +5,14 @@
 
 class UiFacade;
 
+struct MainScreenState;
+struct ConnectScreenState;
+
 class MessagePipe {
 	UiFacade *parent;
 
 	bool isReady;
+	bool wasReady;
 
 	void SendMouseSet( int context, int mx, int my, bool showCursor );
 	void SendForceMenuOff();
@@ -54,7 +58,8 @@ class MessagePipe {
 
 	inline void SendMessage( CefRefPtr<CefProcessMessage> message );
 public:
-	explicit MessagePipe( UiFacade *parent_ ): parent( parent_ ), isReady( false ) {}
+	explicit MessagePipe( UiFacade *parent_ )
+		: parent( parent_ ), isReady( false ), wasReady( false ) {}
 
 	void Keydown( int context, int key );
 	void Keyup( int context, int key );
@@ -65,6 +70,9 @@ public:
 	void ShowQuickMenu( bool show );
 	void ExecuteCommand( int argc, const char *( *getArg )( int ) );
 	void OnUiPageReady();
+
+	void UpdateMainScreenState( const MainScreenState &prevState, const MainScreenState &currState );
+	void UpdateConnectScreenState( const ConnectScreenState &prevState, const ConnectScreenState &currState );
 };
 
 #endif

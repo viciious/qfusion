@@ -9,6 +9,50 @@
 class CefBrowser;
 class WswCefRenderHandler;
 
+struct MainScreenState {
+	int clientState;
+	int serverState;
+	unsigned demoTime;
+	std::string demoName;
+	bool demoPlaying;
+	bool demoPaused;
+	bool showCursor;
+	bool background;
+
+	bool operator==( const MainScreenState &that ) const {
+		return clientState == that.clientState &&
+			   serverState == that.serverState &&
+			   demoTime == that.demoTime &&
+			   demoPlaying == that.demoPlaying &&
+			   demoPaused == that.demoPaused &&
+			   showCursor == that.showCursor &&
+			   background == that.background &&
+			   demoName == that.demoName;
+	}
+};
+
+struct ConnectScreenState {
+	std::string serverName;
+	std::string rejectMessage;
+	std::string downloadFileName;
+	int downloadType;
+	float downloadPercent;
+	float downloadSpeed;
+	int connectCount;
+	bool background;
+
+	bool operator==( const ConnectScreenState &that ) const {
+		return downloadType == that.downloadType &&
+			   downloadPercent == that.downloadPercent &&
+			   downloadSpeed == that.downloadSpeed &&
+			   connectCount == that.connectCount &&
+			   background == that.background &&
+			   serverName == that.serverName &&
+			   rejectMessage == that.rejectMessage &&
+			   downloadFileName == that.downloadFileName;
+	}
+};
+
 class UiFacade {
 	friend class MessagePipe;
 
@@ -18,37 +62,29 @@ class UiFacade {
 	const int width;
 	const int height;
 
-	struct FrameState {
-		int clientState;
-		int serverState;
-		unsigned demoTime;
-		std::string demoFileName;
-		bool demoPlaying;
-		bool demoPaused;
-		bool showCursor;
-		bool background;
+	template <typename T>
+	class InterleavedStorage {
+		T values[2];
+		uint8_t currIndex, prevIndex;
+
+	public:
+		T &Curr() { return values[currIndex]; }
+		T &Prev() { return values[prevIndex]; }
+		const T &Curr() const { return values[currIndex]; }
+		const T &Prev() const { return values[prevIndex]; }
+
+		void Flip() {
+			prevIndex = currIndex;
+			currIndex = (uint8_t)( ( prevIndex + 1 ) & 1 );
+		}
 	};
 
-	struct ConnectScreenState {
-		std::string serverName;
-		std::string rejectMessage;
-		std::string downloadFileName;
-		int downloadType;
-		float downloadPercent;
-		float downloadSpeed;
-		int connectCount;
-		bool background;
-	};
-
-	FrameState frameStateStorage[2];
-	ConnectScreenState connectScreenStateStorage[2];
-
+	InterleavedStorage<MainScreenState> mainScreenState;
+	InterleavedStorage<ConnectScreenState> connectScreenState;
 
 	int demoProtocol;
 	std::string demoExtension;
 	std::string basePath;
-
-	int interleavedStateIndex;
 
 	MessagePipe messagePipe;
 
@@ -67,6 +103,8 @@ class UiFacade {
 	CefBrowser *GetBrowser() { return browser.get(); }
 
 	static bool InitCef( int argc, char **argv, void *hInstance );
+
+	void DrawUi();
 public:
 	static bool Init( int argc, char **argv, void *hInstance, int width_, int height_,
 					  int demoProtocol_, const char *demoExtension_, const char *basePath_ );

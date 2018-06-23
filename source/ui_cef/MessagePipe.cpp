@@ -116,3 +116,57 @@ void MessagePipe::OnUiPageReady() {
 	deferredMessages.clear();
 	deferredMessages.shrink_to_fit();
 }
+
+void MessagePipe::UpdateMainScreenState( const MainScreenState &prevState, const MainScreenState &currState ) {
+	if( !isReady ) {
+		return;
+	}
+
+	// No delta encoding for now, just checking equality
+	if( wasReady && prevState == currState ) {
+		return;
+	}
+
+	wasReady = true;
+
+	auto message( CefProcessMessage::Create( "updateMainScreenState" ) );
+	auto args( message->GetArgumentList() );
+
+	args->SetInt( 0, currState.clientState );
+	args->SetInt( 1, currState.serverState );
+	args->SetInt( 2, currState.demoTime );
+	args->SetString( 3, currState.demoName );
+	args->SetBool( 4, currState.demoPlaying );
+	args->SetBool( 5, currState.demoPaused );
+	args->SetBool( 6, currState.showCursor );
+	args->SetBool( 7, currState.background );
+
+	SendMessage( message );
+}
+
+void MessagePipe::UpdateConnectScreenState( const ConnectScreenState &prevState, const ConnectScreenState &currState ) {
+	if( !isReady ) {
+		return;
+	}
+
+	// No delta encoding for now, just checking equality
+	if( wasReady && prevState == currState ) {
+		return;
+	}
+
+	wasReady = true;
+
+	auto message( CefProcessMessage::Create( "updateConnectScreenState" ) );
+	auto args( message->GetArgumentList() );
+
+	args->SetString( 0, currState.serverName );
+	args->SetString( 1, currState.rejectMessage );
+	args->SetString( 2, currState.downloadFileName );
+	args->SetInt( 3, currState.downloadType );
+	args->SetDouble( 4, currState.downloadPercent );
+	args->SetDouble( 5, currState.downloadSpeed );
+	args->SetInt( 6, currState.connectCount );
+	args->SetBool( 7, currState.background );
+
+	SendMessage( message );
+}

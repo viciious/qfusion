@@ -53,7 +53,6 @@ UiFacade::UiFacade( int width_, int height_, int demoProtocol_, const char *demo
 	, demoProtocol( demoProtocol_ )
 	, demoExtension( demoExtension_ )
 	, basePath( basePath_ )
-	, interleavedStateIndex( 0 )
 	, messagePipe( this ) {
 	api->Cmd_AddCommand( "menu_force", &MenuForceHandler );
 	api->Cmd_AddCommand( "menu_open", &MenuOpenHandler );
@@ -89,21 +88,56 @@ void UiFacade::RegisterRenderHandler( CefRenderHandler *handler_ ) {
 	assert( renderHandler );
 }
 
+inline const char *NullToEmpty( const char *s ) {
+	return s ? s : "";
+}
+
 void UiFacade::Refresh( int64_t time, int clientState, int serverState,
 						bool demoPlaying, const char *demoName, bool demoPaused,
 						unsigned int demoTime, bool backGround, bool showCursor ) {
-	// TODO: Check whether there's a delta to send
-
 	CefDoMessageLoopWork();
 
-	auto *uiImage = api->R_RegisterRawPic( "uiBuffer", 1024, 768, renderHandler->drawnEveryFrameBuffer, 4 );
-	vec4_t color = { 1.0f, 1.0f, 1.0f, 1.0f };
-	api->R_DrawStretchPic( 0, 0, 1024, 768, 0, 0, 1, 1, color, uiImage );
+	mainScreenState.Flip();
+
+	auto &state = mainScreenState.Curr();
+	state.clientState = clientState;
+	state.serverState = serverState;
+	state.demoPlaying = demoPlaying;
+	state.demoName = NullToEmpty( demoName );
+	state.demoPaused = demoPaused;
+	state.demoTime = demoTime;
+	state.background = backGround;
+	state.showCursor = showCursor;
+
+	messagePipe.UpdateMainScreenState( mainScreenState.Prev(), mainScreenState.Curr() );
+
+	DrawUi();
 }
 
 void UiFacade::UpdateConnectScreen( const char *serverName, const char *rejectMessage,
 									int downloadType, const char *downloadFilename,
 									float downloadPercent, int downloadSpeed,
 									int connectCount, bool backGround ) {
-	// Check whether there's a delta to send
+	CefDoMessageLoopWork();
+
+	connectScreenState.Flip();
+
+	auto &state = connectScreenState.Curr();
+	state.serverName = NullToEmpty( serverName );
+	state.rejectMessage = NullToEmpty( rejectMessage );
+	state.downloadType = downloadType;
+	state.downloadFileName = NullToEmpty( downloadFilename );
+	state.downloadPercent = downloadPercent;
+	state.connectCount = connectCount;
+	state.background = backGround;
+
+	messagePipe.UpdateConnectScreenState( connectScreenState.Prev(), connectScreenState.Curr() );
+
+	DrawUi();
+}
+
+void UiFacade::DrawUi() {
+	auto *uiImage = api->R_RegisterRawPic( "uiBuffer", width, height, renderHandler->drawnEveryFrameBuffer, 4 );
+	vec4_t color = { 1.0f, 1.0f, 1.0f, 1.0f };
+	api->R_DrawStretchPic( 0, 0, width, height, 0.0f, 0.0f, 1.0f, 1.0f, color, uiImage );
 }
