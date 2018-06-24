@@ -165,6 +165,8 @@ public:
 	}
 
 	static std::vector<std::pair<int, int>> GetVideoModes();
+
+	static std::pair<std::vector<std::string>, std::vector<std::string>> FindDemosAndSubDirs( const std::string &dir );
 };
 
 #endif

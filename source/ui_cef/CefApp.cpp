@@ -367,6 +367,13 @@ void WswCefRenderProcessHandler::OnWebKitInitialized() {
 		"		/* Complex object are passed as a JSON string */"
 		"		getVideoModes(function(result) { callback(JSON.parse(result)); });"
 		"	};"
+		"	ui.getDemosAndSubDirs = function(dir, callback) {"
+		"		native function getDemosAndSubDirs(dir, callback);"
+		"		/* Two arrays of strings are passed as strings */"
+		"		getDemosAndSubDirs(dir, function(demos, subDirs) {"
+		"			callback(JSON.parse(demos), JSON.parse(subDirs));"
+		"		});"
+		"	};"
 		"})();";
 
 	v8Handler = CefRefPtr<WswCefV8Handler>( new WswCefV8Handler );
@@ -422,6 +429,12 @@ bool WswCefRenderProcessHandler::OnProcessMessageReceived( CefRefPtr<CefBrowser>
 	// Got reply for a JS-initiated call
 	if( !name.compare( "setCVar" ) ) {
 		v8Handler->FireSetCVarCallback( message );
+		return true;
+	}
+
+	// Got reply for a JS-initiated call
+	if( !name.compare( "getDemosAndSubDirs" ) ) {
+		v8Handler->FireGetDemosAndSubDirsCallback( message );
 		return true;
 	}
 
@@ -666,6 +679,71 @@ void WswCefClient::ReplyToGetVideoModesRequest( CefRefPtr<CefBrowser> browser, C
 	browser->SendProcessMessage( PID_RENDERER, outgoing );
 }
 
+class ReplyWithDemoInfoTask: public CefTask {
+	std::vector<std::string> demos;
+	std::vector<std::string> subDirs;
+	CefRefPtr<CefBrowser> browser;
+	int callId;
+public:
+	ReplyWithDemoInfoTask( std::vector<std::string> &&demos_,
+						   std::vector<std::string> &&subDirs_,
+						   CefRefPtr<CefBrowser> browser_,
+						   int callId_ )
+		: demos( demos_ )
+		, subDirs( subDirs_ )
+		, browser( browser_ )
+		, callId( callId_ ) {}
+
+	void Execute() override {
+		auto outgoing( CefProcessMessage::Create( "getDemosAndSubDirs" ) );
+		auto outgoingArgs( outgoing->GetArgumentList() );
+		outgoingArgs->SetInt( 0, callId );
+
+		size_t index = 1;
+		outgoingArgs->SetInt( index++, (int)demos.size() );
+		for( auto &s: demos ) {
+			outgoingArgs->SetString( index++, s );
+		}
+		outgoingArgs->SetInt( index++, (int)subDirs.size() );
+		for( auto &s: subDirs ) {
+			outgoingArgs->SetString( index++, s );
+		}
+
+		browser->SendProcessMessage( PID_RENDERER, outgoing );
+	}
+
+	IMPLEMENT_REFCOUNTING( ReplyWithDemoInfoTask );
+};
+
+class RetrieveDemoInfoTask: public CefTask {
+	std::string dir;
+	CefRefPtr<CefBrowser> browser;
+	int callId;
+public:
+	RetrieveDemoInfoTask( std::string &&dir_, CefRefPtr<CefBrowser> browser_, int callId_ )
+		: dir( dir_ ), browser( browser_ ), callId( callId_ ) {}
+
+	void Execute() override {
+		std::vector<std::string> demos;
+		std::vector<std::string> subDirs;
+		std::tie( demos, subDirs ) = UiFacade::FindDemosAndSubDirs( dir );
+		CefRefPtr<CefTask> task( new ReplyWithDemoInfoTask( std::move( demos ), std::move( subDirs ), browser, callId ) );
+		// Post back to IO thread that performs IPC
+		CefPostTask( TID_IO, task );
+	}
+
+	IMPLEMENT_REFCOUNTING( RetrieveDemoInfoTask );
+};
+
+void WswCefClient::ReplyToGetDemosAndSubDirs( CefRefPtr<CefBrowser> browser, CefRefPtr<CefProcessMessage> ingoing ) {
+	auto ingoingArgs( ingoing->GetArgumentList() );
+	const int callId = ingoingArgs->GetInt( 0 );
+	CefString dir( ingoingArgs->GetString( 1 ) );
+
+	CefRefPtr<RetrieveDemoInfoTask> retrieveTask( new RetrieveDemoInfoTask( dir, browser, callId ) );
+	CefPostTask( TID_FILE_BACKGROUND, retrieveTask );
+}
+
 bool WswCefClient::OnProcessMessageReceived( CefRefPtr<CefBrowser> browser,
 											 CefProcessId source_process,
 											 CefRefPtr<CefProcessMessage> processMessage ) {
@@ -698,6 +776,11 @@ bool WswCefClient::OnProcessMessageReceived( CefRefPtr<CefBrowser> browser,
 
 	if( !name.compare( "setCVar" ) ) {
 		ReplyForSetCVarRequest( browser, processMessage );
+		return true;
+	}
+
+	if( !name.compare( "getDemosAndSubDirs" ) ) {
+		ReplyToGetDemosAndSubDirs( browser, processMessage );
 		return true;
 	}
 
@@ -921,8 +1004,37 @@ void WswCefV8Handler::PostGetVideoModesRequest( const CefV8ValueList &arguments,
 	const int id = NextCallId();
 	callbacks[id] = std::make_pair( context, arguments.back() );
 
-	auto message( CefProcessMessage::Create( "" ) );
+	auto message( CefProcessMessage::Create( "getVideoModes" ) );
 	message->GetArgumentList()->SetInt( 0, id );
+
+	retval = CefV8Value::CreateNull();
+	context->GetBrowser()->SendProcessMessage( PID_BROWSER, message );
+}
+
+void WswCefV8Handler::PostGetDemosAndSubDirsRequest( const CefV8ValueList &args,
+													 CefRefPtr<CefV8Value> &retval,
+													 CefString &exception ) {
+	if( args.size() != 2 ) {
+		exception = "Illegal arguments list size, there must be two arguments";
+		return;
+	}
+
+	CefString dir;
+	if( !TryGetString( args[0], "dir", dir, exception ) ) {
+		return;
+	}
+	if( !ValidateCallback( args.back(), exception ) ) {
+		return;
+	}
+
+	auto context( CefV8Context::GetCurrentContext() );
+	const int id = NextCallId();
+	callbacks[id] = std::make_pair( context, args.back() );
+
+	auto message( CefProcessMessage::Create( "getDemosAndSubDirs" ) );
+	auto messageArgs( message->GetArgumentList() );
+	messageArgs->SetInt( 0, id );
+	messageArgs->SetString( 1, dir );
 
 	retval = CefV8Value::CreateNull();
 	context->GetBrowser()->SendProcessMessage( PID_BROWSER, message );
@@ -1042,6 +1154,29 @@ void WswCefV8Handler::FireGetVideoModesCallback( CefRefPtr<CefProcessMessage> re
 	}
 }
 
+void WswCefV8Handler::FireGetDemosAndSubDirsCallback( CefRefPtr<CefProcessMessage> reply ) {
+	auto args( reply->GetArgumentList() );
+	const size_t numArgs = args->GetSize();
+	if( numArgs < 3 ) {
+		// TODO: Report an error...
+		return;
+	}
+
+	CefRefPtr<CefV8Context> context;
+	CefRefPtr<CefV8Value> callback;
+	if( !TryUnregisterCallback( args->GetInt( 0 ), context, callback ) ) {
+		return;
+	}
+
+	CefV8ValueList callbackArgs;
+	callbackArgs.emplace_back( CefV8Value::CreateString( "TODO" ) );
+	callbackArgs.emplace_back( CefV8Value::CreateString( "TODO" ) );
+	if( !callback->ExecuteFunctionWithContext( context, nullptr, callbackArgs ).get() ) {
+		// TODO: Report execution error
+		return;
+	}
+}
+
 bool WswCefV8Handler::Execute( const CefString& name,
 							   CefRefPtr<CefV8Value> object,
 							   const CefV8ValueList& arguments,
@@ -1066,6 +1201,11 @@ bool WswCefV8Handler::Execute( const CefString& name,
 
 	if( !name.compare( "setCVar" ) ) {
 		PostSetCVarRequest( arguments, retval, exception );
+		return true;
+	}
+
+	if( !name.compare( "getDemosAndSubDirs" ) ) {
+		PostGetDemosAndSubDirsRequest( arguments, retval, exception );
 		return true;
 	}
 

@@ -2,6 +2,8 @@
 #include "CefApp.h"
 #include "Api.h"
 
+#include "../qcommon/version.warsow.h"
+
 UiFacade *UiFacade::instance = nullptr;
 
 bool UiFacade::Init( int argc, char **argv, void *hInstance, int width_, int height_,
@@ -163,4 +165,106 @@ std::vector<std::pair<int, int>> UiFacade::GetVideoModes() {
 	}
 
 	return result;
+};
+
+class DirectoryWalker {
+protected:
+	char buffer[1024];
+	const char *extension;
+
+	// A directory is specified at the moment of this call, so the object is reusable for many directories
+	void Exec( const char *dir_ );
+	void ParseBuffer();
+	size_t ScanFilename( const char *p, const char **lastDot );
+public:
+	// Filter options should be specified here
+	explicit DirectoryWalker( const char *extension_ )
+		: extension( extension_ ) {}
+
+	virtual ~DirectoryWalker() {}
+	virtual void ConsumeEntry( const char *p, size_t len, const char *lastDot ) = 0;
+};
+
+class StlCompatDirectoryWalker final: public DirectoryWalker {
+	std::vector<std::string> result;
+	bool stripExtension;
+public:
+	StlCompatDirectoryWalker( const char *extension_, bool stripExtension_ )
+		: DirectoryWalker( extension_ ), stripExtension( extension_ && stripExtension_ ) {};
+
+	std::vector<std::string> Exec( const char *dir );
+
+	void ConsumeEntry( const char *p, size_t len, const char *lastDot ) override {
+		if( stripExtension && lastDot ) {
+			len = (size_t)( lastDot - p );
+		}
+		result.emplace_back( std::string( p, len ) );
+	}
+};
+
+void DirectoryWalker::Exec( const char *dir_ ) {
+	int totalFiles = api->FS_GetFileList( dir_, extension, nullptr, 0, 0, 0 );
+	for( int startAtFile = 0; startAtFile < totalFiles; ) {
+		int numFiles = api->FS_GetFileList( dir_, extension, buffer, sizeof( buffer ), startAtFile, totalFiles );
+		if( !numFiles ) {
+			// Go to next start file on failure
+			startAtFile++;
+			continue;
+		}
+		ParseBuffer();
+		startAtFile += numFiles;
+	}
+}
+
+size_t DirectoryWalker::ScanFilename( const char *p, const char **lastDot ) {
+	const char *const oldp = p;
+	// Scan for the zero byte, marking the first dot as well
+	for(;; ) {
+		char ch = *p;
+		if( !ch ) {
+			break;
+		}
+		if( ch == '.' ) {
+			*lastDot = p;
+		}
+		p++;
+	}
+	return (size_t)( p - oldp );
+}
+
+void DirectoryWalker::ParseBuffer() {
+	size_t len = 0;
+	// Hop over the last zero byte on every iteration
+	for( const char *p = buffer; p - buffer < sizeof( buffer ); p += len + 1 ) {
+		const char *lastDot = nullptr;
+		len = ScanFilename( p, &lastDot );
+		if( !len ) {
+			break;
+		}
+		// Skip hidden files and directory links
+		if( *p == '.' ) {
+			continue;
+		}
+		ConsumeEntry( p, len, lastDot );
+	}
+}
+
+std::vector<std::string> StlCompatDirectoryWalker::Exec( const char *dir ) {
+	DirectoryWalker::Exec( dir );
+
+	// Clear the current buffer and at the same time return the temporary buffer by moving
+	std::vector<std::string> retVal;
+	result.swap( retVal );
+	return retVal;
+}
+
+std::pair<std::vector<std::string>, std::vector<std::string>> UiFacade::FindDemosAndSubDirs( const std::string &dir ) {
+	const char *realDir = dir.empty() ? "demos" : dir.c_str();
+
+	auto findFiles = [&]( const char *ext ) {
+		StlCompatDirectoryWalker walker( ext, false );
+		return walker.Exec( realDir );
+	};
+
+	return std::make_pair( findFiles( APP_DEMO_EXTENSION_STR ), findFiles( "/" ) );
 };
