@@ -97,20 +97,16 @@ class WswCefRenderProcessHandler: public CefRenderProcessHandler {
 
 	void SendLogMessage( CefRefPtr<CefBrowser> browser, const CefString &message );
 
-	inline static const char *BoolAsParam( bool value ) {
-		return value ? "true" : "false";
-	}
-
 	static const char *ClientStateAsParam( int state );
 	static const char *ServerStateAsParam( int state );
 	static const char *DownloadTypeAsParam( int type );
 
-	std::string MakeGameCommandCall( const CefRefPtr<CefProcessMessage> &message );
-	std::string MakeMouseSetCall( const CefRefPtr<CefProcessMessage> &message );
-	std::string MakeUpdateMainScreenStateCall( const CefRefPtr<CefProcessMessage> &message );
-	std::string MakeUpdateConnectScreenStateCall( const CefRefPtr<CefProcessMessage> &message );
+	CefString MakeGameCommandCall( const CefRefPtr<CefProcessMessage> &message );
+	CefString MakeMouseSetCall( const CefRefPtr<CefProcessMessage> &message );
+	CefString MakeUpdateMainScreenStateCall( const CefRefPtr<CefProcessMessage> &message );
+	CefString MakeUpdateConnectScreenStateCall( const CefRefPtr<CefProcessMessage> &message );
 
-	std::string DescribeException( const std::string &code, CefRefPtr<CefV8Exception> exception );
+	CefString DescribeException( const std::string &code, CefRefPtr<CefV8Exception> exception );
 
 	bool ExecuteJavascript( CefRefPtr<CefBrowser> browser, const std::string &code );
 

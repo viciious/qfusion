@@ -1,6 +1,7 @@
 #include "CefApp.h"
 #include "UiFacade.h"
 #include "Api.h"
+#include "CefStringBuilder.h"
 
 #include "include/wrapper/cef_helpers.h"
 
@@ -448,40 +449,36 @@ bool WswCefRenderProcessHandler::OnProcessMessageReceived( CefRefPtr<CefBrowser>
 	return false;
 }
 
-std::string WswCefRenderProcessHandler::MakeGameCommandCall( const CefRefPtr<CefProcessMessage> &message ) {
+CefString WswCefRenderProcessHandler::MakeGameCommandCall( const CefRefPtr<CefProcessMessage> &message ) {
 	auto messageArgs( message->GetArgumentList() );
 	size_t numArgs = messageArgs->GetSize();
 
-	CefString s;
-	std::string result;
-	// TODO: We can compute an exact amount using 2 passes and precache GetString() result calls
-	// but this is pointless as there will be many other allocations in CefString -> Std::string conversion
-	result.reserve( numArgs * 32u + 32 );
-	result += "ui.onGameCommand.apply(null, [";
+	// TODO: Precompute args size
+	CefStringBuilder sb( numArgs * 32u + 32 );
+	sb << "ui.onGameCommand.apply(null, [";
 	for( size_t i = 0; i < numArgs; ++i ) {
-		result += '"';
-		result += messageArgs->GetString( i ).ToString();
-		result += '"';
-		result += ',';
+		sb << '"' << messageArgs->GetString( i ) << '"' << ',';
 	}
+
 	if( numArgs ) {
 		// Chop the last comma
-		result.pop_back();
+		sb.ChopLast();
 	}
-	result += "])";
-	return result;
+	sb << "])";
+
+	return sb.ReleaseOwnership();
 }
 
-std::string WswCefRenderProcessHandler::MakeMouseSetCall( const CefRefPtr<CefProcessMessage> &message ) {
+CefString WswCefRenderProcessHandler::MakeMouseSetCall( const CefRefPtr<CefProcessMessage> &message ) {
 	auto args( message->GetArgumentList() );
-	std::stringstream s;
-	s << "ui.onMouseSet({ ";
-	s << "context : "      << args->GetInt( 0 ) << ',';
-	s << "mx : "           << args->GetInt( 1 ) << ',';
-	s << "my : "           << args->GetInt( 2 ) << ',';
-	s << "showCursor : "   << BoolAsParam( args->GetBool( 3 ) );
-	s << " })";
-	return s.str();
+	CefStringBuilder sb;
+	sb << "ui.onMouseSet({ ";
+	sb << "context : "      << args->GetInt( 0 ) << ',';
+	sb << "mx : "           << args->GetInt( 1 ) << ',';
+	sb << "my : "           << args->GetInt( 2 ) << ',';
+	sb << "showCursor : "   << args->GetBool( 3 );
+	sb << " })";
+	return sb.ReleaseOwnership();
 }
 
 const char *WswCefRenderProcessHandler::DownloadTypeAsParam( int type ) {
@@ -525,62 +522,70 @@ const char *WswCefRenderProcessHandler::ServerStateAsParam( int state ) {
 	}
 }
 
-std::string WswCefRenderProcessHandler::MakeUpdateConnectScreenStateCall( const CefRefPtr<CefProcessMessage> &message ) {
+CefString WswCefRenderProcessHandler::MakeUpdateConnectScreenStateCall( const CefRefPtr<CefProcessMessage> &message ) {
 	auto args( message->GetArgumentList() );
 
 	CefString rejectMessage( args->GetString( 1 ) );
 
-	std::stringstream s;
+	CefStringBuilder sb;
 
-	s << "ui.updateConnectScreenState({ ";
-	s << " serverName : \""  << args->GetString( 0 ).ToString() << "\",";
-	s << " connectCount: "   << args->GetInt( 6 ) << ",";
-	s << " background : "    << BoolAsParam( args->GetBool( 7 ) );
+	sb << "ui.updateConnectScreenState({ ";
+	sb << " serverName : \""  << args->GetString( 0 ) << "\",";
+	sb << " connectCount: "   << args->GetInt( 6 ) << ",";
+	sb << " background : "    << args->GetBool( 7 ) << ",";
 
 	if( !rejectMessage.empty() ) {
-		s << " rejectMessage: \"" << rejectMessage.ToString() << "\",";
+		sb << " rejectMessage: \"" << rejectMessage << "\",";
 	}
 
 	int downloadType = args->GetInt( 3 );
 	if( downloadType != DOWNLOADTYPE_NONE ) {
-		s << " download: { ";
-		s << " file: \""   << args->GetString( 2 ).ToString() << "\",";
-		s << " type: "     << DownloadTypeAsParam( downloadType );
-		s << " percent: "  << args->GetDouble( 4 ) << ',';
-		s << " speed: "    << args->GetDouble( 5 ) << ',';
-		s << " }";
+		sb << " download: { ";
+		sb << " file: \""   << args->GetString( 2 ) << "\",";
+		sb << " type: "     << DownloadTypeAsParam( downloadType );
+		sb << " percent: "  << args->GetDouble( 4 ) << ',';
+		sb << " speed: "    << args->GetDouble( 5 ) << ',';
+		sb << " },";
 	}
 
-	s << " })";
-	return s.str();
+	sb.ChopLast();
+	sb << " })";
+
+	return sb.ReleaseOwnership();
 }
 
-std::string WswCefRenderProcessHandler::MakeUpdateMainScreenStateCall( const CefRefPtr<CefProcessMessage> &message ) {
+CefString WswCefRenderProcessHandler::MakeUpdateMainScreenStateCall( const CefRefPtr<CefProcessMessage> &message ) {
 	auto args( message->GetArgumentList() );
-	std::stringstream s;
-	s << "ui.updateMainScreenState({ ";
-	s << " clientState : "    << ClientStateAsParam( args->GetInt( 0 ) ) << ',';
-	s << " serverState : "    << ServerStateAsParam( args->GetInt( 1 ) ) << ',';
+
+	CefStringBuilder sb;
+
+	sb << "ui.updateMainScreenState({ ";
+	sb << " clientState : "    << ClientStateAsParam( args->GetInt( 0 ) ) << ',';
+	sb << " serverState : "    << ServerStateAsParam( args->GetInt( 1 ) ) << ',';
 	if( args->GetBool( 4 ) ) {
-		s << "demoPlayback : { ";
-		s << " state: \"" << ( args->GetBool( 5 ) ? "paused" : "playing" ) << "\",";
-		s << " file: \"" << args->GetString( 3 ).ToString() << "\",",
-		s << " time: " << args->GetInt( 2 );
-		s << " },";
+		sb << "demoPlayback : { ";
+		sb << " state: \"" << ( args->GetBool( 5 ) ? "paused" : "playing" ) << "\",";
+		sb << " file: \"" << args->GetString( 3 ) << "\",",
+		sb << " time: " << args->GetInt( 2 );
+		sb << " },";
 	}
-	s << " showCursor : "     << BoolAsParam( args->GetBool( 6 ) ) << ',';
-	s << " background : "     << BoolAsParam( args->GetBool( 7 ) );
-	s << " })";
-	return s.str();
+
+	sb << " showCursor : "     << args->GetBool( 6 ) << ',';
+	sb << " background : "     << args->GetBool( 7 );
+	sb << " })";
+
+	return sb.ReleaseOwnership();
 }
 
-std::string WswCefRenderProcessHandler::DescribeException( const std::string &code, CefRefPtr<CefV8Exception> exception ) {
-	std::stringstream s;
-	s << "An execution of `" << code << "` has failed with exception: ";
-	s << "message=`" << exception->GetMessage().ToString() << "`,";
-	s << "line=" << exception->GetLineNumber() << ",";
-	s << "column=" << exception->GetStartColumn();
-	return s.str();
+CefString WswCefRenderProcessHandler::DescribeException( const std::string &code, CefRefPtr<CefV8Exception> exception ) {
+	CefStringBuilder sb;
+	sb << "An execution of `" << code << "` has failed with exception: ";
+
+	sb << "message=`" << exception->GetMessage() << "`,";
+	sb << "line="     << exception->GetLineNumber() << ",";
+	sb << "column="   << exception->GetStartColumn();
+
+	return sb.ReleaseOwnership();
 }
 
 bool WswCefRenderProcessHandler::ExecuteJavascript( CefRefPtr<CefBrowser> browser, const std::string &code ) {
@@ -1135,7 +1140,7 @@ void WswCefV8Handler::FireGetVideoModesCallback( CefRefPtr<CefProcessMessage> re
 
 	// We pass args as a JSON string
 
-	std::stringstream ss;
+	CefStringBuilder ss;
 	ss << "{ ";
 	for( size_t i = 1; i < numArgs; i += 2 ) {
 		auto width = args->GetInt( i + 0 );
@@ -1143,11 +1148,11 @@ void WswCefV8Handler::FireGetVideoModesCallback( CefRefPtr<CefProcessMessage> re
 		ss << "{ width : " << width << ", height :" << height << " },";
 	};
 	// Chop last comma (we're sure there was at least a single mode)
-	ss.get();
+	ss.ChopLast();
 	ss << " }";
 
 	CefV8ValueList callbackArgs;
-	callbackArgs.emplace_back( CefV8Value::CreateString( ss.str() ) );
+	callbackArgs.emplace_back( CefV8Value::CreateString( ss.ReleaseOwnership() ) );
 	if( !callback->ExecuteFunctionWithContext( context, nullptr, callbackArgs ).get() ) {
 		// TODO: Report execution error
 		return;
