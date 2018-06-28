@@ -1178,9 +1178,23 @@ void GetDemosAndSubDirsRequest::FireCallback( CefRefPtr<CefProcessMessage> reply
 		return;
 	}
 
+	size_t argNum = 1;
 	CefV8ValueList callbackArgs;
-	callbackArgs.emplace_back( CefV8Value::CreateString( "TODO" ) );
-	callbackArgs.emplace_back( CefV8Value::CreateString( "TODO" ) );
+	CefStringBuilder sb;
+	for( int arrayGroup = 0; arrayGroup < 2; ++arrayGroup ) {
+		if( size_t numArgs = args->GetInt( argNum++ ) ) {
+			sb.Clear();
+			sb << '[';
+			for( size_t i = argNum + 1; i < numArgs; ++i ) {
+				sb << '"' << args->GetString( argNum++ ) << "\",";
+			}
+			sb.ChopLast();
+			sb << ']';
+			callbackArgs.emplace_back( CefV8Value::CreateString( sb.ReleaseOwnership() ) );
+		} else {
+			callbackArgs.emplace_back( CefV8Value::CreateString( "[]" ) );
+		}
+	}
 
 	ExecuteCallback( callbackArgs );
 }
