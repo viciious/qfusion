@@ -50,33 +50,193 @@ public:
 	void OnContextInitialized() override;
 };
 
+
+class WswCefRenderProcessHandler;
+
+class RenderProcessLogger {
+	CefRefPtr<CefBrowser> browser;
+
+	virtual void SendLogMessage( cef_log_severity_t severity, const char *format, va_list va );
+public:
+	explicit RenderProcessLogger( CefRefPtr<CefBrowser> browser_ ): browser( browser_ ) {}
+
+#ifndef _MSC_VER
+	void Debug( const char *format, ... ) __attribute__( ( format( printf, 2, 3 ) ) );
+	void Info( const char *format, ... ) __attribute__( ( format( printf, 2, 3 ) ) );
+	void Warning( const char *format, ... ) __attribute__( ( format( printf, 2, 3 ) ) );
+	void Error( const char *format, ... ) __attribute__( ( format( printf, 2, 3 ) ) );
+#else
+	void Debug( _Printf_format_string_ const char *format, ... );
+	void Info( _Printf_format_string_ const char *format, ... );
+	void Warning( _Printf_format_string_ const char *format, ... );
+	void Error( _Printf_format_string_ const char *format, ... );
+#endif
+
+	bool UsesBrowser( const CefRefPtr<CefBrowser> &browser_ ) const {
+		return this->browser->IsSame( browser_ );
+	}
+};
+
+class WswCefV8Handler;
+
+class PendingCallbackRequest {
+	WswCefV8Handler *const parent;
+protected:
+	const int id;
+	CefRefPtr<CefV8Context> context;
+	CefRefPtr<CefV8Value> callback;
+	const CefString &method;
+
+	inline RenderProcessLogger *Logger();
+
+	inline void ReportNumArgsMismatch( size_t actual, const char *expected );
+	inline void ExecuteCallback( const CefV8ValueList &args );
+public:
+	PendingCallbackRequest( WswCefV8Handler *parent_,
+							CefRefPtr<CefV8Context> context_,
+							CefRefPtr<CefV8Value> callback_,
+							const CefString &method_ );
+
+	int Id() const { return id; }
+
+	virtual void FireCallback( CefRefPtr<CefProcessMessage> reply ) = 0;
+
+	static const CefString getCVar;
+	static const CefString setCVar;
+	static const CefString executeCmd;
+	static const CefString getVideoModes;
+	static const CefString getDemosAndSubDirs;
+};
+
+class PendingRequestLauncher {
+protected:
+	WswCefV8Handler *const parent;
+	const CefString &method;
+	const std::string logTag;
+	PendingRequestLauncher *next;
+
+	inline RenderProcessLogger *Logger();
+
+	inline bool TryGetString( const CefRefPtr<CefV8Value> &jsValue, const char *tag, CefString &value, CefString &ex );
+	inline bool ValidateCallback( const CefRefPtr<CefV8Value> &jsValue, CefString &exception );
+
+	CefRefPtr<CefProcessMessage> NewMessage() {
+		return CefProcessMessage::Create( method );
+	}
+
+	void Commit( std::shared_ptr<PendingCallbackRequest> request,
+				 const CefRefPtr<CefV8Context> &context,
+				 CefRefPtr<CefProcessMessage> message,
+				 CefRefPtr<CefV8Value> &retVal,
+				 CefString &exception );
+public:
+	explicit PendingRequestLauncher( WswCefV8Handler *parent_, const CefString &method_ );
+
+	const CefString &Method() const { return method; }
+	PendingRequestLauncher *Next() { return next; }
+	const std::string &LogTag() const { return logTag; }
+
+	virtual void StartExec( const CefV8ValueList &jsArgs, CefRefPtr<CefV8Value> &retVal, CefString &exception ) = 0;
+};
+
+template <typename Request>
+class TypedPendingRequestLauncher: public PendingRequestLauncher {
+protected:
+	inline std::shared_ptr<Request> NewRequest( CefRefPtr<CefV8Context> context, CefRefPtr<CefV8Value> callback ) {
+		return std::make_shared<Request>( parent, context, callback );
+	}
+
+public:
+	TypedPendingRequestLauncher( WswCefV8Handler *parent_, const CefString &method_ )
+		: PendingRequestLauncher( parent_, method_ ) {}
+};
+
+class WswCefClient;
+
+class CallbackRequestHandler {
+protected:
+	WswCefClient *const parent;
+	const CefString &method;
+	const std::string logTag;
+	CallbackRequestHandler *next;
+
+	CefRefPtr<CefProcessMessage> NewMessage() {
+		return CefProcessMessage::Create( method );
+	}
+public:
+	CallbackRequestHandler( WswCefClient *parent_, const CefString &method_ );
+
+	CallbackRequestHandler *Next() { return next; }
+	const CefString &Method() { return method; }
+	const std::string &LogTag() const { return logTag; }
+
+	virtual void ReplyToRequest( CefRefPtr<CefBrowser> browser, CefRefPtr<CefProcessMessage> ingoing ) = 0;
+};
+
+#define DERIVE_PENDING_CALLBACK_REQUEST( Derived, method )                                                           \
+class Derived: public PendingCallbackRequest {                                                                       \
+public:																												 \
+	Derived( WswCefV8Handler *parent_, CefRefPtr<CefV8Context> context_, CefRefPtr<CefV8Value> callback_ )           \
+		: PendingCallbackRequest( parent_, context_, callback_, method ) {}                                          \
+	void FireCallback( CefRefPtr<CefProcessMessage> reply ) override;                                                \
+};                                                                                                                   \
+																													 \
+class Derived##Launcher: public TypedPendingRequestLauncher<Derived> {                                               \
+public:                                                                                                              \
+	explicit Derived##Launcher( WswCefV8Handler *parent_ ): TypedPendingRequestLauncher( parent_, method ) {}        \
+	void StartExec( const CefV8ValueList &jsArgs, CefRefPtr<CefV8Value> &retVal, CefString &exception ) override;    \
+};																													 \
+																													 \
+class Derived##Handler: public CallbackRequestHandler {																 \
+public:																												 \
+	explicit Derived##Handler( WswCefClient *parent_ ): CallbackRequestHandler( parent_, method ) {}				 \
+	void ReplyToRequest( CefRefPtr<CefBrowser> browser, CefRefPtr<CefProcessMessage> ingoing ) override;             \
+}
+
+DERIVE_PENDING_CALLBACK_REQUEST( GetCVarRequest, PendingCallbackRequest::getCVar );
+
+DERIVE_PENDING_CALLBACK_REQUEST( SetCVarRequest, PendingCallbackRequest::setCVar );
+
+DERIVE_PENDING_CALLBACK_REQUEST( ExecuteCmdRequest, PendingCallbackRequest::executeCmd );
+
+DERIVE_PENDING_CALLBACK_REQUEST( GetVideoModesRequest, PendingCallbackRequest::getVideoModes );
+
+DERIVE_PENDING_CALLBACK_REQUEST( GetDemosAndSubDirsRequest, PendingCallbackRequest::getDemosAndSubDirs );
+
 class WswCefV8Handler: public CefV8Handler {
+	friend class PendingCallbackRequest;
+	friend class PendingRequestLauncher;
 	friend class WswCefRenderProcessHandler;
 
-	std::unordered_map<int, std::pair<CefRefPtr<CefV8Context>, CefRefPtr<CefV8Value>>> callbacks;
+	WswCefRenderProcessHandler *renderProcessHandler;
+
+	PendingRequestLauncher *requestLaunchersHead;
+
+	GetCVarRequestLauncher getCVar;
+	SetCVarRequestLauncher setCVar;
+	ExecuteCmdRequestLauncher executeCmd;
+	GetVideoModesRequestLauncher getVideoModes;
+	GetDemosAndSubDirsRequestLauncher getDemosAndSubDirs;
+
+	std::unordered_map<int, std::shared_ptr<PendingCallbackRequest>> callbacks;
 	// We use an unsigned counter to ensure that the overflow behaviour is defined
 	unsigned callId;
 
 	inline int NextCallId() { return (int)( callId++ ); }
 
-	void PostGetCVarRequest( const CefV8ValueList &arguments, CefRefPtr<CefV8Value> &retval, CefString &exception );
-	void PostSetCVarRequest( const CefV8ValueList &arguments, CefRefPtr<CefV8Value> &retval, CefString &exception );
-	void PostExecuteCmdRequest( const CefV8ValueList &arguments, CefRefPtr<CefV8Value> &retval, CefString &exception );
-	void PostGetVideoModesRequest( const CefV8ValueList &arguments, CefRefPtr<CefV8Value> &retval, CefString &exception );
-	void PostGetDemosAndSubDirsRequest( const CefV8ValueList &args, CefRefPtr<CefV8Value> &retval, CefString &exception );
+	void ProcessAsAwaitedReply( CefRefPtr<CefProcessMessage> &message );
 
-	inline bool TryGetString( const CefRefPtr<CefV8Value> &jsValue, const char *tag, CefString &value, CefString &ex );
-	inline bool ValidateCallback( const CefRefPtr<CefV8Value> &jsValue, CefString &exception );
-
-	void FireGetCVarCallback( CefRefPtr<CefProcessMessage> reply );
-	void FireSetCVarCallback( CefRefPtr<CefProcessMessage> reply );
-	void FireExecuteCmdCallback( CefRefPtr<CefProcessMessage> reply );
-	void FireGetVideoModesCallback( CefRefPtr<CefProcessMessage> reply );
-	void FireGetDemosAndSubDirsCallback( CefRefPtr<CefProcessMessage> reply );
-
-	inline bool TryUnregisterCallback( int id, CefRefPtr<CefV8Context> &context, CefRefPtr<CefV8Value> &callback );
+	inline RenderProcessLogger *Logger();
 public:
-	WswCefV8Handler(): callId( 0 ) {}
+	explicit WswCefV8Handler( WswCefRenderProcessHandler *renderProcessHandler_ )
+		: renderProcessHandler( renderProcessHandler_ )
+		, requestLaunchersHead( nullptr )
+		, getCVar( this )
+		, setCVar( this )
+		, executeCmd( this )
+		, getVideoModes( this )
+		, getDemosAndSubDirs( this )
+		, callId( 0 ) {}
 
 	bool Execute( const CefString& name,
 				  CefRefPtr<CefV8Value> object,
@@ -84,19 +244,12 @@ public:
 				  CefRefPtr<CefV8Value>& retval,
 				  CefString& exception ) override;
 
+	bool CheckForReply( const CefString &name, CefRefPtr<CefProcessMessage> message );
+
 	IMPLEMENT_REFCOUNTING( WswCefV8Handler );
 };
 
 class WswCefRenderProcessHandler: public CefRenderProcessHandler {
-	void SendLogMessage( CefRefPtr<CefBrowser> browser, const std::string &message ) {
-		return SendLogMessage( browser, CefString( message ) );
-	}
-	void SendLogMessage( CefRefPtr<CefBrowser> browser, const char *message ) {
-		return SendLogMessage( browser, CefString( message ) );
-	}
-
-	void SendLogMessage( CefRefPtr<CefBrowser> browser, const CefString &message );
-
 	static const char *ClientStateAsParam( int state );
 	static const char *ServerStateAsParam( int state );
 	static const char *DownloadTypeAsParam( int type );
@@ -111,15 +264,33 @@ class WswCefRenderProcessHandler: public CefRenderProcessHandler {
 	bool ExecuteJavascript( CefRefPtr<CefBrowser> browser, const std::string &code );
 
 	CefRefPtr<WswCefV8Handler> v8Handler;
+	std::shared_ptr<RenderProcessLogger> logger;
 public:
-	IMPLEMENT_REFCOUNTING( WswCefRenderProcessHandler );
-
 	void OnWebKitInitialized() override;
+
+	void OnBrowserCreated( CefRefPtr<CefBrowser> browser ) override;
+	void OnBrowserDestroyed( CefRefPtr<CefBrowser> browser ) override;
 
 	bool OnProcessMessageReceived( CefRefPtr<CefBrowser> browser,
 								   CefProcessId source_process,
 								   CefRefPtr<CefProcessMessage> message ) override;
+
+	RenderProcessLogger *Logger() { return logger.get(); };
+
+	IMPLEMENT_REFCOUNTING( WswCefRenderProcessHandler );
 };
+
+inline RenderProcessLogger* WswCefV8Handler::Logger() {
+	return renderProcessHandler->Logger();
+}
+
+inline RenderProcessLogger *PendingCallbackRequest::Logger() {
+	return parent->Logger();
+}
+
+inline RenderProcessLogger *PendingRequestLauncher::Logger() {
+	return parent->Logger();
+}
 
 class WswCefRenderHandler: public CefRenderHandler {
 	const int width;
@@ -162,18 +333,29 @@ public:
 class WswCefClient;
 
 class WswCefClient: public CefClient, public CefLifeSpanHandler {
+	friend class CallbackRequestHandler;
 public:
 	IMPLEMENT_REFCOUNTING( WswCefClient );
 
-	void ReplyForGetCVarRequest( CefRefPtr<CefBrowser> browser, CefRefPtr<CefProcessMessage> message );
-	void ReplyForSetCVarRequest( CefRefPtr<CefBrowser> browser, CefRefPtr<CefProcessMessage> message );
-	void ReplyForExecuteCmdRequest( CefRefPtr<CefBrowser> browser, CefRefPtr<CefProcessMessage> message );
-	void ReplyToGetVideoModesRequest( CefRefPtr<CefBrowser> browser, CefRefPtr<CefProcessMessage> message );
-	void ReplyToGetDemosAndSubDirs( CefRefPtr<CefBrowser> browser, CefRefPtr<CefProcessMessage> message );
+	CallbackRequestHandler *requestHandlersHead;
+
+	GetCVarRequestHandler getCVar;
+	SetCVarRequestHandler setCVar;
+	ExecuteCmdRequestHandler executeCmd;
+	GetVideoModesRequestHandler getVideoModes;
+	GetDemosAndSubDirsRequestHandler getDemosAndSubDirs;
+
 public:
 	CefRefPtr<WswCefRenderHandler> renderHandler;
 
-	WswCefClient() : renderHandler( new WswCefRenderHandler ) {
+	WswCefClient()
+		: requestHandlersHead( nullptr )
+		, getCVar( this )
+		, setCVar( this )
+		, executeCmd( this )
+		, getVideoModes( this )
+		, getDemosAndSubDirs( this )
+		, renderHandler( new WswCefRenderHandler ) {
 		UiFacade::Instance()->RegisterRenderHandler( renderHandler.get() );
 	}
 

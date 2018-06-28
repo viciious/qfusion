@@ -335,6 +335,44 @@ void WswCefRenderHandler::OnPaint( CefRefPtr<CefBrowser> browser,
 	memcpy( drawnEveryFrameBuffer, buffer, width * height * 4u );
 }
 
+#define IMPLEMENT_LOGGER_METHOD( Name, SEVERITY )                \
+void RenderProcessLogger::Name( const char *format, ... ) {   \
+	va_list va;                                                  \
+	va_start( va, format );                                      \
+	SendLogMessage( SEVERITY, format, va );                      \
+	va_end( va );                                                \
+}
+
+IMPLEMENT_LOGGER_METHOD( Debug, LOGSEVERITY_DEBUG )
+IMPLEMENT_LOGGER_METHOD( Info, LOGSEVERITY_INFO )
+IMPLEMENT_LOGGER_METHOD( Warning, LOGSEVERITY_WARNING )
+IMPLEMENT_LOGGER_METHOD( Error, LOGSEVERITY_ERROR )
+
+void RenderProcessLogger::SendLogMessage( cef_log_severity_t severity, const char *format, va_list va ) {
+	char buffer[2048];
+	vsnprintf( buffer, sizeof( buffer ), format, va );
+
+	auto message( CefProcessMessage::Create( "log" ) );
+	auto args( message->GetArgumentList() );
+	args->SetString( 0, buffer );
+	args->SetInt( 1, severity );
+	browser->SendProcessMessage( PID_BROWSER, message );
+}
+
+void WswCefRenderProcessHandler::OnBrowserCreated( CefRefPtr<CefBrowser> browser ) {
+	if( !logger.get() ) {
+		auto newLogger( std::make_shared<RenderProcessLogger>( browser ) );
+		logger.swap( newLogger );
+	}
+}
+
+void WswCefRenderProcessHandler::OnBrowserDestroyed( CefRefPtr<CefBrowser> browser ) {
+	if( logger->UsesBrowser( browser ) ) {
+		std::shared_ptr<RenderProcessLogger> emptyLogger;
+		logger.swap( emptyLogger );
+	}
+}
+
 void WswCefRenderProcessHandler::OnWebKitInitialized() {
 	const char *code =
 		"var ui; if (!ui) { ui = {}; }"
@@ -377,18 +415,10 @@ void WswCefRenderProcessHandler::OnWebKitInitialized() {
 		"	};"
 		"})();";
 
-	v8Handler = CefRefPtr<WswCefV8Handler>( new WswCefV8Handler );
+	v8Handler = CefRefPtr<WswCefV8Handler>( new WswCefV8Handler( this ) );
 	if( !CefRegisterExtension( "v8/gameUi", code, v8Handler ) ) {
 		// TODO: We do not have a browser instance at this moment
 	}
-}
-
-void WswCefRenderProcessHandler::SendLogMessage( CefRefPtr<CefBrowser> browser, const CefString &message ) {
-	auto processMessage( CefProcessMessage::Create( "log" ) );
-	auto messageArgs( processMessage->GetArgumentList() );
-	messageArgs->SetString( 0, message );
-	messageArgs->SetInt( 1, LOGSEVERITY_INFO );
-	browser->SendProcessMessage( PID_BROWSER, processMessage );
 }
 
 bool WswCefRenderProcessHandler::OnProcessMessageReceived( CefRefPtr<CefBrowser> browser,
@@ -415,37 +445,12 @@ bool WswCefRenderProcessHandler::OnProcessMessageReceived( CefRefPtr<CefBrowser>
 		return true;
 	}
 
-	// Got confirmation for command execution request
-	if( !name.compare( "executeCmd" ) ) {
-		v8Handler->FireExecuteCmdCallback( message );
+	// Got confirmation/reply for a JS-initiated call
+	if( v8Handler->CheckForReply( name, message ) ) {
 		return true;
 	}
 
-	// Got reply for a JS-initiated call
-	if( !name.compare( "getCVar" ) ) {
-		v8Handler->FireGetCVarCallback( message );
-		return true;
-	}
-
-	// Got reply for a JS-initiated call
-	if( !name.compare( "setCVar" ) ) {
-		v8Handler->FireSetCVarCallback( message );
-		return true;
-	}
-
-	// Got reply for a JS-initiated call
-	if( !name.compare( "getDemosAndSubDirs" ) ) {
-		v8Handler->FireGetDemosAndSubDirsCallback( message );
-		return true;
-	}
-
-	// Got reply for a JS-initiated call
-	if( !name.compare( "getVideoModes" ) ) {
-		v8Handler->FireGetVideoModesCallback( message );
-		return true;
-	}
-
-	SendLogMessage( browser, std::string( "Unexpected message name `" ) + name.ToString() + '`' );
+	Logger()->Warning( "Unexpected message name `%s`", name.ToString().c_str() );
 	return false;
 }
 
@@ -595,23 +600,25 @@ bool WswCefRenderProcessHandler::ExecuteJavascript( CefRefPtr<CefBrowser> browse
 		return false;
 	}
 
+	Logger()->Debug( "About to execute ```%s```", code.c_str() );
+
 	CefRefPtr<CefV8Value> retVal;
 	CefRefPtr<CefV8Exception> exception;
 	if( context->Eval( code, frame->GetURL(), 0, retVal, exception ) ) {
 		if( !context->Exit() ) {
-			SendLogMessage( browser, "Warning: context->Exit() call failed after successful Eval() call" );
+			Logger()->Warning( "context->Exit() call failed after successful Eval() call" );
 		}
 		return true;
 	}
 
-	SendLogMessage( browser, DescribeException( code, exception ) );
+	Logger()->Warning( "%s", DescribeException( code, exception ).ToString().c_str() );
 	if( !context->Exit() ) {
-		SendLogMessage( browser, "Warning: context->Exit() call failed after unsuccessful Eval() call" );
+		Logger()->Warning( "context->Exit() call failed after unsuccessful Eval() call" );
 	}
 	return true;
 }
 
-void WswCefClient::ReplyForGetCVarRequest( CefRefPtr<CefBrowser> browser, CefRefPtr<CefProcessMessage> ingoing ) {
+void GetCVarRequestHandler::ReplyToRequest( CefRefPtr<CefBrowser> browser, CefRefPtr<CefProcessMessage> ingoing ) {
 	auto ingoingArgs( ingoing->GetArgumentList() );
 	int id = ingoingArgs->GetInt( 1 );
 	std::string name( ingoingArgs->GetString( 1 ).ToString() );
@@ -630,7 +637,7 @@ void WswCefClient::ReplyForGetCVarRequest( CefRefPtr<CefBrowser> browser, CefRef
 	browser->SendProcessMessage( PID_RENDERER, outgoing );
 }
 
-void WswCefClient::ReplyForSetCVarRequest( CefRefPtr<CefBrowser> browser, CefRefPtr<CefProcessMessage> ingoing ) {
+void SetCVarRequestHandler::ReplyToRequest( CefRefPtr<CefBrowser> browser, CefRefPtr<CefProcessMessage> ingoing ) {
 	auto ingoingArgs( ingoing->GetArgumentList() );
 	const int id = ingoingArgs->GetInt( 0 );
 	std::string name( ingoingArgs->GetString( 1 ).ToString() );
@@ -647,7 +654,7 @@ void WswCefClient::ReplyForSetCVarRequest( CefRefPtr<CefBrowser> browser, CefRef
 		api->Cvar_Set( name.c_str(), value.c_str() );
 	}
 
-	auto outgoing( CefProcessMessage::Create( "setCVar" ) );
+	auto outgoing( NewMessage() );
 	outgoing->GetArgumentList()->SetInt( 0, id );
 	if( force ) {
 		outgoing->GetArgumentList()->SetBool( 1, forced );
@@ -656,23 +663,23 @@ void WswCefClient::ReplyForSetCVarRequest( CefRefPtr<CefBrowser> browser, CefRef
 	browser->SendProcessMessage( PID_RENDERER, outgoing );
 }
 
-void WswCefClient::ReplyForExecuteCmdRequest( CefRefPtr<CefBrowser> browser, CefRefPtr<CefProcessMessage> ingoing ) {
+void ExecuteCmdRequestHandler::ReplyToRequest( CefRefPtr<CefBrowser> browser, CefRefPtr<CefProcessMessage> ingoing ) {
 	auto ingoingArgs( ingoing->GetArgumentList() );
 	const int id = ingoingArgs->GetInt( 0 );
 
 	api->Cmd_ExecuteText( ingoingArgs->GetInt( 1 ), ingoingArgs->GetString( 2 ).ToString().c_str() );
 
-	auto outgoing( CefProcessMessage::Create( "executeCmd" ) );
+	auto outgoing( NewMessage() );
 	outgoing->GetArgumentList()->SetInt( 0, id );
 	browser->SendProcessMessage( PID_RENDERER, outgoing );
 }
 
-void WswCefClient::ReplyToGetVideoModesRequest( CefRefPtr<CefBrowser> browser, CefRefPtr<CefProcessMessage> ingoing ) {
+void GetVideoModesRequestHandler::ReplyToRequest( CefRefPtr<CefBrowser> browser, CefRefPtr<CefProcessMessage> ingoing ) {
 	const int id = ingoing->GetArgumentList()->GetInt( 0 );
 
 	std::vector<std::pair<int, int>> modes( UiFacade::GetVideoModes() );
 
-	auto outgoing( CefProcessMessage::Create( "getVideoModes" ) );
+	auto outgoing( NewMessage() );
 	auto args( outgoing->GetArgumentList() );
 	args->SetInt( 0, id );
 	size_t i = 1;
@@ -700,7 +707,7 @@ public:
 		, callId( callId_ ) {}
 
 	void Execute() override {
-		auto outgoing( CefProcessMessage::Create( "getDemosAndSubDirs" ) );
+		auto outgoing( CefProcessMessage::Create( PendingCallbackRequest::getDemosAndSubDirs ) );
 		auto outgoingArgs( outgoing->GetArgumentList() );
 		outgoingArgs->SetInt( 0, callId );
 
@@ -740,10 +747,10 @@ public:
 	IMPLEMENT_REFCOUNTING( RetrieveDemoInfoTask );
 };
 
-void WswCefClient::ReplyToGetDemosAndSubDirs( CefRefPtr<CefBrowser> browser, CefRefPtr<CefProcessMessage> ingoing ) {
+void GetDemosAndSubDirsRequestHandler::ReplyToRequest( CefRefPtr<CefBrowser> browser, CefRefPtr<CefProcessMessage> ingoing ) {
 	auto ingoingArgs( ingoing->GetArgumentList() );
-	const int callId = ingoingArgs->GetInt( 0 );
-	CefString dir( ingoingArgs->GetString( 1 ) );
+	const int callId = ingoingArgs->GetInt( 1 );
+	CefString dir( ingoingArgs->GetString( 2 ) );
 
 	CefRefPtr<RetrieveDemoInfoTask> retrieveTask( new RetrieveDemoInfoTask( dir, browser, callId ) );
 	CefPostTask( TID_FILE_BACKGROUND, retrieveTask );
@@ -755,8 +762,8 @@ bool WswCefClient::OnProcessMessageReceived( CefRefPtr<CefBrowser> browser,
 	CEF_REQUIRE_UI_THREAD();
 
 	auto name( processMessage->GetName() );
+	auto messageArgs( processMessage->GetArgumentList() );
 	if( !name.compare( "log" ) ) {
-		auto messageArgs( processMessage->GetArgumentList() );
 		std::string message( messageArgs->GetString( 0 ).ToString() );
 		//cef_log_severity_t severity = (cef_log_severity_t)messageArgs->GetInt( 1 );
 		// TODO: Use the severity for console character codes output
@@ -764,9 +771,12 @@ bool WswCefClient::OnProcessMessageReceived( CefRefPtr<CefBrowser> browser,
 		return true;
 	}
 
-	if( !name.compare( "executeCmd" ) ) {
-		ReplyForExecuteCmdRequest( browser, processMessage );
-		return true;
+	for( CallbackRequestHandler *handler = requestHandlersHead; handler; handler = handler->Next() ) {
+		if( !handler->Method().compare( name ) ) {
+			printf( "Found a handler %s for a request\n", handler->LogTag().c_str() );
+			handler->ReplyToRequest( browser, processMessage );
+			return true;
+		}
 	}
 
 	if( !name.compare( "uiPageReady" ) ) {
@@ -774,33 +784,92 @@ bool WswCefClient::OnProcessMessageReceived( CefRefPtr<CefBrowser> browser,
 		return true;
 	}
 
-	if( !name.compare( "getCVar" ) ) {
-		ReplyForGetCVarRequest( browser, processMessage );
-		return true;
-	}
-
-	if( !name.compare( "setCVar" ) ) {
-		ReplyForSetCVarRequest( browser, processMessage );
-		return true;
-	}
-
-	if( !name.compare( "getDemosAndSubDirs" ) ) {
-		ReplyToGetDemosAndSubDirs( browser, processMessage );
-		return true;
-	}
-
-	if( !name.compare( "getVideoModes" ) ) {
-		ReplyToGetVideoModesRequest( browser, processMessage );
-		return true;
-	}
-
 	return false;
 }
 
-inline bool WswCefV8Handler::TryGetString( const CefRefPtr<CefV8Value> &jsValue,
-										   const char *tag,
-										   CefString &value,
-										   CefString &exception ) {
+const CefString PendingCallbackRequest::getCVar( "getCVar" );
+const CefString PendingCallbackRequest::setCVar( "setCVar" );
+const CefString PendingCallbackRequest::executeCmd( "executeCmd" );
+const CefString PendingCallbackRequest::getVideoModes( "getVideoModes" );
+const CefString PendingCallbackRequest::getDemosAndSubDirs( "getDemosAndSubDirs" );
+
+PendingCallbackRequest::PendingCallbackRequest( WswCefV8Handler *parent_,
+												CefRefPtr<CefV8Context> context_,
+												CefRefPtr<CefV8Value> callback_,
+												const CefString &method_ )
+	: parent( parent_ )
+	, id( parent_->NextCallId() )
+	, context( context_ )
+	, callback( callback_ )
+	, method( method_ ) {}
+
+inline void PendingCallbackRequest::ReportNumArgsMismatch( size_t actual, const char *expected ) {
+	std::string tag = "PendingCallbackRequest@" + method.ToString();
+	Logger()->Error( "%s: message args size %d does not match expected %s", tag.c_str(), (int)actual, expected );
+}
+
+inline void PendingCallbackRequest::ExecuteCallback( const CefV8ValueList &args ) {
+	if( !callback->ExecuteFunctionWithContext( context, nullptr, args ).get() ) {
+		std::string tag = "PendingCallbackRequest@" + method.ToString();
+		Logger()->Error( "%s: JS callback execution failed", tag.c_str() );
+	}
+}
+
+PendingRequestLauncher::PendingRequestLauncher( WswCefV8Handler *parent_, const CefString &method_ )
+	: parent( parent_ ), method( method_ ), logTag( "PendingRequestLauncher@" + method_.ToString() ) {
+	this->next = parent_->requestLaunchersHead;
+	parent_->requestLaunchersHead = this;
+}
+
+CallbackRequestHandler::CallbackRequestHandler( WswCefClient *parent_, const CefString &method_ )
+	: parent( parent_ ), method( method_ ), logTag( "CallbackRequestHandler@" + method_.ToString() ) {
+	this->next = parent->requestHandlersHead;
+	parent->requestHandlersHead = this;
+}
+
+void PendingRequestLauncher::Commit( std::shared_ptr<PendingCallbackRequest> request,
+									 const CefRefPtr<CefV8Context> &context,
+									 CefRefPtr<CefProcessMessage> message,
+									 CefRefPtr<CefV8Value> &retVal,
+									 CefString &exception ) {
+	const int id = request->Id();
+
+#ifndef PUBLIC_BUILD
+	// Sanity checks
+	auto messageArgs( message->GetArgumentList() );
+	if( messageArgs->GetSize() < 1 ) {
+		const char *format = "%s: Commit(): Sanity check failed: An outgoing message %s has an empty args list";
+		Logger()->Error( format, logTag.c_str(), message->GetName().ToString().c_str() );
+	}
+	if( messageArgs->GetInt( 0 ) != id ) {
+		const char *format = "%s: Sanity check failed: A first argument of an outgoing message %s is not a callback id";
+		Logger()->Error( format, logTag.c_str(), message->GetName().ToString().c_str() );
+	}
+#endif
+
+	// Both of these calls might theoretically (but very unlikely) fail.
+	// Start from that one that is easy to rollback.
+	// Note: we can be sure that the reply cannot arrive before this call returns
+	// (all JS interaction is performed sequentially in the renderer thread)
+	parent->callbacks[id] = request;
+	bool succeeded = false;
+	try {
+		context->GetBrowser()->SendProcessMessage( PID_BROWSER, message );
+		succeeded = true;
+	} catch( ... ) {
+		parent->callbacks.erase( id );
+	}
+	if( succeeded ) {
+		retVal = CefV8Value::CreateNull();
+	} else {
+		exception = "Can't send a message to the browser process";
+	}
+}
+
+inline bool PendingRequestLauncher::TryGetString( const CefRefPtr<CefV8Value> &jsValue,
+												  const char *tag,
+												  CefString &value,
+												  CefString &exception ) {
 	if( !jsValue->IsString() ) {
 		exception = std::string( "The value of argument `" ) + tag + "` is not a string";
 		return false;
@@ -810,7 +879,7 @@ inline bool WswCefV8Handler::TryGetString( const CefRefPtr<CefV8Value> &jsValue,
 	return true;
 }
 
-inline bool WswCefV8Handler::ValidateCallback( const CefRefPtr<CefV8Value> &jsValue, CefString &exception ) {
+inline bool PendingRequestLauncher::ValidateCallback( const CefRefPtr<CefV8Value> &jsValue, CefString &exception ) {
 	if( !jsValue->IsFunction() ) {
 		exception = "The value of the last argument that is supposed to be a callback is not a function";
 		return false;
@@ -832,9 +901,7 @@ static const std::map<CefString, int> cvarFlagNamesTable = {
 	{ "developer"     , CVAR_DEVELOPER }
 };
 
-void WswCefV8Handler::PostGetCVarRequest( const CefV8ValueList &arguments,
-										  CefRefPtr<CefV8Value> &retval,
-										  CefString &exception ) {
+void GetCVarRequestLauncher::StartExec( const CefV8ValueList &arguments, CefRefPtr<CefV8Value> &retval, CefString &exception ) {
 	if( arguments.size() < 3 ) {
 		exception = "Illegal arguments list size, should be 3 or 4";
 		return;
@@ -880,23 +947,22 @@ void WswCefV8Handler::PostGetCVarRequest( const CefV8ValueList &arguments,
 	}
 
 	auto context( CefV8Context::GetCurrentContext() );
-	const int id = NextCallId();
-	callbacks[id] = std::make_pair( context, arguments.back() );
-
 	auto message( CefProcessMessage::Create( "getCVar" ) );
 	auto messageArgs( message->GetArgumentList() );
-	messageArgs->SetInt( 0, id );
+
+	auto request( NewRequest( context, arguments.back() ) );
+
+	messageArgs->SetInt( 0, request->Id() );
 	messageArgs->SetString( 1, name );
 	messageArgs->SetString( 2, defaultValue );
 	messageArgs->SetInt( 3, flags );
 
-	retval = CefV8Value::CreateNull();
-	context->GetBrowser()->SendProcessMessage( PID_BROWSER, message );
+	Commit( std::move( request ), context, message, retval, exception );
 }
 
-void WswCefV8Handler::PostSetCVarRequest( const CefV8ValueList &arguments,
-										  CefRefPtr<CefV8Value> &retval,
-										  CefString &exception ) {
+void SetCVarRequestLauncher::StartExec( const CefV8ValueList &arguments,
+										CefRefPtr<CefV8Value> &retval,
+										CefString &exception ) {
 	if( arguments.size() != 3 && arguments.size() != 4 ) {
 		exception = "Illegal arguments list size, should be 2 or 3";
 		return;
@@ -928,25 +994,23 @@ void WswCefV8Handler::PostSetCVarRequest( const CefV8ValueList &arguments,
 	}
 
 	auto context( CefV8Context::GetCurrentContext() );
-	const int id = NextCallId();
-	callbacks[id] = std::make_pair( context, arguments.back() );
+	auto request( NewRequest( context, arguments.back() ) );
 
 	auto message( CefProcessMessage::Create( "setCVar" ) );
 	auto messageArgs( message->GetArgumentList() );
-	messageArgs->SetInt( 0, id );
+	messageArgs->SetInt( 0, request->Id() );
 	messageArgs->SetString( 1, name );
 	messageArgs->SetString( 2, value );
 	if( forceSet ) {
 		messageArgs->SetBool( 3, forceSet );
 	}
 
-	retval = CefV8Value::CreateNull();
-	context->GetBrowser()->SendProcessMessage( PID_BROWSER, message );
+	Commit( std::move( request ), context, message, retval, exception );
 }
 
-void WswCefV8Handler::PostExecuteCmdRequest( const CefV8ValueList &arguments,
-											 CefRefPtr<CefV8Value> &retval,
-											 CefString &exception ) {
+void ExecuteCmdRequestLauncher::StartExec( const CefV8ValueList &arguments,
+										   CefRefPtr<CefV8Value> &retval,
+										   CefString &exception ) {
 	if( arguments.size() != 3 ) {
 		exception = "Illegal arguments list size, expected 3";
 		return;
@@ -980,22 +1044,20 @@ void WswCefV8Handler::PostExecuteCmdRequest( const CefV8ValueList &arguments,
 	}
 
 	auto context( CefV8Context::GetCurrentContext() );
-	const int id = NextCallId();
-	callbacks[id] = std::make_pair( context, arguments.back() );
+	auto request( NewRequest( context, arguments.back() ) );
 
 	auto message( CefProcessMessage::Create( "executeCmd" ) );
 	auto messageArgs( message->GetArgumentList() );
-	messageArgs->SetInt( 0, id );
+	messageArgs->SetInt( 0, request->Id() );
 	messageArgs->SetInt( 1, whence );
 	messageArgs->SetString( 2, text );
 
-	retval = CefV8Value::CreateNull();
-	context->GetBrowser()->SendProcessMessage( PID_BROWSER, message );
+	Commit( std::move( request ), context, message, retval, exception );
 }
 
-void WswCefV8Handler::PostGetVideoModesRequest( const CefV8ValueList &arguments,
-												CefRefPtr<CefV8Value> &retval,
-												CefString &exception ) {
+void GetVideoModesRequestLauncher::StartExec( const CefV8ValueList &arguments,
+											  CefRefPtr<CefV8Value> &retval,
+											  CefString &exception ) {
 	if( arguments.size() != 1 ) {
 		exception = "Illegal arguments list size, must be a single argument";
 		return;
@@ -1006,19 +1068,17 @@ void WswCefV8Handler::PostGetVideoModesRequest( const CefV8ValueList &arguments,
 	}
 
 	auto context( CefV8Context::GetCurrentContext() );
-	const int id = NextCallId();
-	callbacks[id] = std::make_pair( context, arguments.back() );
+	auto request( NewRequest( context, arguments.back() ) );
 
-	auto message( CefProcessMessage::Create( "getVideoModes" ) );
-	message->GetArgumentList()->SetInt( 0, id );
+	auto message( NewMessage() );
+	message->GetArgumentList()->SetInt( 0, request->Id() );
 
-	retval = CefV8Value::CreateNull();
-	context->GetBrowser()->SendProcessMessage( PID_BROWSER, message );
+	Commit( std::move( request ), context, message, retval, exception );
 }
 
-void WswCefV8Handler::PostGetDemosAndSubDirsRequest( const CefV8ValueList &args,
-													 CefRefPtr<CefV8Value> &retval,
-													 CefString &exception ) {
+void GetDemosAndSubDirsRequestLauncher::StartExec( const CefV8ValueList &args,
+												   CefRefPtr<CefV8Value> &retval,
+												   CefString &exception ) {
 	if( args.size() != 2 ) {
 		exception = "Illegal arguments list size, there must be two arguments";
 		return;
@@ -1033,63 +1093,35 @@ void WswCefV8Handler::PostGetDemosAndSubDirsRequest( const CefV8ValueList &args,
 	}
 
 	auto context( CefV8Context::GetCurrentContext() );
-	const int id = NextCallId();
-	callbacks[id] = std::make_pair( context, args.back() );
+	auto request( NewRequest( context, args.back() ) );
 
-	auto message( CefProcessMessage::Create( "getDemosAndSubDirs" ) );
+	auto message( NewMessage() );
 	auto messageArgs( message->GetArgumentList() );
-	messageArgs->SetInt( 0, id );
+	messageArgs->SetInt( 0, request->Id() );
 	messageArgs->SetString( 1, dir );
 
-	retval = CefV8Value::CreateNull();
-	context->GetBrowser()->SendProcessMessage( PID_BROWSER, message );
+	Commit( std::move( request ), context, message, retval, exception );
 }
 
-bool WswCefV8Handler::TryUnregisterCallback( int id, CefRefPtr<CefV8Context> &context, CefRefPtr<CefV8Value> &callback ) {
-	auto it = callbacks.find( id );
-	if( it != callbacks.end() ) {
-		context = ( *it ).second.first;
-		callback = ( *it ).second.second;
-		callbacks.erase( it );
-		return true;
-	}
-
-	// TODO: Report an error...
-	return false;
-}
-
-void WswCefV8Handler::FireGetCVarCallback( CefRefPtr<CefProcessMessage> reply ) {
+void GetCVarRequest::FireCallback( CefRefPtr<CefProcessMessage> reply ) {
 	auto args( reply->GetArgumentList() );
-	if( args->GetSize() != 3 ) {
-		// TODO: Report an error...
-		return;
-	}
-
-	CefRefPtr<CefV8Context> context;
-	CefRefPtr<CefV8Value> callback;
-	if( !TryUnregisterCallback( args->GetInt( 0 ), context, callback ) ) {
+	size_t numArgs = args->GetSize();
+	if( numArgs != 3 ) {
+		ReportNumArgsMismatch( numArgs, "3" );
 		return;
 	}
 
 	CefV8ValueList callbackArgs;
 	callbackArgs.emplace_back( CefV8Value::CreateString( args->GetString( 1 ) ) );
-	if( !callback->ExecuteFunctionWithContext( context, nullptr, callbackArgs ).get() ) {
-		// TODO: Report execution error
-		return;
-	}
+
+	ExecuteCallback( callbackArgs );
 }
 
-void WswCefV8Handler::FireSetCVarCallback( CefRefPtr<CefProcessMessage> reply ) {
+void SetCVarRequest::FireCallback( CefRefPtr<CefProcessMessage> reply ) {
 	auto args( reply->GetArgumentList() );
 	auto size = args->GetSize();
 	if( size != 1 && size != 2 ) {
-		// TODO: Report an error...
-		return;
-	}
-
-	CefRefPtr<CefV8Context> context;
-	CefRefPtr<CefV8Value> callback;
-	if( !TryUnregisterCallback( args->GetInt( 0 ), context, callback ) ) {
+		ReportNumArgsMismatch( size, "1 or 2" );
 		return;
 	}
 
@@ -1097,44 +1129,25 @@ void WswCefV8Handler::FireSetCVarCallback( CefRefPtr<CefProcessMessage> reply ) 
 	if( size == 2 ) {
 		callbackArgs.emplace_back( CefV8Value::CreateBool( args->GetBool( 1 ) ) );
 	}
-	if( !callback->ExecuteFunctionWithContext( context, nullptr, callbackArgs ).get() ) {
-		// TODO: Report execution error
-		return;
-	}
+
+	ExecuteCallback( callbackArgs );
 }
 
-void WswCefV8Handler::FireExecuteCmdCallback( CefRefPtr<CefProcessMessage> reply ) {
+void ExecuteCmdRequest::FireCallback( CefRefPtr<CefProcessMessage> reply ) {
 	auto args( reply->GetArgumentList() );
 	if( args->GetSize() != 1 ) {
-		// TODO: Report an error...
+		ReportNumArgsMismatch( 1, "1" );
 		return;
 	}
 
-	CefRefPtr<CefV8Context> context;
-	CefRefPtr<CefV8Value> callback;
-	if( !TryUnregisterCallback( args->GetInt( 0 ), context, callback ) ) {
-		return;
-	}
-
-	CefV8ValueList callbackArgs;
-	if( !callback->ExecuteFunctionWithContext( context, nullptr, callbackArgs ).get() ) {
-		// TODO: Report execution error
-		return;
-	}
+	ExecuteCallback( CefV8ValueList() );
 }
 
-void WswCefV8Handler::FireGetVideoModesCallback( CefRefPtr<CefProcessMessage> reply ) {
+void GetVideoModesRequest::FireCallback( CefRefPtr<CefProcessMessage> reply ) {
 	auto args( reply->GetArgumentList() );
 	const size_t numArgs = args->GetSize();
-	// 3 is the minimal feasible value (id + a single mode)
-	if( numArgs < 3 ) {
-		// TODO: Report an error
-		return;
-	}
-
-	CefRefPtr<CefV8Context> context;
-	CefRefPtr<CefV8Value> callback;
-	if( !TryUnregisterCallback( args->GetInt( 0 ), context, callback ) ) {
+	if( numArgs < 3 || ( numArgs % 2 == 0 ) ) {
+		ReportNumArgsMismatch( numArgs, "at least 3, an odd value" );
 		return;
 	}
 
@@ -1153,33 +1166,23 @@ void WswCefV8Handler::FireGetVideoModesCallback( CefRefPtr<CefProcessMessage> re
 
 	CefV8ValueList callbackArgs;
 	callbackArgs.emplace_back( CefV8Value::CreateString( ss.ReleaseOwnership() ) );
-	if( !callback->ExecuteFunctionWithContext( context, nullptr, callbackArgs ).get() ) {
-		// TODO: Report execution error
-		return;
-	}
+
+	ExecuteCallback( callbackArgs );
 }
 
-void WswCefV8Handler::FireGetDemosAndSubDirsCallback( CefRefPtr<CefProcessMessage> reply ) {
+void GetDemosAndSubDirsRequest::FireCallback( CefRefPtr<CefProcessMessage> reply ) {
 	auto args( reply->GetArgumentList() );
 	const size_t numArgs = args->GetSize();
 	if( numArgs < 3 ) {
-		// TODO: Report an error...
-		return;
-	}
-
-	CefRefPtr<CefV8Context> context;
-	CefRefPtr<CefV8Value> callback;
-	if( !TryUnregisterCallback( args->GetInt( 0 ), context, callback ) ) {
+		ReportNumArgsMismatch( numArgs, "at least 3" );
 		return;
 	}
 
 	CefV8ValueList callbackArgs;
 	callbackArgs.emplace_back( CefV8Value::CreateString( "TODO" ) );
 	callbackArgs.emplace_back( CefV8Value::CreateString( "TODO" ) );
-	if( !callback->ExecuteFunctionWithContext( context, nullptr, callbackArgs ).get() ) {
-		// TODO: Report execution error
-		return;
-	}
+
+	ExecuteCallback( callbackArgs );
 }
 
 bool WswCefV8Handler::Execute( const CefString& name,
@@ -1187,9 +1190,14 @@ bool WswCefV8Handler::Execute( const CefString& name,
 							   const CefV8ValueList& arguments,
 							   CefRefPtr<CefV8Value>& retval,
 							   CefString& exception ) {
-	if( !name.compare( "executeCmd" ) ) {
-		PostExecuteCmdRequest( arguments, retval, exception );
-		return true;
+	CEF_REQUIRE_RENDERER_THREAD();
+
+	for( PendingRequestLauncher *launcher = requestLaunchersHead; launcher; launcher = launcher->Next() ) {
+		if( !launcher->Method().compare( name ) ) {
+			Logger()->Debug( "Found a launcher %s for a request", launcher->LogTag().c_str() );
+			launcher->StartExec( arguments, retval, exception );
+			return true;
+		}
 	}
 
 	if( !name.compare( "notifyUiPageReady" ) ) {
@@ -1199,25 +1207,40 @@ bool WswCefV8Handler::Execute( const CefString& name,
 		return true;
 	}
 
-	if( !name.compare( "getCVar" ) ) {
-		PostGetCVarRequest( arguments, retval, exception );
-		return true;
-	}
+	Logger()->Error( "Can't handle unknown JS call %s\n", name.ToString().c_str() );
+	return false;
+}
 
-	if( !name.compare( "setCVar" ) ) {
-		PostSetCVarRequest( arguments, retval, exception );
-		return true;
-	}
-
-	if( !name.compare( "getDemosAndSubDirs" ) ) {
-		PostGetDemosAndSubDirsRequest( arguments, retval, exception );
-		return true;
-	}
-
-	if( !name.compare( "getVideoModes" ) ) {
-		PostGetVideoModesRequest( arguments, retval, exception );
-		return true;
+bool WswCefV8Handler::CheckForReply( const CefString &name, CefRefPtr<CefProcessMessage> message ) {
+	for( PendingRequestLauncher *launcher = requestLaunchersHead; launcher; launcher = launcher->Next() ) {
+		// Just check the name match ensuring this really is a callback.
+		// The implementation could be faster but the total number of message kinds is insignificant.
+		if( !launcher->Method().compare( name ) ) {
+			ProcessAsAwaitedReply( message );
+			return true;
+		}
 	}
 
 	return false;
+}
+
+void WswCefV8Handler::ProcessAsAwaitedReply( CefRefPtr<CefProcessMessage> &message ) {
+	auto args( message->GetArgumentList() );
+	if( args->GetSize() < 1 ) {
+		std::string name( message->GetName().ToString() );
+		Logger()->Error( "Empty arguments list for a message `%s` that is awaited for firing a callback", name.c_str() );
+		return;
+	}
+
+	const int id = args->GetInt( 0 );
+	// These non-atomic operations should be safe as all JS interaction is performed in the renderer thread
+	auto iter = callbacks.find( id );
+	if( iter == callbacks.end() ) {
+		std::string name( message->GetName().ToString() );
+		Logger()->Error( "Can't find a callback by id %d for a message `%s`", id, name.c_str() );
+		return;
+	}
+
+	( *iter ).second->FireCallback( message );
+	callbacks.erase( iter );
 }
