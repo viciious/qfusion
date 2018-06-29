@@ -268,3 +268,55 @@ std::pair<std::vector<std::string>, std::vector<std::string>> UiFacade::FindDemo
 
 	return std::make_pair( findFiles( APP_DEMO_EXTENSION_STR ), findFiles( "/" ) );
 };
+
+std::map<std::string, std::string> UiFacade::GetDemoMetaData( const std::string &path ) {
+	char localBuffer[2048];
+	std::unique_ptr<char[]> allocationHolder;
+	char *metaData = localBuffer;
+
+	size_t realSize = api->CL_ReadDemoMetaData( path.c_str(), localBuffer, sizeof( localBuffer ) );
+	if( realSize > sizeof( localBuffer ) ) {
+		std::unique_ptr<char[]> allocated( new char[realSize] );
+		metaData = allocated.get();
+
+		// Check whether we have read the same data (might have been modified)
+		if( api->CL_ReadDemoMetaData( path.c_str(), metaData, realSize ) != realSize ) {
+			return std::map<std::string, std::string>();
+		}
+
+		allocationHolder.swap( allocated );
+	}
+
+	return ParseDemoMetaData( metaData, realSize );
+}
+
+std::map<std::string, std::string> UiFacade::ParseDemoMetaData( const char *p, size_t size ) {
+	class ResultBuilder {
+		const char *tokens[2];
+		size_t lens[2];
+		int index { 0 };
+
+		std::map<std::string, std::string> result;
+	public:
+		void ConsumeToken( const char *token, size_t len ) {
+			std::tie( tokens[index], lens[index] ) = std::make_pair( token, len );
+			if( ( index++ ) < 1 ) {
+				return;
+			}
+			result.emplace( std::make_pair( std::string( tokens[0], lens[0] ), std::string( tokens[1], lens[1] ) ) );
+			index = 0;
+		}
+
+		std::map<std::string, std::string> Result() { return std::move( result ); }
+	};
+
+	ResultBuilder builder;
+
+	const char *const endp = p + size;
+	for( size_t len = 0; p < endp; p += len + 1 ) {
+		len = strlen( p );
+		builder.ConsumeToken( p, len );
+	}
+
+	return builder.Result();
+}

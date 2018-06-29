@@ -106,6 +106,7 @@ public:
 	static const CefString executeCmd;
 	static const CefString getVideoModes;
 	static const CefString getDemosAndSubDirs;
+	static const CefString getDemoMetaData;
 };
 
 class PendingRequestLauncher {
@@ -203,6 +204,8 @@ DERIVE_PENDING_CALLBACK_REQUEST( GetVideoModesRequest, PendingCallbackRequest::g
 
 DERIVE_PENDING_CALLBACK_REQUEST( GetDemosAndSubDirsRequest, PendingCallbackRequest::getDemosAndSubDirs );
 
+DERIVE_PENDING_CALLBACK_REQUEST( GetDemoMetaDataRequest, PendingCallbackRequest::getDemoMetaData );
+
 class WswCefV8Handler: public CefV8Handler {
 	friend class PendingCallbackRequest;
 	friend class PendingRequestLauncher;
@@ -217,6 +220,7 @@ class WswCefV8Handler: public CefV8Handler {
 	ExecuteCmdRequestLauncher executeCmd;
 	GetVideoModesRequestLauncher getVideoModes;
 	GetDemosAndSubDirsRequestLauncher getDemosAndSubDirs;
+	GetDemoMetaDataRequestLauncher getDemoMetaData;
 
 	std::unordered_map<int, std::shared_ptr<PendingCallbackRequest>> callbacks;
 	// We use an unsigned counter to ensure that the overflow behaviour is defined
@@ -236,6 +240,7 @@ public:
 		, executeCmd( this )
 		, getVideoModes( this )
 		, getDemosAndSubDirs( this )
+		, getDemoMetaData( this )
 		, callId( 0 ) {}
 
 	bool Execute( const CefString& name,
@@ -344,6 +349,7 @@ public:
 	ExecuteCmdRequestHandler executeCmd;
 	GetVideoModesRequestHandler getVideoModes;
 	GetDemosAndSubDirsRequestHandler getDemosAndSubDirs;
+	GetDemoMetaDataRequestHandler getDemoMetaData;
 
 public:
 	CefRefPtr<WswCefRenderHandler> renderHandler;
@@ -355,6 +361,7 @@ public:
 		, executeCmd( this )
 		, getVideoModes( this )
 		, getDemosAndSubDirs( this )
+		, getDemoMetaData( this )
 		, renderHandler( new WswCefRenderHandler ) {
 		UiFacade::Instance()->RegisterRenderHandler( renderHandler.get() );
 	}

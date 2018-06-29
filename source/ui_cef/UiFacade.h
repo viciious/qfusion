@@ -105,6 +105,8 @@ class UiFacade {
 	static bool InitCef( int argc, char **argv, void *hInstance );
 
 	void DrawUi();
+
+	static std::map<std::string, std::string> ParseDemoMetaData( const char *p, size_t size );
 public:
 	static bool Init( int argc, char **argv, void *hInstance, int width_, int height_,
 					  int demoProtocol_, const char *demoExtension_, const char *basePath_ );
@@ -165,6 +167,8 @@ public:
 	}
 
 	static std::vector<std::pair<int, int>> GetVideoModes();
+
+	static std::map<std::string, std::string> GetDemoMetaData( const std::string &path );
 
 	static std::pair<std::vector<std::string>, std::vector<std::string>> FindDemosAndSubDirs( const std::string &dir );
 };

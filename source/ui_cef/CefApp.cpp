@@ -413,6 +413,13 @@ void WswCefRenderProcessHandler::OnWebKitInitialized() {
 		"			callback(JSON.parse(demos), JSON.parse(subDirs));"
 		"		});"
 		"	};"
+		"	ui.getDemoMetaData = function(fullPath, callback) {"
+		"		native function getDemoMetaData(fullPath, callback);"
+		"		/* Complex objects are passed as a JSON string */"
+		"		getDemoMetaData(fullPath, function(metaData) {"
+		"			callback(JSON.parse(metaData));"
+		"		});"
+		"	};"
 		"})();";
 
 	v8Handler = CefRefPtr<WswCefV8Handler>( new WswCefV8Handler( this ) );
@@ -756,6 +763,52 @@ void GetDemosAndSubDirsRequestHandler::ReplyToRequest( CefRefPtr<CefBrowser> bro
 	CefPostTask( TID_FILE_BACKGROUND, retrieveTask );
 }
 
+class PostDemoMetaDataTask: public CefTask {
+	CefRefPtr<CefBrowser> browser;
+	int callId;
+	std::map<std::string, std::string> metaData;
+public:
+	PostDemoMetaDataTask( CefRefPtr<CefBrowser> browser_, int callId_, std::map<std::string, std::string> &&metaData_ )
+		: browser( browser_ ), callId( callId_ ), metaData( metaData_ ) {}
+
+	void Execute() override {
+		auto message( CefProcessMessage::Create( PendingCallbackRequest::getDemoMetaData ) );
+		auto args( message->GetArgumentList() );
+		size_t argNum = 0;
+		args->SetInt( argNum++, callId );
+		for( auto it: metaData ) {
+			args->SetString( argNum++, it.first );
+			args->SetString( argNum++, it.second );
+		}
+		browser->SendProcessMessage( PID_RENDERER, message );
+	}
+
+	IMPLEMENT_REFCOUNTING( PostDemoMetaDataTask );
+};
+
+class GetDemoMetaDataTask: public CefTask {
+	std::string path;
+	CefRefPtr<CefBrowser> browser;
+	int callId;
+public:
+	GetDemoMetaDataTask( std::string &&path_, CefRefPtr<CefBrowser> browser_, int callId_ )
+		: path( path_ ), browser( browser_ ), callId( callId_ ) {}
+
+	void Execute() override {
+		CefPostTask( TID_IO, AsCefPtr( new PostDemoMetaDataTask( browser, callId, UiFacade::GetDemoMetaData( path ) ) ) );
+	}
+
+	IMPLEMENT_REFCOUNTING( GetDemoMetaDataTask );
+};
+
+void GetDemoMetaDataRequestHandler::ReplyToRequest( CefRefPtr<CefBrowser> browser, CefRefPtr<CefProcessMessage> ingoing ) {
+	auto ingoingArgs( ingoing->GetArgumentList() );
+	const int callId = ingoingArgs->GetInt( 0 );
+	CefString path( ingoingArgs->GetString( 1 ) );
+
+	CefPostTask( TID_FILE, AsCefPtr( new GetDemoMetaDataTask( path.ToString(), browser, callId ) ) );
+}
+
 bool WswCefClient::OnProcessMessageReceived( CefRefPtr<CefBrowser> browser,
 											 CefProcessId source_process,
 											 CefRefPtr<CefProcessMessage> processMessage ) {
@@ -792,6 +845,7 @@ const CefString PendingCallbackRequest::setCVar( "setCVar" );
 const CefString PendingCallbackRequest::executeCmd( "executeCmd" );
 const CefString PendingCallbackRequest::getVideoModes( "getVideoModes" );
 const CefString PendingCallbackRequest::getDemosAndSubDirs( "getDemosAndSubDirs" );
+const CefString PendingCallbackRequest::getDemoMetaData( "getDemoMetaData" );
 
 PendingCallbackRequest::PendingCallbackRequest( WswCefV8Handler *parent_,
 												CefRefPtr<CefV8Context> context_,
@@ -1103,6 +1157,36 @@ void GetDemosAndSubDirsRequestLauncher::StartExec( const CefV8ValueList &args,
 	Commit( std::move( request ), context, message, retval, exception );
 }
 
+void GetDemoMetaDataRequestLauncher::StartExec( const CefV8ValueList &jsArgs,
+												CefRefPtr<CefV8Value> &retVal,
+												CefString &exception ) {
+	if( jsArgs.size() != 2 ) {
+		exception = "Illegal arguments list size, there must be two arguments";
+		return;
+	}
+
+	CefString path;
+	if( !TryGetString( jsArgs[0], "path", path, exception ) ) {
+		return;
+	}
+
+	// TODO: Validate path, JS is very error-prone
+
+	if( !ValidateCallback( jsArgs.back(), exception ) ) {
+		return;
+	}
+
+	auto context( CefV8Context::GetCurrentContext() );
+	auto request( NewRequest( context, jsArgs.back() ) );
+
+	auto message( NewMessage() );
+	auto messageArgs( message->GetArgumentList() );
+	messageArgs->SetInt( 0, request->Id() );
+	messageArgs->SetString( 1, path );
+
+	Commit( std::move( request ), context, message, retVal, exception );
+}
+
 void GetCVarRequest::FireCallback( CefRefPtr<CefProcessMessage> reply ) {
 	auto args( reply->GetArgumentList() );
 	size_t numArgs = args->GetSize();
@@ -1194,6 +1278,32 @@ void GetDemosAndSubDirsRequest::FireCallback( CefRefPtr<CefProcessMessage> reply
 		} else {
 			callbackArgs.emplace_back( CefV8Value::CreateString( "[]" ) );
 		}
+	}
+
+	ExecuteCallback( callbackArgs );
+}
+
+void GetDemoMetaDataRequest::FireCallback( CefRefPtr<CefProcessMessage> reply ) {
+	auto args( reply->GetArgumentList() );
+	size_t numArgs = args->GetSize();
+	if( numArgs < 1 || !( numArgs % 2 ) ) {
+		ReportNumArgsMismatch( numArgs, "at least 1, an odd value" );
+		return;
+	}
+
+	CefV8ValueList callbackArgs;
+	if( numArgs > 1 ) {
+		CefStringBuilder sb;
+		sb << "{ ";
+		for( size_t argNum = 1; argNum < numArgs; argNum += 2 ) {
+			// Escape keys in quotes... not sure if this protects from whitespaces in key names
+			sb << "\"" << args->GetString( argNum ) << "\" : \"" << args->GetString( argNum ) << "\",";
+		}
+		sb.ChopLast();
+		sb << " }";
+		callbackArgs.emplace_back( CefV8Value::CreateString( sb.ReleaseOwnership() ) );
+	} else {
+		callbackArgs.emplace_back( CefV8Value::CreateString( "{}" ) );
 	}
 
 	ExecuteCallback( callbackArgs );
