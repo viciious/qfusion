@@ -168,6 +168,8 @@ public:
 
 	static std::vector<std::pair<int, int>> GetVideoModes();
 
+	static std::vector<std::string> GetHuds();
+
 	static std::map<std::string, std::string> GetDemoMetaData( const std::string &path );
 
 	static std::pair<std::vector<std::string>, std::vector<std::string>> FindDemosAndSubDirs( const std::string &dir );

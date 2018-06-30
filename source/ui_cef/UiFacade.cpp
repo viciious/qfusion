@@ -269,6 +269,21 @@ std::pair<std::vector<std::string>, std::vector<std::string>> UiFacade::FindDemo
 	return std::make_pair( findFiles( APP_DEMO_EXTENSION_STR ), findFiles( "/" ) );
 };
 
+std::vector<std::string> UiFacade::GetHuds() {
+	StlCompatDirectoryWalker walker( ".hud", false );
+	auto rawFiles = walker.Exec( "huds" );
+	// We should not list touch huds now, and should not supply ones as touch screens
+	// are not currently supported in CEF ui, but lets prevent listing touch huds anyway.
+	std::vector<std::string> result;
+	result.reserve( rawFiles.size() );
+	for( auto &raw: rawFiles ) {
+		if( raw.find( "touch" ) == std::string::npos ) {
+			result.emplace_back( std::move( raw ) );
+		}
+	}
+	return result;
+}
+
 std::map<std::string, std::string> UiFacade::GetDemoMetaData( const std::string &path ) {
 	char localBuffer[2048];
 	std::unique_ptr<char[]> allocationHolder;

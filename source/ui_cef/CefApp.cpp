@@ -420,6 +420,19 @@ void WswCefRenderProcessHandler::OnWebKitInitialized() {
 		"			callback(JSON.parse(metaData));"
 		"		});"
 		"	};"
+		"	ui.getHuds = function(callback) {"
+		"		native function getHuds(callback);"
+		"		/* Array of huds is passed as a string */"
+		"		getHuds(function(hudsList) {"
+		"			callback(JSON.parse(hudsList));"
+		"		});"
+		"	};"
+		"	ui.getGametypes = function(callback) {"
+		"		native function getGametypes(callback);"
+		"		getGametypes(function(serialized) {"
+		"			callback(JSON.parse(serialized));"
+		"		});"
+		"	};"
 		"})();";
 
 	v8Handler = CefRefPtr<WswCefV8Handler>( new WswCefV8Handler( this ) );
@@ -809,6 +822,46 @@ void GetDemoMetaDataRequestHandler::ReplyToRequest( CefRefPtr<CefBrowser> browse
 	CefPostTask( TID_FILE, AsCefPtr( new GetDemoMetaDataTask( path.ToString(), browser, callId ) ) );
 }
 
+class PostHudsTask: public CefTask {
+	CefRefPtr<CefBrowser> browser;
+	const int callId;
+	std::vector<std::string> huds;
+public:
+	PostHudsTask( CefRefPtr<CefBrowser> browser_, int callId_, std::vector<std::string> &&huds_ )
+		: browser( browser_ ), callId( callId_ ), huds( huds_ ) {}
+
+	void Execute() override {
+		auto message( CefProcessMessage::Create( PendingCallbackRequest::getHuds ) );
+		auto args( message->GetArgumentList() );
+		size_t argNum = 0;
+		args->SetInt( argNum++, callId );
+		for( const auto &hud: huds ) {
+			args->SetString( argNum++, hud );
+		}
+		browser->SendProcessMessage( PID_BROWSER, message );
+	}
+
+	IMPLEMENT_REFCOUNTING( PostHudsTask );
+};
+
+class GetHudsTask: public CefTask {
+	CefRefPtr<CefBrowser> browser;
+	const int callId;
+public:
+	GetHudsTask( CefRefPtr<CefBrowser> browser_, int callId_ )
+		: browser( browser_ ), callId( callId_ ) {}
+
+	void Execute() override {
+		CefPostTask( TID_IO, AsCefPtr( new PostHudsTask( browser, callId, UiFacade::GetHuds() ) ) );
+	}
+
+	IMPLEMENT_REFCOUNTING( GetHudsTask );
+};
+
+void GetHudsRequestHandler::ReplyToRequest( CefRefPtr<CefBrowser> browser, CefRefPtr<CefProcessMessage> ingoing ) {
+	CefPostTask( TID_FILE_BACKGROUND, AsCefPtr( new GetHudsTask( browser, ingoing->GetArgumentList()->GetInt( 0 ) ) ) );
+}
+
 bool WswCefClient::OnProcessMessageReceived( CefRefPtr<CefBrowser> browser,
 											 CefProcessId source_process,
 											 CefRefPtr<CefProcessMessage> processMessage ) {
@@ -846,6 +899,7 @@ const CefString PendingCallbackRequest::executeCmd( "executeCmd" );
 const CefString PendingCallbackRequest::getVideoModes( "getVideoModes" );
 const CefString PendingCallbackRequest::getDemosAndSubDirs( "getDemosAndSubDirs" );
 const CefString PendingCallbackRequest::getDemoMetaData( "getDemoMetaData" );
+const CefString PendingCallbackRequest::getHuds( "getHuds" );
 
 PendingCallbackRequest::PendingCallbackRequest( WswCefV8Handler *parent_,
 												CefRefPtr<CefV8Context> context_,
@@ -1187,6 +1241,26 @@ void GetDemoMetaDataRequestLauncher::StartExec( const CefV8ValueList &jsArgs,
 	Commit( std::move( request ), context, message, retVal, exception );
 }
 
+void GetHudsRequestLauncher::StartExec( const CefV8ValueList &jsArgs,
+										CefRefPtr<CefV8Value> &retVal,
+										CefString &exception ) {
+	if( jsArgs.size() != 1 ) {
+		exception = "Illegal arguments list size, there must be a single argument";
+		return;
+	}
+
+	if( !ValidateCallback( jsArgs.back(), exception ) ) {
+		return;
+	}
+
+	auto context( CefV8Context::GetCurrentContext() );
+	auto request( NewRequest( context, jsArgs.back() ) );
+	auto message( NewMessage() );
+	message->GetArgumentList()->SetInt( 0, request->Id() );
+
+	Commit( std::move( request ), context, message, retVal, exception );
+}
+
 void GetCVarRequest::FireCallback( CefRefPtr<CefProcessMessage> reply ) {
 	auto args( reply->GetArgumentList() );
 	size_t numArgs = args->GetSize();
@@ -1304,6 +1378,31 @@ void GetDemoMetaDataRequest::FireCallback( CefRefPtr<CefProcessMessage> reply ) 
 		callbackArgs.emplace_back( CefV8Value::CreateString( sb.ReleaseOwnership() ) );
 	} else {
 		callbackArgs.emplace_back( CefV8Value::CreateString( "{}" ) );
+	}
+
+	ExecuteCallback( callbackArgs );
+}
+
+void GetHudsRequest::FireCallback( CefRefPtr<CefProcessMessage> reply ) {
+	auto args( reply->GetArgumentList() );
+	size_t numArgs = args->GetSize();
+	if( numArgs < 1 ) {
+		ReportNumArgsMismatch( numArgs, "at least 1" );
+		return;
+	}
+
+	CefV8ValueList callbackArgs;
+	if( numArgs > 1 ) {
+		CefStringBuilder sb;
+		sb << "[ ";
+		for( size_t argNum = 1; argNum < numArgs; ++argNum ) {
+			sb << '"' << args->GetString( argNum ) << "\",";
+		}
+		sb.ChopLast();
+		sb << " ]";
+		callbackArgs.emplace_back( CefV8Value::CreateString( sb.ReleaseOwnership() ) );
+	} else {
+		callbackArgs.emplace_back( CefV8Value::CreateString( "[]" ) );
 	}
 
 	ExecuteCallback( callbackArgs );
