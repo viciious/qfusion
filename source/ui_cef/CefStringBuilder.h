@@ -133,4 +133,76 @@ public:
 	}
 };
 
+
+// A helper for building arrays and objects string representation from containers
+class AggregateBuildHelper {
+protected:
+	CefStringBuilder &underlying;
+	const char openingChar;
+	const char closingChar;
+
+	virtual void PrintArgsAsBody( CefRefPtr<CefListValue> &args, size_t startArg, size_t numArgs ) = 0;
+public:
+	AggregateBuildHelper( CefStringBuilder &underlying_, char openingChar_, char closingChar_ )
+		: underlying( underlying_ ), openingChar( openingChar_ ), closingChar( closingChar_ ) {}
+
+	typedef std::function<void( CefStringBuilder &, CefRefPtr<CefListValue> &, size_t )> ArgPrinter;
+
+	static inline ArgPrinter QuotedStringPrinter( char quoteChar = '"' ) {
+		return [=]( CefStringBuilder &sb, CefRefPtr<CefListValue> &args, size_t argNum ) {
+			sb << quoteChar << args->GetString( argNum ) << quoteChar;
+		};
+	}
+
+	CefStringBuilder &PrintArgs( CefRefPtr<CefListValue> &args, size_t startArg, size_t numArgs ) {
+		if( numArgs ) {
+			underlying << openingChar << ' ';
+			PrintArgsAsBody( args, startArg, numArgs );
+			underlying << ' ' << closingChar;
+		} else {
+			underlying << openingChar << closingChar;
+		}
+		return underlying;
+	}
+};
+
+class ArrayBuildHelper: public AggregateBuildHelper {
+	const ArgPrinter &argPrinter;
+
+	void PrintArgsAsBody( CefRefPtr<CefListValue> &args, size_t startArg, size_t numArgs ) override {
+		for( size_t argNum = startArg; argNum < startArg + numArgs; ++argNum ) {
+			argPrinter( underlying, args, argNum );
+			underlying << ',';
+		}
+		underlying.ChopLast();
+	}
+public:
+	explicit ArrayBuildHelper( CefStringBuilder &underlying_, const ArgPrinter &argPrinter_ = QuotedStringPrinter( '"' ) )
+		: AggregateBuildHelper( underlying_, '[', ']' ), argPrinter( argPrinter_ ) {}
+};
+
+class ObjectBuildHelper: public AggregateBuildHelper {
+	const ArgPrinter &keyPrinter;
+	const ArgPrinter &valuePrinter;
+
+	void PrintArgsAsBody( CefRefPtr<CefListValue> &args, size_t startArg, size_t numArgs ) override {
+		assert( !( numArgs % 2 ) );
+		for( size_t argNum = startArg; argNum < startArg + numArgs; argNum += 2 ) {
+			keyPrinter( underlying, args, argNum + 0 );
+			underlying << ':';
+			valuePrinter( underlying, args, argNum + 1 );
+			underlying << ',';
+		}
+		underlying.ChopLast();
+	}
+public:
+	explicit ObjectBuildHelper( CefStringBuilder &underlying_,
+								const ArgPrinter &keyPrinter_ = QuotedStringPrinter(),
+								const ArgPrinter &valuePrinter_ = QuotedStringPrinter() )
+		: AggregateBuildHelper( underlying_, '{', '}' )
+		, keyPrinter( keyPrinter_ )
+		, valuePrinter( valuePrinter_ ) {}
+
+};
+
 #endif

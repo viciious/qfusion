@@ -56,6 +56,13 @@ struct ConnectScreenState {
 class UiFacade {
 	friend class MessagePipe;
 
+public:
+	typedef std::vector<std::pair<int, int>> VideoModesList;
+	typedef std::vector<std::string> FilesList;
+	typedef std::vector<std::pair<std::string, std::string>> GametypesList;
+	typedef std::vector<std::pair<std::string, std::string>> DemoMetaData;
+
+private:
 	CefRefPtr<CefBrowser> browser;
 	WswCefRenderHandler *renderHandler;
 
@@ -106,7 +113,7 @@ class UiFacade {
 
 	void DrawUi();
 
-	static std::map<std::string, std::string> ParseDemoMetaData( const char *p, size_t size );
+	static DemoMetaData ParseDemoMetaData( const char *p, size_t size );
 public:
 	static bool Init( int argc, char **argv, void *hInstance, int width_, int height_,
 					  int demoProtocol_, const char *demoExtension_, const char *basePath_ );
@@ -166,13 +173,15 @@ public:
 		messagePipe.ShowQuickMenu( show );
 	}
 
-	static std::vector<std::pair<int, int>> GetVideoModes();
+	static VideoModesList GetVideoModes();
 
-	static std::vector<std::string> GetHuds();
+	static FilesList GetHuds();
 
-	static std::map<std::string, std::string> GetDemoMetaData( const std::string &path );
+	static GametypesList GetGametypes();
 
-	static std::pair<std::vector<std::string>, std::vector<std::string>> FindDemosAndSubDirs( const std::string &dir );
+	static DemoMetaData GetDemoMetaData( const std::string &path );
+
+	static std::pair<FilesList, FilesList> FindDemosAndSubDirs( const std::string &dir );
 };
 
 #endif

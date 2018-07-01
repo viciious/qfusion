@@ -711,104 +711,169 @@ void GetVideoModesRequestHandler::ReplyToRequest( CefRefPtr<CefBrowser> browser,
 	browser->SendProcessMessage( PID_RENDERER, outgoing );
 }
 
-class ReplyWithDemoInfoTask: public CefTask {
-	std::vector<std::string> demos;
-	std::vector<std::string> subDirs;
+class IOPendingCallbackRequestTask;
+
+// Performs FS ops in TID_FILE or TID_FILE_BACKGROUND thread
+class FSPendingCallbackRequestTask: public CefTask {
+	friend class IOPendingCallbackRequestTask;
+
 	CefRefPtr<CefBrowser> browser;
-	int callId;
+	const int callId;
 public:
-	ReplyWithDemoInfoTask( std::vector<std::string> &&demos_,
-						   std::vector<std::string> &&subDirs_,
-						   CefRefPtr<CefBrowser> browser_,
-						   int callId_ )
-		: demos( demos_ )
-		, subDirs( subDirs_ )
-		, browser( browser_ )
-		, callId( callId_ ) {}
+	FSPendingCallbackRequestTask( CefRefPtr<CefBrowser> browser_, int callId_ )
+		: browser( browser_ ), callId( callId_ ) {}
 
-	void Execute() override {
-		auto outgoing( CefProcessMessage::Create( PendingCallbackRequest::getDemosAndSubDirs ) );
-		auto outgoingArgs( outgoing->GetArgumentList() );
-		outgoingArgs->SetInt( 0, callId );
+	FSPendingCallbackRequestTask( CefRefPtr<CefBrowser> browser_, const CefRefPtr<CefProcessMessage> &message )
+		: browser( browser_ ), callId( message->GetArgumentList()->GetInt( 0 ) ) {}
 
-		size_t index = 1;
-		outgoingArgs->SetInt( index++, (int)demos.size() );
-		for( auto &s: demos ) {
-			outgoingArgs->SetString( index++, s );
+	virtual CefRefPtr<IOPendingCallbackRequestTask> CreatePostResultsTask() = 0;
+
+	void Execute() final {
+		DCHECK( CefCurrentlyOn( TID_FILE ) || CefCurrentlyOn( TID_FILE_BACKGROUND ) );
+		CefPostTask( TID_IO, CreatePostResultsTask() );
+	}
+};
+
+
+
+// Sends results retrieved by a corresponding FS task in TID_IO back to the renderer process
+class IOPendingCallbackRequestTask: public CefTask {
+	CefRefPtr<CefBrowser> browser;
+protected:
+	const int callId;
+
+	virtual CefRefPtr<CefProcessMessage> FillMessage() = 0;
+
+	// Helpers for building a message
+	template <typename Item>
+	struct ArgSetter {
+		typedef std::function<void( CefRefPtr<CefListValue> &, size_t, const Item & )> Type;
+	};
+
+	template <typename Container, typename Item>
+	size_t AddEntries( const Container &container,
+					   CefRefPtr<CefListValue> messageArgs,
+					   std::function<void( CefRefPtr<CefListValue> &, size_t, const Item & )> argSetter ) {
+		size_t argNum = messageArgs->GetSize();
+		for( const Item &item: container ) {
+			argSetter( messageArgs, argNum++, item );
 		}
-		outgoingArgs->SetInt( index++, (int)subDirs.size() );
-		for( auto &s: subDirs ) {
-			outgoingArgs->SetString( index++, s );
-		}
+		return argNum;
+	};
 
-		browser->SendProcessMessage( PID_RENDERER, outgoing );
+	template <typename Container, typename First, typename Second>
+	size_t AddEntries( const Container &container,
+					   CefRefPtr<CefListValue> messageArgs,
+					   std::function<void( CefRefPtr<CefListValue> &, size_t, const First & )> setterFor1st,
+					   std::function<void( CefRefPtr<CefListValue> &, size_t, const Second & )> setterFor2nd ) {
+		size_t argNum = messageArgs->GetSize();
+		for( const std::pair<First, Second> &pair: container ) {
+			setterFor1st( messageArgs, argNum++, pair.first );
+			setterFor2nd( messageArgs, argNum++, pair.second );
+		}
+		return argNum;
+	};
+
+	inline std::function<void( CefRefPtr<CefListValue> &, size_t, const std::string & )> StringSetter() {
+		return []( CefRefPtr<CefListValue> &args, size_t argNum, const std::string &s ) {
+			args->SetString( argNum, s );
+		};
+	};
+public:
+	explicit IOPendingCallbackRequestTask( FSPendingCallbackRequestTask *parent )
+		: browser( parent->browser ), callId( parent->callId ) {}
+
+	void Execute() final {
+		CEF_REQUIRE_IO_THREAD();
+
+		auto message( FillMessage() );
+#ifndef PUBLIC_BUILD
+		auto args( message->GetArgumentList() );
+		if( args->GetSize() < 1 ) {
+			// TODO: Crash...
+		}
+		if( args->GetInt( 0 ) != callId ) {
+			// TODO: Crash...
+		}
+#endif
+		browser->SendProcessMessage( PID_RENDERER, message );
+	}
+};
+
+class ReplyWithDemoInfoTask: public IOPendingCallbackRequestTask {
+	UiFacade::FilesList demos, subDirs;
+public:
+	ReplyWithDemoInfoTask( FSPendingCallbackRequestTask *parent,
+						   UiFacade::FilesList &&demos_,
+						   UiFacade::FilesList &&subDirs_ )
+		: IOPendingCallbackRequestTask( parent )
+		, demos( demos_ )
+		, subDirs( subDirs_ ) {}
+
+	CefRefPtr<CefProcessMessage> FillMessage() override {
+		auto message( CefProcessMessage::Create( PendingCallbackRequest::getDemosAndSubDirs ) );
+		auto args( message->GetArgumentList() );
+
+		args->SetInt( 0, callId );
+		args->SetInt( 1, (int)demos.size() );
+		size_t nextArgNum = AddEntries( demos, args, StringSetter() );
+		args->SetInt( nextArgNum, (int)subDirs.size() );
+		AddEntries( subDirs, args, StringSetter() );
+
+		return message;
 	}
 
 	IMPLEMENT_REFCOUNTING( ReplyWithDemoInfoTask );
 };
 
-class RetrieveDemoInfoTask: public CefTask {
+class RetrieveDemoInfoTask: public FSPendingCallbackRequestTask {
 	std::string dir;
-	CefRefPtr<CefBrowser> browser;
-	int callId;
 public:
-	RetrieveDemoInfoTask( std::string &&dir_, CefRefPtr<CefBrowser> browser_, int callId_ )
-		: dir( dir_ ), browser( browser_ ), callId( callId_ ) {}
+	RetrieveDemoInfoTask( CefRefPtr<CefBrowser> browser, int callId, std::string &&dir_ )
+		: FSPendingCallbackRequestTask( browser, callId ), dir( dir_ ) {}
 
-	void Execute() override {
-		std::vector<std::string> demos;
-		std::vector<std::string> subDirs;
+	CefRefPtr<IOPendingCallbackRequestTask> CreatePostResultsTask() override {
+		UiFacade::FilesList demos, subDirs;
 		std::tie( demos, subDirs ) = UiFacade::FindDemosAndSubDirs( dir );
-		CefRefPtr<CefTask> task( new ReplyWithDemoInfoTask( std::move( demos ), std::move( subDirs ), browser, callId ) );
-		// Post back to IO thread that performs IPC
-		CefPostTask( TID_IO, task );
+		return AsCefPtr( new ReplyWithDemoInfoTask( this, std::move( demos ), std::move( subDirs ) ) );
 	}
 
 	IMPLEMENT_REFCOUNTING( RetrieveDemoInfoTask );
 };
 
-void GetDemosAndSubDirsRequestHandler::ReplyToRequest( CefRefPtr<CefBrowser> browser, CefRefPtr<CefProcessMessage> ingoing ) {
+void GetDemosAndSubDirsRequestHandler::ReplyToRequest( CefRefPtr<CefBrowser> browser,
+													   CefRefPtr<CefProcessMessage> ingoing ) {
 	auto ingoingArgs( ingoing->GetArgumentList() );
 	const int callId = ingoingArgs->GetInt( 1 );
-	CefString dir( ingoingArgs->GetString( 2 ) );
-
-	CefRefPtr<RetrieveDemoInfoTask> retrieveTask( new RetrieveDemoInfoTask( dir, browser, callId ) );
-	CefPostTask( TID_FILE_BACKGROUND, retrieveTask );
+	std::string dir( ingoingArgs->GetString( 2 ) );
+	CefPostTask( TID_FILE_BACKGROUND, AsCefPtr( new RetrieveDemoInfoTask( browser, callId, std::move( dir ) ) ) );
 }
 
-class PostDemoMetaDataTask: public CefTask {
-	CefRefPtr<CefBrowser> browser;
-	int callId;
-	std::map<std::string, std::string> metaData;
+class PostDemoMetaDataTask: public IOPendingCallbackRequestTask {
+	UiFacade::DemoMetaData metaData;
 public:
-	PostDemoMetaDataTask( CefRefPtr<CefBrowser> browser_, int callId_, std::map<std::string, std::string> &&metaData_ )
-		: browser( browser_ ), callId( callId_ ), metaData( metaData_ ) {}
+	PostDemoMetaDataTask( FSPendingCallbackRequestTask *parent, UiFacade::DemoMetaData &&metaData_ )
+		: IOPendingCallbackRequestTask( parent ), metaData( metaData_ ) {}
 
-	void Execute() override {
+	CefRefPtr<CefProcessMessage> FillMessage() override {
 		auto message( CefProcessMessage::Create( PendingCallbackRequest::getDemoMetaData ) );
 		auto args( message->GetArgumentList() );
-		size_t argNum = 0;
-		args->SetInt( argNum++, callId );
-		for( auto it: metaData ) {
-			args->SetString( argNum++, it.first );
-			args->SetString( argNum++, it.second );
-		}
-		browser->SendProcessMessage( PID_RENDERER, message );
+		args->SetInt( 0, callId );
+		AddEntries( metaData, args, StringSetter(), StringSetter() );
+		return message;
 	}
 
 	IMPLEMENT_REFCOUNTING( PostDemoMetaDataTask );
 };
 
-class GetDemoMetaDataTask: public CefTask {
+class GetDemoMetaDataTask: public FSPendingCallbackRequestTask {
 	std::string path;
-	CefRefPtr<CefBrowser> browser;
-	int callId;
 public:
-	GetDemoMetaDataTask( std::string &&path_, CefRefPtr<CefBrowser> browser_, int callId_ )
-		: path( path_ ), browser( browser_ ), callId( callId_ ) {}
+	GetDemoMetaDataTask( CefRefPtr<CefBrowser> browser_, int callId_, std::string &&path_ )
+		: FSPendingCallbackRequestTask( browser_, callId_ ), path( path_ ) {}
 
-	void Execute() override {
-		CefPostTask( TID_IO, AsCefPtr( new PostDemoMetaDataTask( browser, callId, UiFacade::GetDemoMetaData( path ) ) ) );
+	CefRefPtr<IOPendingCallbackRequestTask> CreatePostResultsTask() override {
+		return AsCefPtr( new PostDemoMetaDataTask( this, UiFacade::GetDemoMetaData( path ) ) );
 	}
 
 	IMPLEMENT_REFCOUNTING( GetDemoMetaDataTask );
@@ -817,49 +882,74 @@ public:
 void GetDemoMetaDataRequestHandler::ReplyToRequest( CefRefPtr<CefBrowser> browser, CefRefPtr<CefProcessMessage> ingoing ) {
 	auto ingoingArgs( ingoing->GetArgumentList() );
 	const int callId = ingoingArgs->GetInt( 0 );
-	CefString path( ingoingArgs->GetString( 1 ) );
-
-	CefPostTask( TID_FILE, AsCefPtr( new GetDemoMetaDataTask( path.ToString(), browser, callId ) ) );
+	std::string path( ingoingArgs->GetString( 1 ) );
+	CefPostTask( TID_FILE, AsCefPtr( new GetDemoMetaDataTask( browser, callId, std::move( path ) ) ) );
 }
 
-class PostHudsTask: public CefTask {
-	CefRefPtr<CefBrowser> browser;
-	const int callId;
-	std::vector<std::string> huds;
+class PostHudsTask: public IOPendingCallbackRequestTask {
+	UiFacade::FilesList huds;
 public:
-	PostHudsTask( CefRefPtr<CefBrowser> browser_, int callId_, std::vector<std::string> &&huds_ )
-		: browser( browser_ ), callId( callId_ ), huds( huds_ ) {}
+	PostHudsTask( FSPendingCallbackRequestTask *parent, UiFacade::FilesList &&huds_ )
+		: IOPendingCallbackRequestTask( parent ), huds( huds_ ) {}
 
-	void Execute() override {
+	CefRefPtr<CefProcessMessage> FillMessage() override {
 		auto message( CefProcessMessage::Create( PendingCallbackRequest::getHuds ) );
 		auto args( message->GetArgumentList() );
-		size_t argNum = 0;
-		args->SetInt( argNum++, callId );
-		for( const auto &hud: huds ) {
-			args->SetString( argNum++, hud );
-		}
-		browser->SendProcessMessage( PID_BROWSER, message );
+		args->SetInt( 0, callId );
+		AddEntries( huds, args, StringSetter() );
+		return message;
 	}
 
 	IMPLEMENT_REFCOUNTING( PostHudsTask );
 };
 
-class GetHudsTask: public CefTask {
-	CefRefPtr<CefBrowser> browser;
-	const int callId;
+class GetHudsTask: public FSPendingCallbackRequestTask {
 public:
-	GetHudsTask( CefRefPtr<CefBrowser> browser_, int callId_ )
-		: browser( browser_ ), callId( callId_ ) {}
+	GetHudsTask( CefRefPtr<CefBrowser> browser_, CefRefPtr<CefProcessMessage> message )
+		: FSPendingCallbackRequestTask( browser_, message ) {}
 
-	void Execute() override {
-		CefPostTask( TID_IO, AsCefPtr( new PostHudsTask( browser, callId, UiFacade::GetHuds() ) ) );
+	CefRefPtr<IOPendingCallbackRequestTask> CreatePostResultsTask() override {
+		return AsCefPtr( new PostHudsTask( this, UiFacade::GetHuds() ) );
 	}
 
 	IMPLEMENT_REFCOUNTING( GetHudsTask );
 };
 
 void GetHudsRequestHandler::ReplyToRequest( CefRefPtr<CefBrowser> browser, CefRefPtr<CefProcessMessage> ingoing ) {
-	CefPostTask( TID_FILE_BACKGROUND, AsCefPtr( new GetHudsTask( browser, ingoing->GetArgumentList()->GetInt( 0 ) ) ) );
+	CefPostTask( TID_FILE_BACKGROUND, AsCefPtr( new GetHudsTask( browser, ingoing ) ) );
+}
+
+class PostGametypesTask: public IOPendingCallbackRequestTask {
+	UiFacade::GametypesList gametypes;
+public:
+	PostGametypesTask( FSPendingCallbackRequestTask *parent, UiFacade::GametypesList &&gametypes_ )
+		: IOPendingCallbackRequestTask( parent ), gametypes( gametypes_ ) {}
+
+	CefRefPtr<CefProcessMessage> FillMessage() override {
+		auto message( CefProcessMessage::Create( PendingCallbackRequest::getHuds ) );
+		auto args( message->GetArgumentList() );
+		args->SetInt( 0, callId );
+		AddEntries( gametypes, args, StringSetter(), StringSetter() );
+		return message;
+	}
+
+	IMPLEMENT_REFCOUNTING( PostGametypesTask );
+};
+
+class GetGametypesTask: public FSPendingCallbackRequestTask {
+public:
+	GetGametypesTask( CefRefPtr<CefBrowser> browser_, CefRefPtr<CefProcessMessage> message )
+		: FSPendingCallbackRequestTask( browser_, message ) {}
+
+	CefRefPtr<IOPendingCallbackRequestTask> CreatePostResultsTask() override {
+		return AsCefPtr( new PostGametypesTask( this, UiFacade::GetGametypes() ) );
+	}
+
+	IMPLEMENT_REFCOUNTING( GetGametypesTask );
+};
+
+void GetGametypesRequestHandler::ReplyToRequest( CefRefPtr<CefBrowser> browser, CefRefPtr<CefProcessMessage> ingoing ) {
+	CefPostTask( TID_FILE_BACKGROUND, AsCefPtr( new GetGametypesTask( browser, ingoing ) ) );
 }
 
 bool WswCefClient::OnProcessMessageReceived( CefRefPtr<CefBrowser> browser,
@@ -900,6 +990,7 @@ const CefString PendingCallbackRequest::getVideoModes( "getVideoModes" );
 const CefString PendingCallbackRequest::getDemosAndSubDirs( "getDemosAndSubDirs" );
 const CefString PendingCallbackRequest::getDemoMetaData( "getDemoMetaData" );
 const CefString PendingCallbackRequest::getHuds( "getHuds" );
+const CefString PendingCallbackRequest::getGametypes( "getGametypes" );
 
 PendingCallbackRequest::PendingCallbackRequest( WswCefV8Handler *parent_,
 												CefRefPtr<CefV8Context> context_,
@@ -1241,9 +1332,10 @@ void GetDemoMetaDataRequestLauncher::StartExec( const CefV8ValueList &jsArgs,
 	Commit( std::move( request ), context, message, retVal, exception );
 }
 
-void GetHudsRequestLauncher::StartExec( const CefV8ValueList &jsArgs,
-										CefRefPtr<CefV8Value> &retVal,
-										CefString &exception ) {
+template <typename Request>
+void TypedPendingRequestLauncher<Request>::DefaultSingleArgStartExecImpl( const CefV8ValueList &jsArgs,
+																		  CefRefPtr<CefV8Value> &retVal,
+																		  CefString &exception ) {
 	if( jsArgs.size() != 1 ) {
 		exception = "Illegal arguments list size, there must be a single argument";
 		return;
@@ -1261,6 +1353,14 @@ void GetHudsRequestLauncher::StartExec( const CefV8ValueList &jsArgs,
 	Commit( std::move( request ), context, message, retVal, exception );
 }
 
+void GetHudsRequestLauncher::StartExec( const CefV8ValueList &jsArgs, CefRefPtr<CefV8Value> &retVal, CefString &ex ) {
+	return DefaultSingleArgStartExecImpl( jsArgs, retVal, ex );
+}
+
+void GetGametypesRequestLauncher::StartExec( const CefV8ValueList &jsArgs, CefRefPtr<CefV8Value> &retVal, CefString &ex ) {
+	return DefaultSingleArgStartExecImpl( jsArgs, retVal, ex );
+}
+
 void GetCVarRequest::FireCallback( CefRefPtr<CefProcessMessage> reply ) {
 	auto args( reply->GetArgumentList() );
 	size_t numArgs = args->GetSize();
@@ -1269,10 +1369,7 @@ void GetCVarRequest::FireCallback( CefRefPtr<CefProcessMessage> reply ) {
 		return;
 	}
 
-	CefV8ValueList callbackArgs;
-	callbackArgs.emplace_back( CefV8Value::CreateString( args->GetString( 1 ) ) );
-
-	ExecuteCallback( callbackArgs );
+	ExecuteCallback( { CefV8Value::CreateString( args->GetString( 1 ) ) } );
 }
 
 void SetCVarRequest::FireCallback( CefRefPtr<CefProcessMessage> reply ) {
@@ -1309,23 +1406,19 @@ void GetVideoModesRequest::FireCallback( CefRefPtr<CefProcessMessage> reply ) {
 		return;
 	}
 
-	// We pass args as a JSON string
+	struct BuildHelper: public AggregateBuildHelper {
+		explicit BuildHelper( CefStringBuilder &underlying ) : AggregateBuildHelper( underlying, '[', ']' ) {}
 
-	CefStringBuilder ss;
-	ss << "{ ";
-	for( size_t i = 1; i < numArgs; i += 2 ) {
-		auto width = args->GetInt( i + 0 );
-		auto height = args->GetInt( i + 1 );
-		ss << "{ width : " << width << ", height :" << height << " },";
+		void PrintArgsAsBody( CefRefPtr<CefListValue> &args, size_t startArg, size_t numArgs ) override {
+			for( size_t argNum = startArg; argNum < startArg + numArgs; argNum += 2 ) {
+				underlying << "{ width: " << args->GetInt( argNum ) << ", height: " << args->GetInt( argNum + 1 ) << "},";
+			}
+		}
 	};
-	// Chop last comma (we're sure there was at least a single mode)
-	ss.ChopLast();
-	ss << " }";
 
-	CefV8ValueList callbackArgs;
-	callbackArgs.emplace_back( CefV8Value::CreateString( ss.ReleaseOwnership() ) );
-
-	ExecuteCallback( callbackArgs );
+	CefStringBuilder stringBuilder;
+	BuildHelper buildHelper( stringBuilder );
+	ExecuteCallback( { CefV8Value::CreateString( stringBuilder.ReleaseOwnership() ) } );
 }
 
 void GetDemosAndSubDirsRequest::FireCallback( CefRefPtr<CefProcessMessage> reply ) {
@@ -1338,20 +1431,14 @@ void GetDemosAndSubDirsRequest::FireCallback( CefRefPtr<CefProcessMessage> reply
 
 	size_t argNum = 1;
 	CefV8ValueList callbackArgs;
-	CefStringBuilder sb;
+	CefStringBuilder stringBuilder;
 	for( int arrayGroup = 0; arrayGroup < 2; ++arrayGroup ) {
-		if( size_t numArgs = args->GetInt( argNum++ ) ) {
-			sb.Clear();
-			sb << '[';
-			for( size_t i = argNum + 1; i < numArgs; ++i ) {
-				sb << '"' << args->GetString( argNum++ ) << "\",";
-			}
-			sb.ChopLast();
-			sb << ']';
-			callbackArgs.emplace_back( CefV8Value::CreateString( sb.ReleaseOwnership() ) );
-		} else {
-			callbackArgs.emplace_back( CefV8Value::CreateString( "[]" ) );
-		}
+		stringBuilder.Clear();
+		ArrayBuildHelper buildHelper( stringBuilder );
+		size_t numGroupArgs = (size_t)args->GetInt( argNum++ );
+		buildHelper.PrintArgs( args, argNum, numGroupArgs );
+		argNum += numGroupArgs;
+		callbackArgs.emplace_back( CefV8Value::CreateString( stringBuilder.ReleaseOwnership() ) );
 	}
 
 	ExecuteCallback( callbackArgs );
@@ -1365,22 +1452,12 @@ void GetDemoMetaDataRequest::FireCallback( CefRefPtr<CefProcessMessage> reply ) 
 		return;
 	}
 
-	CefV8ValueList callbackArgs;
-	if( numArgs > 1 ) {
-		CefStringBuilder sb;
-		sb << "{ ";
-		for( size_t argNum = 1; argNum < numArgs; argNum += 2 ) {
-			// Escape keys in quotes... not sure if this protects from whitespaces in key names
-			sb << "\"" << args->GetString( argNum ) << "\" : \"" << args->GetString( argNum ) << "\",";
-		}
-		sb.ChopLast();
-		sb << " }";
-		callbackArgs.emplace_back( CefV8Value::CreateString( sb.ReleaseOwnership() ) );
-	} else {
-		callbackArgs.emplace_back( CefV8Value::CreateString( "{}" ) );
-	}
-
-	ExecuteCallback( callbackArgs );
+	// Escape keys in quotes... not sure if this protects from whitespaces in key names
+	CefStringBuilder stringBuilder;
+	auto printer = AggregateBuildHelper::QuotedStringPrinter( '\"' );
+	ObjectBuildHelper buildHelper( stringBuilder, printer, printer );
+	buildHelper.PrintArgs( args, 1, numArgs - 1 );
+	ExecuteCallback( { CefV8Value::CreateString( stringBuilder.ReleaseOwnership() ) } );
 }
 
 void GetHudsRequest::FireCallback( CefRefPtr<CefProcessMessage> reply ) {
@@ -1391,21 +1468,24 @@ void GetHudsRequest::FireCallback( CefRefPtr<CefProcessMessage> reply ) {
 		return;
 	}
 
-	CefV8ValueList callbackArgs;
-	if( numArgs > 1 ) {
-		CefStringBuilder sb;
-		sb << "[ ";
-		for( size_t argNum = 1; argNum < numArgs; ++argNum ) {
-			sb << '"' << args->GetString( argNum ) << "\",";
-		}
-		sb.ChopLast();
-		sb << " ]";
-		callbackArgs.emplace_back( CefV8Value::CreateString( sb.ReleaseOwnership() ) );
-	} else {
-		callbackArgs.emplace_back( CefV8Value::CreateString( "[]" ) );
+	CefStringBuilder stringBuilder;
+	ArrayBuildHelper buildHelper( stringBuilder );
+	buildHelper.PrintArgs( args, 1, numArgs - 1 );
+	ExecuteCallback( { CefV8Value::CreateString( stringBuilder.ReleaseOwnership() ) } );
+}
+
+void GetGametypesRequest::FireCallback( CefRefPtr<CefProcessMessage> reply ) {
+	auto args( reply->GetArgumentList() );
+	size_t numArgs = args->GetSize();
+	if( numArgs < 1 ) {
+		ReportNumArgsMismatch( numArgs, "at least 1" );
+		return;
 	}
 
-	ExecuteCallback( callbackArgs );
+	CefStringBuilder stringBuilder;
+	ObjectBuildHelper buildHelper( stringBuilder );
+	buildHelper.PrintArgs( args, 1, numArgs - 1 );
+	ExecuteCallback( { CefV8Value::CreateString( stringBuilder.ReleaseOwnership() ) } );
 }
 
 bool WswCefV8Handler::Execute( const CefString& name,

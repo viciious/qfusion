@@ -108,6 +108,7 @@ public:
 	static const CefString getDemosAndSubDirs;
 	static const CefString getDemoMetaData;
 	static const CefString getHuds;
+	static const CefString getGametypes;
 };
 
 class PendingRequestLauncher {
@@ -148,6 +149,9 @@ protected:
 		return std::make_shared<Request>( parent, context, callback );
 	}
 
+	void DefaultSingleArgStartExecImpl( const CefV8ValueList &jsArgs,
+										CefRefPtr<CefV8Value> &retVal,
+										CefString &exception );
 public:
 	TypedPendingRequestLauncher( WswCefV8Handler *parent_, const CefString &method_ )
 		: PendingRequestLauncher( parent_, method_ ) {}
@@ -209,6 +213,8 @@ DERIVE_PENDING_CALLBACK_REQUEST( GetDemoMetaDataRequest, PendingCallbackRequest:
 
 DERIVE_PENDING_CALLBACK_REQUEST( GetHudsRequest, PendingCallbackRequest::getHuds );
 
+DERIVE_PENDING_CALLBACK_REQUEST( GetGametypesRequest, PendingCallbackRequest::getGametypes );
+
 class WswCefV8Handler: public CefV8Handler {
 	friend class PendingCallbackRequest;
 	friend class PendingRequestLauncher;
@@ -225,6 +231,7 @@ class WswCefV8Handler: public CefV8Handler {
 	GetDemosAndSubDirsRequestLauncher getDemosAndSubDirs;
 	GetDemoMetaDataRequestLauncher getDemoMetaData;
 	GetHudsRequestLauncher getHuds;
+	GetGametypesRequestLauncher getGametypes;
 
 	std::unordered_map<int, std::shared_ptr<PendingCallbackRequest>> callbacks;
 	// We use an unsigned counter to ensure that the overflow behaviour is defined
@@ -246,6 +253,7 @@ public:
 		, getDemosAndSubDirs( this )
 		, getDemoMetaData( this )
 		, getHuds( this )
+		, getGametypes( this )
 		, callId( 0 ) {}
 
 	bool Execute( const CefString& name,
@@ -356,6 +364,7 @@ public:
 	GetDemosAndSubDirsRequestHandler getDemosAndSubDirs;
 	GetDemoMetaDataRequestHandler getDemoMetaData;
 	GetHudsRequestHandler getHuds;
+	GetGametypesRequestHandler getGametypes;
 
 public:
 	CefRefPtr<WswCefRenderHandler> renderHandler;
@@ -369,6 +378,7 @@ public:
 		, getDemosAndSubDirs( this )
 		, getDemoMetaData( this )
 		, getHuds( this )
+		, getGametypes( this )
 		, renderHandler( new WswCefRenderHandler ) {
 		UiFacade::Instance()->RegisterRenderHandler( renderHandler.get() );
 	}

@@ -144,8 +144,8 @@ void UiFacade::DrawUi() {
 	api->R_DrawStretchPic( 0, 0, width, height, 0.0f, 0.0f, 1.0f, 1.0f, color, uiImage );
 }
 
-std::vector<std::pair<int, int>> UiFacade::GetVideoModes() {
-	std::vector<std::pair<int, int>> result;
+UiFacade::VideoModesList UiFacade::GetVideoModes() {
+	VideoModesList result;
 	result.reserve( 32 );
 
 	const auto currWidth = (int)api->Cvar_Value( "vid_width" );
@@ -258,7 +258,7 @@ std::vector<std::string> StlCompatDirectoryWalker::Exec( const char *dir ) {
 	return retVal;
 }
 
-std::pair<std::vector<std::string>, std::vector<std::string>> UiFacade::FindDemosAndSubDirs( const std::string &dir ) {
+std::pair<UiFacade::FilesList, UiFacade::FilesList> UiFacade::FindDemosAndSubDirs( const std::string &dir ) {
 	const char *realDir = dir.empty() ? "demos" : dir.c_str();
 
 	auto findFiles = [&]( const char *ext ) {
@@ -269,7 +269,7 @@ std::pair<std::vector<std::string>, std::vector<std::string>> UiFacade::FindDemo
 	return std::make_pair( findFiles( APP_DEMO_EXTENSION_STR ), findFiles( "/" ) );
 };
 
-std::vector<std::string> UiFacade::GetHuds() {
+UiFacade::FilesList UiFacade::GetHuds() {
 	StlCompatDirectoryWalker walker( ".hud", false );
 	auto rawFiles = walker.Exec( "huds" );
 	// We should not list touch huds now, and should not supply ones as touch screens
@@ -284,7 +284,91 @@ std::vector<std::string> UiFacade::GetHuds() {
 	return result;
 }
 
-std::map<std::string, std::string> UiFacade::GetDemoMetaData( const std::string &path ) {
+class GametypesRetrievalHelper: public DirectoryWalker {
+	UiFacade::GametypesList result;
+
+	void ParseFile( const char *contents );
+	inline const char *SkipWhile( const char *contents, const std::function<bool(char)> &fn );
+public:
+	GametypesRetrievalHelper(): DirectoryWalker( ".gt" ) {}
+
+	UiFacade::GametypesList Exec();
+
+	void ConsumeEntry( const char *p, size_t, const char *lastDot ) override;
+};
+
+UiFacade::GametypesList GametypesRetrievalHelper::Exec() {
+	DirectoryWalker::Exec( "progs/gametypes" );
+
+	UiFacade::GametypesList retVal;
+	result.swap( retVal );
+	return retVal;
+}
+
+void GametypesRetrievalHelper::ConsumeEntry( const char *p, size_t, const char *lastDot ) {
+	std::string path( "progs/gametypes/" );
+	path += std::string( p, lastDot - p );
+	path += ".gtd";
+
+	int fp;
+	int fileSize = api->FS_FOpenFile( path.c_str(), &fp, FS_READ );
+	if( fileSize <= 0 ) {
+		return;
+	}
+
+	std::unique_ptr<char[]> buffer( new char[fileSize + 1u] );
+	int readResult = api->FS_Read( buffer.get(), (size_t)fileSize, fp );
+	api->FS_FCloseFile( fp );
+	if( readResult != fileSize ) {
+		return;
+	}
+
+	buffer.get()[fileSize] = 0;
+	ParseFile( buffer.get() );
+}
+
+inline const char *GametypesRetrievalHelper::SkipWhile( const char *contents, const std::function<bool(char)> &fn ) {
+	while( *contents && fn( *contents ) ) {
+		contents++;
+	}
+	return contents;
+}
+
+void GametypesRetrievalHelper::ParseFile( const char *contents ) {
+	const char *title = SkipWhile( contents, ::isspace );
+	if( !*title ) {
+		return;
+	}
+
+	const char *desc = SkipWhile( title, [](char c) { return c != '\r' && c != '\n'; } );
+	size_t titleLen = desc - title;
+	if( !titleLen ) {
+		return;
+	}
+
+	desc = SkipWhile( desc, isspace );
+	if( !*desc ) {
+		return;
+	}
+
+	// This part requires some special handling
+	const char *p = desc;
+	const char *lastNonSpaceChar = desc;
+	for(; *p; p++ ) {
+		if( !isspace( *p ) ) {
+			lastNonSpaceChar = p;
+		}
+	}
+
+	size_t descLen = lastNonSpaceChar - desc + 1;
+	result.emplace_back( std::make_pair( std::string( title, titleLen ), std::string( desc, descLen ) ) );
+}
+
+std::vector<std::pair<std::string, std::string>> UiFacade::GetGametypes() {
+	return GametypesRetrievalHelper().Exec();
+}
+
+UiFacade::DemoMetaData UiFacade::GetDemoMetaData( const std::string &path ) {
 	char localBuffer[2048];
 	std::unique_ptr<char[]> allocationHolder;
 	char *metaData = localBuffer;
@@ -296,7 +380,7 @@ std::map<std::string, std::string> UiFacade::GetDemoMetaData( const std::string 
 
 		// Check whether we have read the same data (might have been modified)
 		if( api->CL_ReadDemoMetaData( path.c_str(), metaData, realSize ) != realSize ) {
-			return std::map<std::string, std::string>();
+			return std::vector<std::pair<std::string, std::string>>();
 		}
 
 		allocationHolder.swap( allocated );
@@ -305,24 +389,23 @@ std::map<std::string, std::string> UiFacade::GetDemoMetaData( const std::string 
 	return ParseDemoMetaData( metaData, realSize );
 }
 
-std::map<std::string, std::string> UiFacade::ParseDemoMetaData( const char *p, size_t size ) {
+UiFacade::DemoMetaData UiFacade::ParseDemoMetaData( const char *p, size_t size ) {
 	class ResultBuilder {
 		const char *tokens[2];
 		size_t lens[2];
 		int index { 0 };
 
-		std::map<std::string, std::string> result;
+		DemoMetaData result;
 	public:
 		void ConsumeToken( const char *token, size_t len ) {
 			std::tie( tokens[index], lens[index] ) = std::make_pair( token, len );
 			if( ( index++ ) < 1 ) {
 				return;
 			}
-			result.emplace( std::make_pair( std::string( tokens[0], lens[0] ), std::string( tokens[1], lens[1] ) ) );
+			result.emplace_back( std::make_pair( std::string( tokens[0], lens[0] ), std::string( tokens[1], lens[1] ) ) );
 			index = 0;
 		}
-
-		std::map<std::string, std::string> Result() { return std::move( result ); }
+		DemoMetaData Result() { return std::move( result ); }
 	};
 
 	ResultBuilder builder;
