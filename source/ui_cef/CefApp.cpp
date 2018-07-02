@@ -432,6 +432,12 @@ void WswCefRenderProcessHandler::OnWebKitInitialized() {
 		"		getGametypes(function(serialized) {"
 		"			callback(JSON.parse(serialized));"
 		"		});"
+  		"	};"
+		"	ui.getMaps = function(callback) {"
+		"		native function getMaps(callback);"
+		"		getMaps(function(serialized) {"
+		"			callback(JSON.parse(serialized));"
+		"		});"
 		"	};"
 		"})();";
 
@@ -952,6 +958,25 @@ void GetGametypesRequestHandler::ReplyToRequest( CefRefPtr<CefBrowser> browser, 
 	CefPostTask( TID_FILE_BACKGROUND, AsCefPtr( new GetGametypesTask( browser, ingoing ) ) );
 }
 
+void GetMapsRequestHandler::ReplyToRequest( CefRefPtr<CefBrowser> browser, CefRefPtr<CefProcessMessage> ingoing ) {
+	const int id = ingoing->GetArgumentList()->GetInt( 0 );
+	auto message( CefProcessMessage::Create( PendingCallbackRequest::getMaps ) );
+	auto args( message->GetArgumentList() );
+
+	size_t argNum = 0;
+	args->SetInt( argNum++, id );
+
+	// TODO: Is not it so expensive that worth a different thread?
+	// Unfortunately heap operations that lock everything are the most expensive part.
+	auto mapList( UiFacade::GetMaps() );
+	for( const auto &mapNames: mapList ) {
+		args->SetString( argNum++, mapNames.first );
+		args->SetString( argNum++, mapNames.second );
+	}
+
+	browser->SendProcessMessage( PID_RENDERER, message );
+}
+
 bool WswCefClient::OnProcessMessageReceived( CefRefPtr<CefBrowser> browser,
 											 CefProcessId source_process,
 											 CefRefPtr<CefProcessMessage> processMessage ) {
@@ -991,6 +1016,7 @@ const CefString PendingCallbackRequest::getDemosAndSubDirs( "getDemosAndSubDirs"
 const CefString PendingCallbackRequest::getDemoMetaData( "getDemoMetaData" );
 const CefString PendingCallbackRequest::getHuds( "getHuds" );
 const CefString PendingCallbackRequest::getGametypes( "getGametypes" );
+const CefString PendingCallbackRequest::getMaps( "getMaps" );
 
 PendingCallbackRequest::PendingCallbackRequest( WswCefV8Handler *parent_,
 												CefRefPtr<CefV8Context> context_,
@@ -1361,6 +1387,10 @@ void GetGametypesRequestLauncher::StartExec( const CefV8ValueList &jsArgs, CefRe
 	return DefaultSingleArgStartExecImpl( jsArgs, retVal, ex );
 }
 
+void GetMapsRequestLauncher::StartExec( const CefV8ValueList &jsArgs, CefRefPtr<CefV8Value> &retVal, CefString &ex ) {
+	return DefaultSingleArgStartExecImpl( jsArgs, retVal, ex );
+}
+
 void GetCVarRequest::FireCallback( CefRefPtr<CefProcessMessage> reply ) {
 	auto args( reply->GetArgumentList() );
 	size_t numArgs = args->GetSize();
@@ -1406,18 +1436,11 @@ void GetVideoModesRequest::FireCallback( CefRefPtr<CefProcessMessage> reply ) {
 		return;
 	}
 
-	struct BuildHelper: public AggregateBuildHelper {
-		explicit BuildHelper( CefStringBuilder &underlying ) : AggregateBuildHelper( underlying, '[', ']' ) {}
-
-		void PrintArgsAsBody( CefRefPtr<CefListValue> &args, size_t startArg, size_t numArgs ) override {
-			for( size_t argNum = startArg; argNum < startArg + numArgs; argNum += 2 ) {
-				underlying << "{ width: " << args->GetInt( argNum ) << ", height: " << args->GetInt( argNum + 1 ) << "},";
-			}
-		}
-	};
-
 	CefStringBuilder stringBuilder;
-	BuildHelper buildHelper( stringBuilder );
+	auto argPrinter = []( CefStringBuilder &sb, CefRefPtr<CefListValue> &args, size_t argNum ) {
+		sb << args->GetInt( argNum );
+	};
+	ArrayOfPairsBuildHelper buildHelper( stringBuilder, "width", "height", argPrinter );
 	ExecuteCallback( { CefV8Value::CreateString( stringBuilder.ReleaseOwnership() ) } );
 }
 
@@ -1484,6 +1507,20 @@ void GetGametypesRequest::FireCallback( CefRefPtr<CefProcessMessage> reply ) {
 
 	CefStringBuilder stringBuilder;
 	ObjectBuildHelper buildHelper( stringBuilder );
+	buildHelper.PrintArgs( args, 1, numArgs - 1 );
+	ExecuteCallback( { CefV8Value::CreateString( stringBuilder.ReleaseOwnership() ) } );
+}
+
+void GetMapsRequest::FireCallback( CefRefPtr<CefProcessMessage> reply ) {
+	auto args( reply->GetArgumentList() );
+	size_t numArgs = args->GetSize();
+	if( numArgs < 1 ) {
+		ReportNumArgsMismatch( numArgs, "at least 1" );
+		return;
+	}
+
+	CefStringBuilder stringBuilder;
+	ArrayOfPairsBuildHelper buildHelper( stringBuilder, "short", "full" );
 	buildHelper.PrintArgs( args, 1, numArgs - 1 );
 	ExecuteCallback( { CefV8Value::CreateString( stringBuilder.ReleaseOwnership() ) } );
 }

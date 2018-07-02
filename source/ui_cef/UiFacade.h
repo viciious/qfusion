@@ -61,7 +61,7 @@ public:
 	typedef std::vector<std::string> FilesList;
 	typedef std::vector<std::pair<std::string, std::string>> GametypesList;
 	typedef std::vector<std::pair<std::string, std::string>> DemoMetaData;
-
+	typedef std::vector<std::pair<std::string, std::string>> MapsList;
 private:
 	CefRefPtr<CefBrowser> browser;
 	WswCefRenderHandler *renderHandler;
@@ -178,6 +178,8 @@ public:
 	static FilesList GetHuds();
 
 	static GametypesList GetGametypes();
+
+	static MapsList GetMaps();
 
 	static DemoMetaData GetDemoMetaData( const std::string &path );
 

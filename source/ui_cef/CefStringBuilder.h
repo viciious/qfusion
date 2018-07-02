@@ -177,7 +177,7 @@ class ArrayBuildHelper: public AggregateBuildHelper {
 		underlying.ChopLast();
 	}
 public:
-	explicit ArrayBuildHelper( CefStringBuilder &underlying_, const ArgPrinter &argPrinter_ = QuotedStringPrinter( '"' ) )
+	explicit ArrayBuildHelper( CefStringBuilder &underlying_, const ArgPrinter &argPrinter_ = QuotedStringPrinter() )
 		: AggregateBuildHelper( underlying_, '[', ']' ), argPrinter( argPrinter_ ) {}
 };
 
@@ -203,6 +203,34 @@ public:
 		, keyPrinter( keyPrinter_ )
 		, valuePrinter( valuePrinter_ ) {}
 
+};
+
+class ArrayOfPairsBuildHelper: public AggregateBuildHelper {
+	const char *const firstName;
+	const char *const secondName;
+	const ArgPrinter &argPrinter;
+
+	void PrintArgsAsBody( CefRefPtr<CefListValue> &args, size_t startArg, size_t numArgs ) override {
+		assert( !( numArgs % 2 ) );
+		for( size_t argNum = startArg; argNum < startArg + numArgs; argNum += 2 ) {
+			underlying << '{' << '"' << firstName << '"' << ':';
+			argPrinter( underlying, args, argNum + 0 );
+			underlying << ',' << '"' << secondName << '"' << ':';
+			argPrinter( underlying, args, argNum + 1 );
+			underlying << "},";
+		}
+		underlying.ChopLast();
+	}
+public:
+	// Note: Trying to use CefString for arguments is troublesome for some reasons...
+	ArrayOfPairsBuildHelper( CefStringBuilder &underlying_,
+							 const char *firstName_,
+							 const char *secondName_,
+							 const ArgPrinter &argPrinter_ = QuotedStringPrinter() )
+		: AggregateBuildHelper( underlying_, '[', ']' )
+		, firstName( firstName_ )
+		, secondName( secondName_ )
+		, argPrinter( argPrinter_ ) {}
 };
 
 #endif

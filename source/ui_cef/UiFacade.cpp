@@ -418,3 +418,18 @@ UiFacade::DemoMetaData UiFacade::ParseDemoMetaData( const char *p, size_t size )
 
 	return builder.Result();
 }
+
+UiFacade::MapsList UiFacade::GetMaps() {
+	UiFacade::MapsList result;
+	char buffer[( MAX_CONFIGSTRING_CHARS + 1 ) * 2];
+	// TODO: These all APIs are horribly inefficient... Transfer an ownership of dynamically allocated strings instead
+	for( int i = 0; api->ML_GetMapByNum( i, buffer, sizeof( buffer ) ); ++i ) {
+		const char *shortName = buffer;
+		size_t shortNameLen = strlen( buffer );
+		const char *fullName = buffer + shortNameLen + 1;
+		size_t fullNameLen = strlen( fullName );
+		auto pair( std::make_pair( std::string( shortName, shortNameLen ), std::string( fullName, fullNameLen ) ) );
+		result.emplace_back( std::move( pair ) );
+	}
+	return result;
+}
