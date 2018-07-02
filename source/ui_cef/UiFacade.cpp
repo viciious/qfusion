@@ -433,3 +433,18 @@ UiFacade::MapsList UiFacade::GetMaps() {
 	}
 	return result;
 }
+
+UiFacade::LocalizedPairsList UiFacade::GetLocalizedStrings( const std::vector<std::string> &request ) {
+	UiFacade::LocalizedPairsList result;
+	result.reserve( request.size() );
+
+	for( auto &s: request ) {
+		if( const char *localized = api->L10n_TranslateString( s.c_str() ) ) {
+			result.emplace_back( std::make_pair( s, std::string( localized ) ) );
+		} else {
+			result.emplace_back( std::make_pair( s, s ) );
+		}
+	}
+
+	return result;
+}

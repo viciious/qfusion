@@ -439,6 +439,12 @@ void WswCefRenderProcessHandler::OnWebKitInitialized() {
 		"			callback(JSON.parse(serialized));"
 		"		});"
 		"	};"
+		"	ui.getLocalizedStrings = function(strings, callback) {"
+		"		native function getLocalizedStrings(strings, callback);"
+		"		getLocalizedStrings(strings, function(serializedObject) {"
+		"			callback(JSON.parse(serializedObject));"
+		"		});"
+		"	};"
 		"})();";
 
 	v8Handler = CefRefPtr<WswCefV8Handler>( new WswCefV8Handler( this ) );
@@ -977,6 +983,34 @@ void GetMapsRequestHandler::ReplyToRequest( CefRefPtr<CefBrowser> browser, CefRe
 	browser->SendProcessMessage( PID_RENDERER, message );
 }
 
+void GetLocalizedStringsRequestHandler::ReplyToRequest( CefRefPtr<CefBrowser> browser,
+														CefRefPtr<CefProcessMessage> ingoing ) {
+	auto ingoingArgs( ingoing->GetArgumentList() );
+	const size_t ingoingArgsSize = ingoingArgs->GetSize();
+	const int id = ingoingArgs->GetInt( 0 );
+
+	std::vector<std::string> localizationRequest;
+	localizationRequest.reserve( ingoingArgsSize - 1 );
+	for( size_t i = 1; i < ingoingArgsSize; ++i ) {
+		localizationRequest.emplace_back( ingoingArgs->GetString( i ) );
+	}
+
+	auto localizedPairs( UiFacade::GetLocalizedStrings( localizationRequest ) );
+
+	auto message( CefProcessMessage::Create( method ) );
+	auto outgoingArgs( message->GetArgumentList() );
+
+	size_t argNum = 0;
+	outgoingArgs->SetInt( argNum++, id );
+
+	for( auto &pair: localizedPairs ) {
+		outgoingArgs->SetString( argNum++, pair.first );
+		outgoingArgs->SetString( argNum++, pair.second );
+	}
+
+	browser->SendProcessMessage( PID_RENDERER, message );
+}
+
 bool WswCefClient::OnProcessMessageReceived( CefRefPtr<CefBrowser> browser,
 											 CefProcessId source_process,
 											 CefRefPtr<CefProcessMessage> processMessage ) {
@@ -1017,6 +1051,7 @@ const CefString PendingCallbackRequest::getDemoMetaData( "getDemoMetaData" );
 const CefString PendingCallbackRequest::getHuds( "getHuds" );
 const CefString PendingCallbackRequest::getGametypes( "getGametypes" );
 const CefString PendingCallbackRequest::getMaps( "getMaps" );
+const CefString PendingCallbackRequest::getLocalizedStrings( "getLocalizedStrings" );
 
 PendingCallbackRequest::PendingCallbackRequest( WswCefV8Handler *parent_,
 												CefRefPtr<CefV8Context> context_,
@@ -1391,6 +1426,47 @@ void GetMapsRequestLauncher::StartExec( const CefV8ValueList &jsArgs, CefRefPtr<
 	return DefaultSingleArgStartExecImpl( jsArgs, retVal, ex );
 }
 
+void GetLocalizedStringsRequestLauncher::StartExec( const CefV8ValueList &jsArgs,
+													CefRefPtr<CefV8Value> &retVal,
+													CefString &exception ) {
+	if( jsArgs.size() != 2 ) {
+		exception = "Illegal arguments list size, there must be two arguments";
+		return;
+	}
+
+	auto stringsArray( jsArgs[0] );
+	if( !stringsArray->IsArray() ) {
+		exception = "The first argument must be an array of strings";
+		return;
+	}
+
+	if( !ValidateCallback( jsArgs.back(), exception ) ) {
+		return;
+	}
+
+	// TODO: Fetch and validate array args before this?
+	// Not sure if a message creation is expensive.
+	// Should not impact the happy code path anyway.
+	auto context( CefV8Context::GetCurrentContext() );
+	auto request( NewRequest( context, jsArgs.back() ) );
+	auto message( NewMessage() );
+	auto messageArgs( message->GetArgumentList() );
+	size_t argNum = 0;
+	messageArgs->SetInt( argNum++, request->Id() );
+	for( int i = 0, length = stringsArray->GetArrayLength(); i < length; ++i ) {
+		auto elemValue( stringsArray->GetValue( i ) );
+		if( !elemValue->IsString() ) {
+			std::stringstream ss;
+			ss << "The array value at " << i << " is not a string";
+			exception = ss.str();
+			return;
+		}
+		messageArgs->SetString( argNum++, elemValue->GetStringValue() );
+	}
+
+	Commit( std::move( request ), context, message, retVal, exception );
+}
+
 void GetCVarRequest::FireCallback( CefRefPtr<CefProcessMessage> reply ) {
 	auto args( reply->GetArgumentList() );
 	size_t numArgs = args->GetSize();
@@ -1521,6 +1597,20 @@ void GetMapsRequest::FireCallback( CefRefPtr<CefProcessMessage> reply ) {
 
 	CefStringBuilder stringBuilder;
 	ArrayOfPairsBuildHelper buildHelper( stringBuilder, "short", "full" );
+	buildHelper.PrintArgs( args, 1, numArgs - 1 );
+	ExecuteCallback( { CefV8Value::CreateString( stringBuilder.ReleaseOwnership() ) } );
+}
+
+void GetLocalizedStringsRequest::FireCallback( CefRefPtr<CefProcessMessage> reply ) {
+	auto args( reply->GetArgumentList() );
+	size_t numArgs = args->GetSize();
+	if( numArgs < 1 ) {
+		ReportNumArgsMismatch( numArgs, "at least 1" );
+		return;
+	}
+
+	CefStringBuilder stringBuilder;
+	ObjectBuildHelper buildHelper( stringBuilder );
 	buildHelper.PrintArgs( args, 1, numArgs - 1 );
 	ExecuteCallback( { CefV8Value::CreateString( stringBuilder.ReleaseOwnership() ) } );
 }

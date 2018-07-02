@@ -62,6 +62,7 @@ public:
 	typedef std::vector<std::pair<std::string, std::string>> GametypesList;
 	typedef std::vector<std::pair<std::string, std::string>> DemoMetaData;
 	typedef std::vector<std::pair<std::string, std::string>> MapsList;
+	typedef std::vector<std::pair<std::string, std::string>> LocalizedPairsList;
 private:
 	CefRefPtr<CefBrowser> browser;
 	WswCefRenderHandler *renderHandler;
@@ -180,6 +181,8 @@ public:
 	static GametypesList GetGametypes();
 
 	static MapsList GetMaps();
+
+	static LocalizedPairsList GetLocalizedStrings( const std::vector<std::string> &request );
 
 	static DemoMetaData GetDemoMetaData( const std::string &path );
 

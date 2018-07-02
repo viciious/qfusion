@@ -110,6 +110,7 @@ public:
 	static const CefString getHuds;
 	static const CefString getGametypes;
 	static const CefString getMaps;
+	static const CefString getLocalizedStrings;
 };
 
 class PendingRequestLauncher {
@@ -218,6 +219,8 @@ DERIVE_PENDING_CALLBACK_REQUEST( GetGametypesRequest, PendingCallbackRequest::ge
 
 DERIVE_PENDING_CALLBACK_REQUEST( GetMapsRequest, PendingCallbackRequest::getMaps );
 
+DERIVE_PENDING_CALLBACK_REQUEST( GetLocalizedStringsRequest, PendingCallbackRequest::getLocalizedStrings );
+
 class WswCefV8Handler: public CefV8Handler {
 	friend class PendingCallbackRequest;
 	friend class PendingRequestLauncher;
@@ -236,6 +239,7 @@ class WswCefV8Handler: public CefV8Handler {
 	GetHudsRequestLauncher getHuds;
 	GetGametypesRequestLauncher getGametypes;
 	GetMapsRequestLauncher getMaps;
+	GetLocalizedStringsRequestLauncher getLocalizedStrings;
 
 	std::unordered_map<int, std::shared_ptr<PendingCallbackRequest>> callbacks;
 	// We use an unsigned counter to ensure that the overflow behaviour is defined
@@ -259,6 +263,7 @@ public:
 		, getHuds( this )
 		, getGametypes( this )
 		, getMaps( this )
+		, getLocalizedStrings( this )
 		, callId( 0 ) {}
 
 	bool Execute( const CefString& name,
@@ -371,6 +376,7 @@ public:
 	GetHudsRequestHandler getHuds;
 	GetGametypesRequestHandler getGametypes;
 	GetMapsRequestHandler getMaps;
+	GetLocalizedStringsRequestHandler getLocalizedStrings;
 
 public:
 	CefRefPtr<WswCefRenderHandler> renderHandler;
@@ -386,6 +392,7 @@ public:
 		, getHuds( this )
 		, getGametypes( this )
 		, getMaps( this )
+		, getLocalizedStrings( this )
 		, renderHandler( new WswCefRenderHandler ) {
 		UiFacade::Instance()->RegisterRenderHandler( renderHandler.get() );
 	}
