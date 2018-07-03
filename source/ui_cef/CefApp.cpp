@@ -445,6 +445,30 @@ void WswCefRenderProcessHandler::OnWebKitInitialized() {
 		"			callback(JSON.parse(serializedObject));"
 		"		});"
 		"	};"
+		"	ui.getKeyNames = function(keys, callback) {"
+		"		native function getKeyNames();"
+		"		getKeyNames(keys, function(serializedObject) {"
+		"			callback(JSON.parse(serializedObject));"
+		"		});"
+		"	};"
+		"	ui.getAllKeyNames = function(callback) {"
+		"		native function getKeyNames();"
+		"		getKeyNames(function(serializedObject) {"
+		"			callback(JSON.parse(serializedObject));"
+		"		});"
+		"	};"
+		"	ui.getKeyBindings = function(keys, callback) {"
+		"		native function getKeyBindings();"
+		"		getKeyBindings(keys, function(serializedObject) {"
+		"			callback(JSON.parse(serializedObject));"
+		"		});"
+		"	};"
+		"	ui.getAllKeyBindings = function(callback) {"
+		"		native function getKeyBindings();"
+		"		getKeyBindings(function(serializedObject) {"
+		"			callback(JSON.parse(serializedObject));"
+		"		});"
+		"	};"
 		"})();";
 
 	v8Handler = CefRefPtr<WswCefV8Handler>( new WswCefV8Handler( this ) );
@@ -1011,6 +1035,43 @@ void GetLocalizedStringsRequestHandler::ReplyToRequest( CefRefPtr<CefBrowser> br
 	browser->SendProcessMessage( PID_RENDERER, message );
 }
 
+void RequestForKeysHandler::ReplyToRequest( CefRefPtr<CefBrowser> browser, CefRefPtr<CefProcessMessage> ingoing ) {
+	auto ingoingArgs( ingoing->GetArgumentList() );
+	const int id = ingoingArgs->GetInt( 0 );
+
+	auto outgoing( CefProcessMessage::Create( method ) );
+	auto outgoingArgs( outgoing->GetArgumentList() );
+	outgoingArgs->SetInt( 0, id );
+
+	const size_t ingoingArgsSize = ingoingArgs->GetSize();
+	if( ingoingArgsSize > 1 ) {
+		size_t outgoingArgNum = 1;
+		for( size_t ingoingArgNum = 1; ingoingArgNum < ingoingArgsSize; ++ingoingArgNum ) {
+			int key = ingoingArgs->GetInt( ingoingArgNum );
+			outgoingArgs->SetInt( outgoingArgNum++, key );
+			outgoingArgs->SetString( outgoingArgNum++, GetForKey( key ) );
+		}
+	} else {
+		size_t argNum = 1;
+		for( int i = 0; i < 256; ++i ) {
+			outgoingArgs->SetInt( argNum++, i );
+			outgoingArgs->SetString( argNum++, GetForKey( i ) );
+		}
+	}
+
+	browser->SendProcessMessage( PID_RENDERER, outgoing );
+}
+
+// Its cleaner to define it here than bloat subclass one-liners with lambdas
+
+const char *GetKeyBindingsRequestHandler::GetForKey( int key ) {
+	return api->Key_GetBindingBuf( key );
+}
+
+const char *GetKeyNamesRequestHandler::GetForKey( int key ) {
+	return api->Key_KeynumToString( key );
+}
+
 bool WswCefClient::OnProcessMessageReceived( CefRefPtr<CefBrowser> browser,
 											 CefProcessId source_process,
 											 CefRefPtr<CefProcessMessage> processMessage ) {
@@ -1052,6 +1113,8 @@ const CefString PendingCallbackRequest::getHuds( "getHuds" );
 const CefString PendingCallbackRequest::getGametypes( "getGametypes" );
 const CefString PendingCallbackRequest::getMaps( "getMaps" );
 const CefString PendingCallbackRequest::getLocalizedStrings( "getLocalizedStrings" );
+const CefString PendingCallbackRequest::getKeyBindings( "getKeyBindings" );
+const CefString PendingCallbackRequest::getKeyNames( "getKeyNames" );
 
 PendingCallbackRequest::PendingCallbackRequest( WswCefV8Handler *parent_,
 												CefRefPtr<CefV8Context> context_,
@@ -1073,6 +1136,12 @@ inline void PendingCallbackRequest::ExecuteCallback( const CefV8ValueList &args 
 		std::string tag = "PendingCallbackRequest@" + method.ToString();
 		Logger()->Error( "%s: JS callback execution failed", tag.c_str() );
 	}
+}
+
+inline void PendingCallbackRequest::FireSingleArgAggregateCallback( CefRefPtr<CefListValue> args,
+																	AggregateBuildHelper &abh ) {
+	CefStringBuilder &stringBuilder = abh.PrintArgs( args, 1, args->GetSize() - 1 );
+	ExecuteCallback( { CefV8Value::CreateString( stringBuilder.ReleaseOwnership() ) } );
 }
 
 PendingRequestLauncher::PendingRequestLauncher( WswCefV8Handler *parent_, const CefString &method_ )
@@ -1467,6 +1536,61 @@ void GetLocalizedStringsRequestLauncher::StartExec( const CefV8ValueList &jsArgs
 	Commit( std::move( request ), context, message, retVal, exception );
 }
 
+// Extracted to reduce template object code duplication
+static bool SetKeysAsArgs( const CefV8ValueList &jsArgs, CefRefPtr<CefListValue> messageArgs, CefString &exception ) {
+	if( jsArgs.size() < 2 ) {
+		return true;
+	}
+
+	auto keysArray( jsArgs.front() );
+
+	size_t argNum = 1;
+	for( int i = 0, length = keysArray->GetArrayLength(); i < length; ++i ) {
+		auto elemValue( keysArray->GetValue( i ) );
+		if( !elemValue->IsInt() ) {
+			std::stringstream ss;
+			ss << "An array element at index " << i << " is not an integer";
+			exception = ss.str();
+			return false;
+		}
+		messageArgs->SetInt( argNum++, elemValue->GetIntValue() );
+	}
+
+	return true;
+}
+
+template <typename Request>
+void RequestForKeysLauncher<Request>::StartExec( const CefV8ValueList &jsArgs,
+												 CefRefPtr<CefV8Value> &retVal,
+												 CefString &exception ) {
+	if( jsArgs.size() != 1 && jsArgs.size() != 2 ) {
+		exception = "Illegal arguments list size, 1 or 2 arguments are expected";
+		return;
+	}
+
+	if( jsArgs.size() == 2 ) {
+		if( !jsArgs[0]->IsArray() ) {
+			exception = "An array is expected as a first argument in this case\n";
+			return;
+		}
+	}
+
+	if( !PendingRequestLauncher::ValidateCallback( jsArgs.back(), exception ) ) {
+		return;
+	}
+
+	auto context( CefV8Context::GetCurrentContext() );
+	auto request( TypedPendingRequestLauncher<Request>::NewRequest( context, jsArgs.back() ) );
+	auto message( PendingRequestLauncher::NewMessage() );
+	auto messageArgs( message->GetArgumentList() );
+	messageArgs->SetInt( 0, request->Id() );
+	if( !SetKeysAsArgs( jsArgs, messageArgs, exception ) ) {
+		return;
+	}
+
+	PendingRequestLauncher::Commit( std::move( request ), context, message, retVal, exception );
+}
+
 void GetCVarRequest::FireCallback( CefRefPtr<CefProcessMessage> reply ) {
 	auto args( reply->GetArgumentList() );
 	size_t numArgs = args->GetSize();
@@ -1505,19 +1629,10 @@ void ExecuteCmdRequest::FireCallback( CefRefPtr<CefProcessMessage> reply ) {
 }
 
 void GetVideoModesRequest::FireCallback( CefRefPtr<CefProcessMessage> reply ) {
-	auto args( reply->GetArgumentList() );
-	const size_t numArgs = args->GetSize();
-	if( numArgs < 3 || ( numArgs % 2 == 0 ) ) {
-		ReportNumArgsMismatch( numArgs, "at least 3, an odd value" );
-		return;
-	}
-
-	CefStringBuilder stringBuilder;
 	auto argPrinter = []( CefStringBuilder &sb, CefRefPtr<CefListValue> &args, size_t argNum ) {
 		sb << args->GetInt( argNum );
 	};
-	ArrayOfPairsBuildHelper buildHelper( stringBuilder, "width", "height", argPrinter );
-	ExecuteCallback( { CefV8Value::CreateString( stringBuilder.ReleaseOwnership() ) } );
+	FireSingleArgAggregateCallback<ArrayOfPairsBuildHelper>( reply, "width", "height", argPrinter );
 }
 
 void GetDemosAndSubDirsRequest::FireCallback( CefRefPtr<CefProcessMessage> reply ) {
@@ -1551,68 +1666,37 @@ void GetDemoMetaDataRequest::FireCallback( CefRefPtr<CefProcessMessage> reply ) 
 		return;
 	}
 
-	// Escape keys in quotes... not sure if this protects from whitespaces in key names
-	CefStringBuilder stringBuilder;
-	auto printer = AggregateBuildHelper::QuotedStringPrinter( '\"' );
-	ObjectBuildHelper buildHelper( stringBuilder, printer, printer );
-	buildHelper.PrintArgs( args, 1, numArgs - 1 );
-	ExecuteCallback( { CefV8Value::CreateString( stringBuilder.ReleaseOwnership() ) } );
+	auto printer = AggregateBuildHelper::QuotedStringPrinter();
+	FireSingleArgAggregateCallback<ObjectBuildHelper>( reply, printer, printer );
 }
 
 void GetHudsRequest::FireCallback( CefRefPtr<CefProcessMessage> reply ) {
-	auto args( reply->GetArgumentList() );
-	size_t numArgs = args->GetSize();
-	if( numArgs < 1 ) {
-		ReportNumArgsMismatch( numArgs, "at least 1" );
-		return;
-	}
-
-	CefStringBuilder stringBuilder;
-	ArrayBuildHelper buildHelper( stringBuilder );
-	buildHelper.PrintArgs( args, 1, numArgs - 1 );
-	ExecuteCallback( { CefV8Value::CreateString( stringBuilder.ReleaseOwnership() ) } );
+	FireSingleArgAggregateCallback<ArrayBuildHelper>( reply );
 }
 
 void GetGametypesRequest::FireCallback( CefRefPtr<CefProcessMessage> reply ) {
-	auto args( reply->GetArgumentList() );
-	size_t numArgs = args->GetSize();
-	if( numArgs < 1 ) {
-		ReportNumArgsMismatch( numArgs, "at least 1" );
-		return;
-	}
-
-	CefStringBuilder stringBuilder;
-	ObjectBuildHelper buildHelper( stringBuilder );
-	buildHelper.PrintArgs( args, 1, numArgs - 1 );
-	ExecuteCallback( { CefV8Value::CreateString( stringBuilder.ReleaseOwnership() ) } );
+	FireSingleArgAggregateCallback<ObjectBuildHelper>( reply );
 }
 
 void GetMapsRequest::FireCallback( CefRefPtr<CefProcessMessage> reply ) {
-	auto args( reply->GetArgumentList() );
-	size_t numArgs = args->GetSize();
-	if( numArgs < 1 ) {
-		ReportNumArgsMismatch( numArgs, "at least 1" );
-		return;
-	}
-
-	CefStringBuilder stringBuilder;
-	ArrayOfPairsBuildHelper buildHelper( stringBuilder, "short", "full" );
-	buildHelper.PrintArgs( args, 1, numArgs - 1 );
-	ExecuteCallback( { CefV8Value::CreateString( stringBuilder.ReleaseOwnership() ) } );
+	auto printer = AggregateBuildHelper::QuotedStringPrinter();
+	FireSingleArgAggregateCallback<ObjectBuildHelper>( reply, printer, printer );
 }
 
 void GetLocalizedStringsRequest::FireCallback( CefRefPtr<CefProcessMessage> reply ) {
-	auto args( reply->GetArgumentList() );
-	size_t numArgs = args->GetSize();
-	if( numArgs < 1 ) {
-		ReportNumArgsMismatch( numArgs, "at least 1" );
-		return;
-	}
+	FireSingleArgAggregateCallback<ObjectBuildHelper>( reply );
+}
 
-	CefStringBuilder stringBuilder;
-	ObjectBuildHelper buildHelper( stringBuilder );
-	buildHelper.PrintArgs( args, 1, numArgs - 1 );
-	ExecuteCallback( { CefV8Value::CreateString( stringBuilder.ReleaseOwnership() ) } );
+static const auto keyPrinter = []( CefStringBuilder &sb, CefRefPtr<CefListValue> &args, size_t argNum ) {
+	sb << '\"' << args->GetInt( argNum ) << '\"';
+};
+
+void GetKeyBindingsRequest::FireCallback( CefRefPtr<CefProcessMessage> reply ) {
+	FireSingleArgAggregateCallback<ObjectBuildHelper>( reply, keyPrinter, AggregateBuildHelper::QuotedStringPrinter() );
+}
+
+void GetKeyNamesRequest::FireCallback( CefRefPtr<CefProcessMessage> reply ) {
+	FireSingleArgAggregateCallback<ObjectBuildHelper>( reply, keyPrinter, AggregateBuildHelper::QuotedStringPrinter() );
 }
 
 bool WswCefV8Handler::Execute( const CefString& name,

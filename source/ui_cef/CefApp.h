@@ -4,6 +4,7 @@
 #include "include/cef_app.h"
 #include "include/cef_client.h"
 #include "UiFacade.h"
+#include "CefStringBuilder.h"
 
 #include <unordered_map>
 #include <atomic>
@@ -90,6 +91,42 @@ protected:
 	inline RenderProcessLogger *Logger();
 
 	inline void ReportNumArgsMismatch( size_t actual, const char *expected );
+
+	template<typename BuildHelper>
+	void FireSingleArgAggregateCallback( CefRefPtr<CefProcessMessage> &reply ) {
+		CefStringBuilder stringBuilder;
+		BuildHelper buildHelper( stringBuilder );
+		FireSingleArgAggregateCallback( reply->GetArgumentList(), buildHelper );
+	}
+
+	template<typename BuildHelper, typename HelperArg1>
+	void FireSingleArgAggregateCallback( CefRefPtr<CefProcessMessage> &reply, const HelperArg1 &arg1 ) {
+		CefStringBuilder stringBuilder;
+		BuildHelper buildHelper( stringBuilder, arg1 );
+		FireSingleArgAggregateCallback( reply->GetArgumentList(), buildHelper );
+	};
+
+	template <typename BuildHelper, typename HelperArg1, typename HelperArg2>
+	void FireSingleArgAggregateCallback( CefRefPtr<CefProcessMessage> &reply,
+										 const HelperArg1 &arg1,
+										 const HelperArg2 arg2 ) {
+		CefStringBuilder stringBuilder;
+		BuildHelper buildHelper( stringBuilder, arg1, arg2 );
+		FireSingleArgAggregateCallback( reply->GetArgumentList(), buildHelper );
+	};
+
+	template <typename BuildHelper, typename HelperArg1, typename HelperArg2, typename HelperArg3>
+	void FireSingleArgAggregateCallback( CefRefPtr<CefProcessMessage> &reply,
+										 const HelperArg1 &arg1,
+										 const HelperArg2 &arg2,
+										 const HelperArg3 &arg3 ) {
+		CefStringBuilder stringBuilder;
+		BuildHelper buildHelper( stringBuilder, arg1, arg2, arg3 );
+		FireSingleArgAggregateCallback( reply->GetArgumentList(), buildHelper );
+	};
+
+	// The first parameter differs from template ones intentionally to avoid ambiguous calls
+	inline void FireSingleArgAggregateCallback( CefRefPtr<CefListValue> args, AggregateBuildHelper &abh );
 	inline void ExecuteCallback( const CefV8ValueList &args );
 public:
 	PendingCallbackRequest( WswCefV8Handler *parent_,
@@ -111,6 +148,8 @@ public:
 	static const CefString getGametypes;
 	static const CefString getMaps;
 	static const CefString getLocalizedStrings;
+	static const CefString getKeyBindings;
+	static const CefString getKeyNames;
 };
 
 class PendingRequestLauncher {
@@ -187,39 +226,78 @@ public:																												 \
 	Derived( WswCefV8Handler *parent_, CefRefPtr<CefV8Context> context_, CefRefPtr<CefV8Value> callback_ )           \
 		: PendingCallbackRequest( parent_, context_, callback_, method ) {}                                          \
 	void FireCallback( CefRefPtr<CefProcessMessage> reply ) override;                                                \
-};                                                                                                                   \
-																													 \
-class Derived##Launcher: public TypedPendingRequestLauncher<Derived> {                                               \
+}                                                                                                                    \
+
+#define DERIVE_PENDING_REQUEST_LAUNCHER( Derived, method )                                                           \
+class Derived##Launcher: public virtual TypedPendingRequestLauncher<Derived> {                                       \
 public:                                                                                                              \
 	explicit Derived##Launcher( WswCefV8Handler *parent_ ): TypedPendingRequestLauncher( parent_, method ) {}        \
 	void StartExec( const CefV8ValueList &jsArgs, CefRefPtr<CefV8Value> &retVal, CefString &exception ) override;    \
-};																													 \
-																													 \
+}																													 \
+
+#define DERIVE_CALLBACK_REQUEST_HANDLER( Derived, method )															 \
 class Derived##Handler: public CallbackRequestHandler {																 \
 public:																												 \
 	explicit Derived##Handler( WswCefClient *parent_ ): CallbackRequestHandler( parent_, method ) {}				 \
 	void ReplyToRequest( CefRefPtr<CefBrowser> browser, CefRefPtr<CefProcessMessage> ingoing ) override;             \
 }
 
-DERIVE_PENDING_CALLBACK_REQUEST( GetCVarRequest, PendingCallbackRequest::getCVar );
+#define  DERIVE_REQUEST_IPC_HELPERS( Derived, method )    \
+	DERIVE_PENDING_CALLBACK_REQUEST( Derived, method );  \
+	DERIVE_PENDING_REQUEST_LAUNCHER( Derived, method );  \
+	DERIVE_CALLBACK_REQUEST_HANDLER( Derived, method )
 
-DERIVE_PENDING_CALLBACK_REQUEST( SetCVarRequest, PendingCallbackRequest::setCVar );
+DERIVE_REQUEST_IPC_HELPERS( GetCVarRequest, PendingCallbackRequest::getCVar );
+DERIVE_REQUEST_IPC_HELPERS( SetCVarRequest, PendingCallbackRequest::setCVar );
+DERIVE_REQUEST_IPC_HELPERS( ExecuteCmdRequest, PendingCallbackRequest::executeCmd );
+DERIVE_REQUEST_IPC_HELPERS( GetVideoModesRequest, PendingCallbackRequest::getVideoModes );
+DERIVE_REQUEST_IPC_HELPERS( GetDemosAndSubDirsRequest, PendingCallbackRequest::getDemosAndSubDirs );
+DERIVE_REQUEST_IPC_HELPERS( GetDemoMetaDataRequest, PendingCallbackRequest::getDemoMetaData );
+DERIVE_REQUEST_IPC_HELPERS( GetHudsRequest, PendingCallbackRequest::getHuds );
+DERIVE_REQUEST_IPC_HELPERS( GetGametypesRequest, PendingCallbackRequest::getGametypes );
+DERIVE_REQUEST_IPC_HELPERS( GetMapsRequest, PendingCallbackRequest::getMaps );
+DERIVE_REQUEST_IPC_HELPERS( GetLocalizedStringsRequest, PendingCallbackRequest::getLocalizedStrings );
 
-DERIVE_PENDING_CALLBACK_REQUEST( ExecuteCmdRequest, PendingCallbackRequest::executeCmd );
+template <typename Request>
+class RequestForKeysLauncher: public TypedPendingRequestLauncher<Request> {
+public:
+	RequestForKeysLauncher( WswCefV8Handler *parent_, const CefString &method_ )
+		: TypedPendingRequestLauncher<Request>( parent_, method_ ) {}
 
-DERIVE_PENDING_CALLBACK_REQUEST( GetVideoModesRequest, PendingCallbackRequest::getVideoModes );
+	void StartExec( const CefV8ValueList &jsArgs, CefRefPtr<CefV8Value> &retVal, CefString &exception ) override;
+};
 
-DERIVE_PENDING_CALLBACK_REQUEST( GetDemosAndSubDirsRequest, PendingCallbackRequest::getDemosAndSubDirs );
+class RequestForKeysHandler: public CallbackRequestHandler {
+	virtual const char *GetForKey( int key ) = 0;
+public:
+	RequestForKeysHandler( WswCefClient *parent_, const CefString &method_ )
+		: CallbackRequestHandler( parent_, method_ ) {}
 
-DERIVE_PENDING_CALLBACK_REQUEST( GetDemoMetaDataRequest, PendingCallbackRequest::getDemoMetaData );
+	void ReplyToRequest( CefRefPtr<CefBrowser> browser, CefRefPtr<CefProcessMessage> ingoing ) override;
+};
 
-DERIVE_PENDING_CALLBACK_REQUEST( GetHudsRequest, PendingCallbackRequest::getHuds );
+#define DERIVE_REQUEST_FOR_KEYS_LAUNCHER( Request, method )             \
+class Request##Launcher: public RequestForKeysLauncher<Request> {       \
+public:                                                                 \
+	explicit Request##Launcher( WswCefV8Handler *parent_ )              \
+		: RequestForKeysLauncher<Request>( parent_, method ) {}         \
+}
 
-DERIVE_PENDING_CALLBACK_REQUEST( GetGametypesRequest, PendingCallbackRequest::getGametypes );
+#define DERIVE_REQUEST_FOR_KEYS_HANDLER( Request, method )       \
+class Request##Handler: public RequestForKeysHandler {           \
+	const char *GetForKey( int key ) override;                   \
+public:                                                          \
+	explicit Request##Handler( WswCefClient *parent_ )           \
+		: RequestForKeysHandler( parent_, method ) {}            \
+}
 
-DERIVE_PENDING_CALLBACK_REQUEST( GetMapsRequest, PendingCallbackRequest::getMaps );
+DERIVE_PENDING_CALLBACK_REQUEST( GetKeyBindingsRequest, PendingCallbackRequest::getKeyBindings );
+DERIVE_REQUEST_FOR_KEYS_LAUNCHER( GetKeyBindingsRequest, PendingCallbackRequest::getKeyBindings );
+DERIVE_REQUEST_FOR_KEYS_HANDLER( GetKeyBindingsRequest, PendingCallbackRequest::getKeyBindings );
 
-DERIVE_PENDING_CALLBACK_REQUEST( GetLocalizedStringsRequest, PendingCallbackRequest::getLocalizedStrings );
+DERIVE_PENDING_CALLBACK_REQUEST( GetKeyNamesRequest, PendingCallbackRequest::getKeyNames );
+DERIVE_REQUEST_FOR_KEYS_LAUNCHER( GetKeyNamesRequest, PendingCallbackRequest::getKeyNames );
+DERIVE_REQUEST_FOR_KEYS_HANDLER( GetKeyNamesRequest, PendingCallbackRequest::getKeyNames );
 
 class WswCefV8Handler: public CefV8Handler {
 	friend class PendingCallbackRequest;
@@ -240,6 +318,8 @@ class WswCefV8Handler: public CefV8Handler {
 	GetGametypesRequestLauncher getGametypes;
 	GetMapsRequestLauncher getMaps;
 	GetLocalizedStringsRequestLauncher getLocalizedStrings;
+	GetKeyBindingsRequestLauncher getKeyBindings;
+	GetKeyNamesRequestLauncher getKeyNames;
 
 	std::unordered_map<int, std::shared_ptr<PendingCallbackRequest>> callbacks;
 	// We use an unsigned counter to ensure that the overflow behaviour is defined
@@ -264,6 +344,8 @@ public:
 		, getGametypes( this )
 		, getMaps( this )
 		, getLocalizedStrings( this )
+		, getKeyBindings( this )
+		, getKeyNames( this )
 		, callId( 0 ) {}
 
 	bool Execute( const CefString& name,
@@ -377,6 +459,8 @@ public:
 	GetGametypesRequestHandler getGametypes;
 	GetMapsRequestHandler getMaps;
 	GetLocalizedStringsRequestHandler getLocalizedStrings;
+	GetKeyBindingsRequestHandler getKeyBindings;
+	GetKeyNamesRequestHandler getKeyNames;
 
 public:
 	CefRefPtr<WswCefRenderHandler> renderHandler;
@@ -393,6 +477,8 @@ public:
 		, getGametypes( this )
 		, getMaps( this )
 		, getLocalizedStrings( this )
+		, getKeyBindings( this )
+		, getKeyNames( this )
 		, renderHandler( new WswCefRenderHandler ) {
 		UiFacade::Instance()->RegisterRenderHandler( renderHandler.get() );
 	}

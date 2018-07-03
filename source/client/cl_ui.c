@@ -184,11 +184,11 @@ void CL_UIModule_Init( void ) {
 	import.CL_ReadDemoMetaData = CL_ReadDemoMetaData;
 	import.CL_PlayerNum = CL_UIModule_PlayerNum;
 
-	//import.Key_GetBindingBuf = Key_GetBindingBuf;
-	//import.Key_KeynumToString = Key_KeynumToString;
-	//import.Key_StringToKeynum = Key_StringToKeynum;
-	//import.Key_SetBinding = Key_SetBinding;
-	//import.Key_IsDown = Key_IsDown;
+	import.Key_GetBindingBuf = Key_GetBindingBuf;
+	import.Key_KeynumToString = Key_KeynumToString;
+	import.Key_StringToKeynum = Key_StringToKeynum;
+	import.Key_SetBinding = Key_SetBinding;
+	import.Key_IsDown = Key_IsDown;
 
 	//import.IN_GetThumbsticks = IN_GetThumbsticks;
 	//import.IN_ShowSoftKeyboard = IN_ShowSoftKeyboard;

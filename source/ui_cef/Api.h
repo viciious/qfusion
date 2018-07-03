@@ -153,6 +153,12 @@ typedef struct {
 
 	size_t ( *GetBaseServerURL )( char *buffer, size_t buffer_size );
 
+	const char *( *Key_GetBindingBuf )( int binding );
+	const char *( *Key_KeynumToString )( int keynum );
+	int ( *Key_StringToKeynum )( const char* s );
+	void ( *Key_SetBinding )( int keynum, const char *binding );
+	bool ( *Key_IsDown )( int keynum );
+
 	bool ( *VID_GetModeInfo )( int *width, int *height, unsigned mode );
 	void ( *VID_FlashWindow )( int count );
 } ui_import_t;
