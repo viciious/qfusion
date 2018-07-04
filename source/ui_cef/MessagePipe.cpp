@@ -1,5 +1,6 @@
 #include "MessagePipe.h"
 #include "UiFacade.h"
+#include "CefApp.h"
 
 #include "include/cef_browser.h"
 #include <memory>
@@ -73,7 +74,7 @@ void MessagePipe::ExecuteCommand( int argc, const char *( *getArg )( int ) ) {
 }
 
 void MessagePipe::SendMouseSet( int context, int mx, int my, bool showCursor ) {
-	auto message( CefProcessMessage::Create( "mouseSet" ) );
+	auto message( CefProcessMessage::Create( ExecutingJSMessageHandler::mouseSet ) );
 	auto messageArgs( message->GetArgumentList() );
 	messageArgs->SetInt( 0, context );
 	messageArgs->SetInt( 1, mx );
@@ -87,7 +88,7 @@ void MessagePipe::SendForceMenuOff() {
 }
 
 void MessagePipe::SendExecuteCommand( const std::vector<std::string> &args ) {
-	auto message( CefProcessMessage::Create( "command" ) );
+	auto message( CefProcessMessage::Create( ExecutingJSMessageHandler::gameCommand ) );
 	auto messageArgs( message->GetArgumentList() );
 	for( size_t i = 0; i < args.size(); ++i ) {
 		messageArgs->SetString( i, args[i] );
@@ -97,7 +98,7 @@ void MessagePipe::SendExecuteCommand( const std::vector<std::string> &args ) {
 }
 
 void MessagePipe::SendExecuteCommand( int argc, const char *( *getArg )( int ) ) {
-	auto message( CefProcessMessage::Create( "command" ) );
+	auto message( CefProcessMessage::Create( ExecutingJSMessageHandler::gameCommand ) );
 	auto messageArgs( message->GetArgumentList() );
 	for( int i = 0; i < argc; ++i ) {
 		messageArgs->SetString( (size_t)i, getArg( i ) );
@@ -129,7 +130,7 @@ void MessagePipe::UpdateMainScreenState( const MainScreenState &prevState, const
 
 	wasReady = true;
 
-	auto message( CefProcessMessage::Create( "updateMainScreenState" ) );
+	auto message( CefProcessMessage::Create( ExecutingJSMessageHandler::updateMainScreen ) );
 	auto args( message->GetArgumentList() );
 
 	args->SetInt( 0, currState.clientState );
@@ -156,7 +157,7 @@ void MessagePipe::UpdateConnectScreenState( const ConnectScreenState &prevState,
 
 	wasReady = true;
 
-	auto message( CefProcessMessage::Create( "updateConnectScreenState" ) );
+	auto message( CefProcessMessage::Create( ExecutingJSMessageHandler::updateConnectScreen ) );
 	auto args( message->GetArgumentList() );
 
 	args->SetString( 0, currState.serverName );

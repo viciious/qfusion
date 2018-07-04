@@ -480,42 +480,18 @@ void WswCefRenderProcessHandler::OnWebKitInitialized() {
 bool WswCefRenderProcessHandler::OnProcessMessageReceived( CefRefPtr<CefBrowser> browser,
 														   CefProcessId source_process,
 														   CefRefPtr<CefProcessMessage> message ) {
-	const CefString &name = message->GetName();
-	if( !name.compare( "command" ) ) {
-		ExecuteJavascript( browser, MakeGameCommandCall( message ) );
+	if( v8Handler->TryHandle( browser, message ) ) {
 		return true;
 	}
 
-	if( !name.compare( "updateMainScreenState" ) ) {
-		ExecuteJavascript( browser, MakeUpdateMainScreenStateCall( message ) );
-		return true;
-	}
-
-	if( !name.compare( "updateConnectScreenState" ) ) {
-		ExecuteJavascript( browser, MakeUpdateConnectScreenStateCall( message ) );
-		return true;
-	}
-
-	if( !name.compare( "mouseSet" ) ) {
-		ExecuteJavascript( browser, MakeMouseSetCall( message ) );
-		return true;
-	}
-
-	// Got confirmation/reply for a JS-initiated call
-	if( v8Handler->CheckForReply( name, message ) ) {
-		return true;
-	}
-
-	Logger()->Warning( "Unexpected message name `%s`", name.ToString().c_str() );
+	Logger()->Warning( "Unexpected message name `%s`", message->GetName().ToString().c_str() );
 	return false;
 }
 
-CefString WswCefRenderProcessHandler::MakeGameCommandCall( const CefRefPtr<CefProcessMessage> &message ) {
+bool GameCommandHandler::GetCodeToCall( CefRefPtr<CefProcessMessage> &message, CefStringBuilder &sb ) {
 	auto messageArgs( message->GetArgumentList() );
 	size_t numArgs = messageArgs->GetSize();
 
-	// TODO: Precompute args size
-	CefStringBuilder sb( numArgs * 32u + 32 );
 	sb << "ui.onGameCommand.apply(null, [";
 	for( size_t i = 0; i < numArgs; ++i ) {
 		sb << '"' << messageArgs->GetString( i ) << '"' << ',';
@@ -527,22 +503,23 @@ CefString WswCefRenderProcessHandler::MakeGameCommandCall( const CefRefPtr<CefPr
 	}
 	sb << "])";
 
-	return sb.ReleaseOwnership();
+	return true;
 }
 
-CefString WswCefRenderProcessHandler::MakeMouseSetCall( const CefRefPtr<CefProcessMessage> &message ) {
+bool MouseSetHandler::GetCodeToCall( CefRefPtr<CefProcessMessage> &message, CefStringBuilder &sb ) {
 	auto args( message->GetArgumentList() );
-	CefStringBuilder sb;
+
 	sb << "ui.onMouseSet({ ";
 	sb << "context : "      << args->GetInt( 0 ) << ',';
 	sb << "mx : "           << args->GetInt( 1 ) << ',';
 	sb << "my : "           << args->GetInt( 2 ) << ',';
 	sb << "showCursor : "   << args->GetBool( 3 );
 	sb << " })";
-	return sb.ReleaseOwnership();
+
+	return true;
 }
 
-const char *WswCefRenderProcessHandler::DownloadTypeAsParam( int type ) {
+static const char *DownloadTypeAsParam( int type ) {
 	switch( type ) {
 		case DOWNLOADTYPE_NONE:
 			return "\"none\"";
@@ -555,7 +532,7 @@ const char *WswCefRenderProcessHandler::DownloadTypeAsParam( int type ) {
 	}
 }
 
-const char *WswCefRenderProcessHandler::ClientStateAsParam( int state ) {
+static const char *ClientStateAsParam( int state ) {
 	switch( state ) {
 		case CA_GETTING_TICKET:
 		case CA_CONNECTING:
@@ -572,7 +549,7 @@ const char *WswCefRenderProcessHandler::ClientStateAsParam( int state ) {
 	}
 }
 
-const char *WswCefRenderProcessHandler::ServerStateAsParam( int state ) {
+static const char *ServerStateAsParam( int state ) {
 	switch( state ) {
 		case ss_game:
 			return "\"active\"";
@@ -583,12 +560,10 @@ const char *WswCefRenderProcessHandler::ServerStateAsParam( int state ) {
 	}
 }
 
-CefString WswCefRenderProcessHandler::MakeUpdateConnectScreenStateCall( const CefRefPtr<CefProcessMessage> &message ) {
+bool UpdateConnectScreenHandler::GetCodeToCall( CefRefPtr<CefProcessMessage> &message, CefStringBuilder &sb ) {
 	auto args( message->GetArgumentList() );
 
 	CefString rejectMessage( args->GetString( 1 ) );
-
-	CefStringBuilder sb;
 
 	sb << "ui.updateConnectScreenState({ ";
 	sb << " serverName : \""  << args->GetString( 0 ) << "\",";
@@ -612,13 +587,11 @@ CefString WswCefRenderProcessHandler::MakeUpdateConnectScreenStateCall( const Ce
 	sb.ChopLast();
 	sb << " })";
 
-	return sb.ReleaseOwnership();
+	return true;
 }
 
-CefString WswCefRenderProcessHandler::MakeUpdateMainScreenStateCall( const CefRefPtr<CefProcessMessage> &message ) {
+bool UpdateMainScreenHandler::GetCodeToCall( CefRefPtr<CefProcessMessage> &message, CefStringBuilder &sb ) {
 	auto args( message->GetArgumentList() );
-
-	CefStringBuilder sb;
 
 	sb << "ui.updateMainScreenState({ ";
 	sb << " clientState : "    << ClientStateAsParam( args->GetInt( 0 ) ) << ',';
@@ -635,43 +608,65 @@ CefString WswCefRenderProcessHandler::MakeUpdateMainScreenStateCall( const CefRe
 	sb << " background : "     << args->GetBool( 7 );
 	sb << " })";
 
-	return sb.ReleaseOwnership();
+	return true;
 }
 
-CefString WswCefRenderProcessHandler::DescribeException( const std::string &code, CefRefPtr<CefV8Exception> exception ) {
-	CefStringBuilder sb;
-	sb << "An execution of `" << code << "` has failed with exception: ";
+const CefString ExecutingJSMessageHandler::updateMainScreen( "updateMainScreen" );
+const CefString ExecutingJSMessageHandler::updateConnectScreen( "updateConnectScreen" );
+const CefString ExecutingJSMessageHandler::mouseSet( "mouseSet" );
+const CefString ExecutingJSMessageHandler::gameCommand( "gameCommand" );
 
-	sb << "message=`" << exception->GetMessage() << "`,";
-	sb << "line="     << exception->GetLineNumber() << ",";
-	sb << "column="   << exception->GetStartColumn();
-
-	return sb.ReleaseOwnership();
+ExecutingJSMessageHandler::ExecutingJSMessageHandler( WswCefV8Handler *parent_, const CefString &messageName_ )
+	: parent( parent_ )
+	, messageName( messageName_ )
+	, logTag( "MessageHandler@" + messageName_.ToString() ) {
+	this->next = parent_->messageHandlersHead;
+	parent_->messageHandlersHead = this;
 }
 
-bool WswCefRenderProcessHandler::ExecuteJavascript( CefRefPtr<CefBrowser> browser, const std::string &code ) {
+std::string ExecutingJSMessageHandler::DescribeException( const CefString &code, CefRefPtr<CefV8Exception> exception ) {
+	std::stringstream s;
+	s << "An execution of `" << code.ToString() << "` has failed with exception: ";
+
+	s << "message=`" << exception->GetMessage().ToString() << "`,";
+	s << "line="     << exception->GetLineNumber() << ",";
+	s << "column="   << exception->GetStartColumn();
+
+	return s.str();
+}
+
+void ExecutingJSMessageHandler::Handle( CefRefPtr<CefBrowser> &browser, CefRefPtr<CefProcessMessage> &message ) {
+	RenderProcessLogger logger( browser );
+
 	auto frame = browser->GetMainFrame();
 	auto context = frame->GetV8Context();
 	if( !context->Enter() ) {
-		return false;
+		logger.Error( "%s: Cannot enter V8 Context", logTag.c_str() );
+		return;
 	}
 
-	Logger()->Debug( "About to execute ```%s```", code.c_str() );
+	CefStringBuilder stringBuilder;
+	if( !GetCodeToCall( message, stringBuilder ) ) {
+		logger.Error( "%s: Cannot build code to call, looks like the message is malformed", logTag.c_str() );
+	}
+
+	CefString code( stringBuilder.ReleaseOwnership() );
+
+	logger.Debug( "%s: About to execute ```%s```", logTag.c_str(), code.ToString().c_str() );
 
 	CefRefPtr<CefV8Value> retVal;
 	CefRefPtr<CefV8Exception> exception;
 	if( context->Eval( code, frame->GetURL(), 0, retVal, exception ) ) {
 		if( !context->Exit() ) {
-			Logger()->Warning( "context->Exit() call failed after successful Eval() call" );
+			logger.Warning( "%s: context->Exit() call failed after successful Eval() call", logTag.c_str() );
 		}
-		return true;
+		return;
 	}
 
-	Logger()->Warning( "%s", DescribeException( code, exception ).ToString().c_str() );
+	logger.Error( "%s: %s", logTag.c_str(), DescribeException( code, exception ).c_str() );
 	if( !context->Exit() ) {
-		Logger()->Warning( "context->Exit() call failed after unsuccessful Eval() call" );
+		logger.Warning( "%s: context->Exit() call failed after unsuccessful Eval() call", logTag.c_str() );
 	}
-	return true;
 }
 
 void GetCVarRequestHandler::ReplyToRequest( CefRefPtr<CefBrowser> browser, CefRefPtr<CefProcessMessage> ingoing ) {
@@ -1725,7 +1720,15 @@ bool WswCefV8Handler::Execute( const CefString& name,
 	return false;
 }
 
-bool WswCefV8Handler::CheckForReply( const CefString &name, CefRefPtr<CefProcessMessage> message ) {
+bool WswCefV8Handler::TryHandle( CefRefPtr<CefBrowser> &browser, CefRefPtr<CefProcessMessage> &message ) {
+	CefString name( message->GetName() );
+	for( ExecutingJSMessageHandler *handler = messageHandlersHead; handler; handler = handler->Next() ) {
+		if( !handler->MessageName().compare( name ) ) {
+			handler->Handle( browser, message );
+			return true;
+		}
+	}
+
 	for( PendingRequestLauncher *launcher = requestLaunchersHead; launcher; launcher = launcher->Next() ) {
 		// Just check the name match ensuring this really is a callback.
 		// The implementation could be faster but the total number of message kinds is insignificant.

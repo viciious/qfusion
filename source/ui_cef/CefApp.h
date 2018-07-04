@@ -299,14 +299,54 @@ DERIVE_PENDING_CALLBACK_REQUEST( GetKeyNamesRequest, PendingCallbackRequest::get
 DERIVE_REQUEST_FOR_KEYS_LAUNCHER( GetKeyNamesRequest, PendingCallbackRequest::getKeyNames );
 DERIVE_REQUEST_FOR_KEYS_HANDLER( GetKeyNamesRequest, PendingCallbackRequest::getKeyNames );
 
+class ExecutingJSMessageHandler {
+protected:
+	WswCefV8Handler *parent;
+	const CefString &messageName;
+	std::string logTag;
+	ExecutingJSMessageHandler *next;
+
+	virtual bool GetCodeToCall( CefRefPtr<CefProcessMessage> &message, CefStringBuilder &sb ) = 0;
+
+	std::string DescribeException( const CefString &code, CefRefPtr<CefV8Exception> exception );
+public:
+	explicit ExecutingJSMessageHandler( WswCefV8Handler *parent_, const CefString &messageName_ );
+
+	const CefString &MessageName() { return messageName; }
+	ExecutingJSMessageHandler *Next() { return next; };
+
+	void Handle( CefRefPtr<CefBrowser> &browser, CefRefPtr<CefProcessMessage> &message );
+
+	static const CefString updateMainScreen;
+	static const CefString updateConnectScreen;
+	static const CefString mouseSet;
+	static const CefString gameCommand;
+};
+
+#define DERIVE_MESSAGE_HANDLER( Derived, messageName )                                               \
+class Derived: public ExecutingJSMessageHandler {                                                    \
+	bool GetCodeToCall( CefRefPtr<CefProcessMessage> &message, CefStringBuilder &sb ) override;      \
+public:                                                                                              \
+	explicit Derived( WswCefV8Handler *parent_ )                                                     \
+		: ExecutingJSMessageHandler( parent_, messageName ) {}                                       \
+};
+
+DERIVE_MESSAGE_HANDLER( UpdateMainScreenHandler, ExecutingJSMessageHandler::updateMainScreen );
+DERIVE_MESSAGE_HANDLER( UpdateConnectScreenHandler, ExecutingJSMessageHandler::updateConnectScreen );
+DERIVE_MESSAGE_HANDLER( MouseSetHandler, ExecutingJSMessageHandler::mouseSet );
+DERIVE_MESSAGE_HANDLER( GameCommandHandler, ExecutingJSMessageHandler::gameCommand );
+
 class WswCefV8Handler: public CefV8Handler {
 	friend class PendingCallbackRequest;
 	friend class PendingRequestLauncher;
 	friend class WswCefRenderProcessHandler;
+	friend class ExecutingJSMessageHandler;
 
 	WswCefRenderProcessHandler *renderProcessHandler;
 
 	PendingRequestLauncher *requestLaunchersHead;
+
+	ExecutingJSMessageHandler *messageHandlersHead;
 
 	GetCVarRequestLauncher getCVar;
 	SetCVarRequestLauncher setCVar;
@@ -321,6 +361,11 @@ class WswCefV8Handler: public CefV8Handler {
 	GetKeyBindingsRequestLauncher getKeyBindings;
 	GetKeyNamesRequestLauncher getKeyNames;
 
+	GameCommandHandler gameCommandHandler;
+	MouseSetHandler mouseSetHandler;
+	UpdateConnectScreenHandler updateConnectScreenHandler;
+	UpdateMainScreenHandler updateMainScreenHandler;
+
 	std::unordered_map<int, std::shared_ptr<PendingCallbackRequest>> callbacks;
 	// We use an unsigned counter to ensure that the overflow behaviour is defined
 	unsigned callId;
@@ -334,6 +379,7 @@ public:
 	explicit WswCefV8Handler( WswCefRenderProcessHandler *renderProcessHandler_ )
 		: renderProcessHandler( renderProcessHandler_ )
 		, requestLaunchersHead( nullptr )
+		, messageHandlersHead( nullptr )
 		, getCVar( this )
 		, setCVar( this )
 		, executeCmd( this )
@@ -346,6 +392,10 @@ public:
 		, getLocalizedStrings( this )
 		, getKeyBindings( this )
 		, getKeyNames( this )
+		, gameCommandHandler( this )
+		, mouseSetHandler( this )
+		, updateConnectScreenHandler( this )
+		, updateMainScreenHandler( this )
 		, callId( 0 ) {}
 
 	bool Execute( const CefString& name,
@@ -354,25 +404,12 @@ public:
 				  CefRefPtr<CefV8Value>& retval,
 				  CefString& exception ) override;
 
-	bool CheckForReply( const CefString &name, CefRefPtr<CefProcessMessage> message );
+	bool TryHandle( CefRefPtr<CefBrowser> &browser, CefRefPtr<CefProcessMessage> &message );
 
 	IMPLEMENT_REFCOUNTING( WswCefV8Handler );
 };
 
 class WswCefRenderProcessHandler: public CefRenderProcessHandler {
-	static const char *ClientStateAsParam( int state );
-	static const char *ServerStateAsParam( int state );
-	static const char *DownloadTypeAsParam( int type );
-
-	CefString MakeGameCommandCall( const CefRefPtr<CefProcessMessage> &message );
-	CefString MakeMouseSetCall( const CefRefPtr<CefProcessMessage> &message );
-	CefString MakeUpdateMainScreenStateCall( const CefRefPtr<CefProcessMessage> &message );
-	CefString MakeUpdateConnectScreenStateCall( const CefRefPtr<CefProcessMessage> &message );
-
-	CefString DescribeException( const std::string &code, CefRefPtr<CefV8Exception> exception );
-
-	bool ExecuteJavascript( CefRefPtr<CefBrowser> browser, const std::string &code );
-
 	CefRefPtr<WswCefV8Handler> v8Handler;
 	std::shared_ptr<RenderProcessLogger> logger;
 public:
