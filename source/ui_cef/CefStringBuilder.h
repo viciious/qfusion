@@ -2,6 +2,7 @@
 #define QFUSION_CEFSTRINGBUILDER_H
 
 #include "include/cef_base.h"
+#include "include/cef_values.h"
 
 #include <iostream>
 #include <sstream>

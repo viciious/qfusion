@@ -1,7 +1,7 @@
 project(ui_cef)
 
 file(GLOB UI_CEF_HEADERS "*.h")
-file(GLOB UI_CEF_SOURCES "*.cpp")
+file(GLOB UI_CEF_SOURCES "*.cpp" "syscalls/*.cpp")
 
 include_directories(${CEF_INCLUDE_DIR})
 link_directories(${CEF_LINK_DIR})

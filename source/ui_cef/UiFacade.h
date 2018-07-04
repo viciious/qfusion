@@ -178,8 +178,6 @@ public:
 
 	static FilesList GetHuds();
 
-	static GametypesList GetGametypes();
-
 	static MapsList GetMaps();
 
 	static LocalizedPairsList GetLocalizedStrings( const std::vector<std::string> &request );

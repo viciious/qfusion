@@ -1,6 +1,7 @@
 #include "MessagePipe.h"
 #include "UiFacade.h"
 #include "CefApp.h"
+#include "Ipc.h"
 
 #include "include/cef_browser.h"
 #include <memory>
