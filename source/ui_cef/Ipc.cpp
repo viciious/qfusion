@@ -98,10 +98,7 @@ void PendingRequestLauncher::Commit( std::shared_ptr<PendingCallbackRequest> req
 	}
 }
 
-
-
-const CefString ExecutingJSMessageHandler::updateMainScreen( "updateMainScreen" );
-const CefString ExecutingJSMessageHandler::updateConnectScreen( "updateConnectScreen" );
+const CefString ExecutingJSMessageHandler::updateScreen( "updateScreen" );
 const CefString ExecutingJSMessageHandler::mouseSet( "mouseSet" );
 const CefString ExecutingJSMessageHandler::gameCommand( "gameCommand" );
 

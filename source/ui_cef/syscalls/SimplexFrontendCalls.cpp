@@ -75,53 +75,71 @@ static const char *ServerStateAsParam( int state ) {
 	}
 }
 
-bool UpdateConnectScreenHandler::GetCodeToCall( CefRefPtr<CefProcessMessage> &message, CefStringBuilder &sb ) {
+bool UpdateScreenHandler::GetCodeToCall( CefRefPtr<CefProcessMessage> &message, CefStringBuilder &sb ) {
 	auto args( message->GetArgumentList() );
 
-	CefString rejectMessage( args->GetString( 1 ) );
+	size_t argNum = 0;
 
-	sb << "ui.updateConnectScreenState({ ";
-	sb << " serverName : \""  << args->GetString( 0 ) << "\",";
-	sb << " connectCount: "   << args->GetInt( 6 ) << ",";
-	sb << " background : "    << args->GetBool( 7 ) << ",";
+	sb << "ui.updateScreen({ ";
+	sb << " clientState : "    << ClientStateAsParam( args->GetInt( argNum++ ) ) << ',';
+	sb << " serverState : "    << ServerStateAsParam( args->GetInt( argNum++ ) ) << ',';
+	sb << " showCursor : "     << args->GetBool( argNum++ ) << ',';
+	sb << " background : "     << args->GetBool( argNum++ ) << ',';
 
+	int attachments = args->GetInt( argNum++ );
+	if( !attachments ) {
+		sb.ChopLast();
+		sb << " })";
+		return true;
+	}
+
+	if( attachments & MainScreenState::DEMO_PLAYBACK_ATTACHMENT ) {
+		sb << " demoPlayback: { ";
+		sb << " time : " << (unsigned)args->GetInt( argNum++ ) << ',';
+		sb << " paused: " << args->GetBool( argNum++ ) << ',';
+		if( argNum < args->GetSize() ) {
+			demoName = ( args->GetString( argNum++ ) );
+		}
+		sb << " demoName : \'" << demoName << '\'';
+		sb << " }";
+		sb << " })";
+		return true;
+	}
+
+	// Read always transmitted args
+	int connectCount = args->GetInt( argNum++ );
+	int downloadType = args->GetInt( argNum++ );
+	float downloadSpeed = (float)args->GetDouble( argNum++ );
+	float downloadPercent = (float)args->GetDouble( argNum++ );
+	int stringAttachmentFlags = args->GetInt( argNum++ );
+	if( stringAttachmentFlags & ConnectionState::SERVER_NAME_ATTACHMENT ) {
+		serverName = args->GetString( argNum++ );
+	}
+	if( stringAttachmentFlags & ConnectionState::REJECT_MESSAGE_ATTACHMENT ) {
+		rejectMessage = args->GetString( argNum++ );
+	}
+	if( stringAttachmentFlags & ConnectionState::DOWNLOAD_FILENAME_ATTACHMENT ) {
+		downloadFilename = args->GetString( argNum++ );
+	}
+
+	sb << " connectionState : {";
 	if( !rejectMessage.empty() ) {
-		sb << " rejectMessage: \"" << rejectMessage << "\",";
+		sb << "  rejectMessage : '" << rejectMessage << "',";
 	}
-
-	int downloadType = args->GetInt( 3 );
-	if( downloadType != DOWNLOADTYPE_NONE ) {
-		sb << " download: { ";
-		sb << " file: \""   << args->GetString( 2 ) << "\",";
-		sb << " type: "     << DownloadTypeAsParam( downloadType );
-		sb << " percent: "  << args->GetDouble( 4 ) << ',';
-		sb << " speed: "    << args->GetDouble( 5 ) << ',';
-		sb << " },";
+	if( downloadType ) {
+		sb << " download : {";
+		sb << " fileName : '" << downloadFilename << "',";
+		sb << " type : '" << DownloadTypeAsParam( downloadType ) << "',";
+		sb << " speed : '" << downloadSpeed << ',';
+		sb << " percent : '" << downloadPercent;
+		sb << "},";
 	}
+	sb << "  connectCount: " << connectCount;
+	sb << "}";
 
-	sb.ChopLast();
-	sb << " })";
-
-	return true;
-}
-
-bool UpdateMainScreenHandler::GetCodeToCall( CefRefPtr<CefProcessMessage> &message, CefStringBuilder &sb ) {
-	auto args( message->GetArgumentList() );
-
-	sb << "ui.updateMainScreenState({ ";
-	sb << " clientState : "    << ClientStateAsParam( args->GetInt( 0 ) ) << ',';
-	sb << " serverState : "    << ServerStateAsParam( args->GetInt( 1 ) ) << ',';
-	if( args->GetBool( 4 ) ) {
-		sb << "demoPlayback : { ";
-		sb << " state: \"" << ( args->GetBool( 5 ) ? "paused" : "playing" ) << "\",";
-		sb << " file: \"" << args->GetString( 3 ) << "\",",
-		sb << " time: " << args->GetInt( 2 );
-		sb << " },";
-	}
-
-	sb << " showCursor : "     << args->GetBool( 6 ) << ',';
-	sb << " background : "     << args->GetBool( 7 );
-	sb << " })";
+    sb.ChopLast();
+    sb << " }";
+   	sb << " })";
 
 	return true;
 }

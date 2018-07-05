@@ -33,8 +33,7 @@ class WswCefV8Handler: public CefV8Handler {
 
 	GameCommandHandler gameCommandHandler;
 	MouseSetHandler mouseSetHandler;
-	UpdateConnectScreenHandler updateConnectScreenHandler;
-	UpdateMainScreenHandler updateMainScreenHandler;
+	UpdateScreenHandler updateScreenHandler;
 
 	std::unordered_map<int, std::shared_ptr<PendingCallbackRequest>> callbacks;
 	// We use an unsigned counter to ensure that the overflow behaviour is defined
@@ -64,8 +63,7 @@ public:
 		, getKeyNames( this )
 		, gameCommandHandler( this )
 		, mouseSetHandler( this )
-		, updateConnectScreenHandler( this )
-		, updateMainScreenHandler( this )
+		, updateScreenHandler( this )
 		, callId( 0 ) {}
 
 	bool Execute( const CefString& name,

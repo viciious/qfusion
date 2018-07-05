@@ -3,10 +3,8 @@
 
 #include "include/cef_browser.h"
 
-class UiFacade;
-
 struct MainScreenState;
-struct ConnectScreenState;
+class UiFacade;
 
 class MessagePipe {
 	UiFacade *parent;
@@ -71,8 +69,7 @@ public:
 	void ExecuteCommand( int argc, const char *( *getArg )( int ) );
 	void OnUiPageReady();
 
-	void UpdateMainScreenState( const MainScreenState &prevState, const MainScreenState &currState );
-	void UpdateConnectScreenState( const ConnectScreenState &prevState, const ConnectScreenState &currState );
+	void UpdateScreenState( const MainScreenState &oldState, const MainScreenState &currState );
 };
 
 #endif

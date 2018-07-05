@@ -286,8 +286,7 @@ public:
 
 	void Handle( CefRefPtr<CefBrowser> &browser, CefRefPtr<CefProcessMessage> &message );
 
-	static const CefString updateMainScreen;
-	static const CefString updateConnectScreen;
+	static const CefString updateScreen;
 	static const CefString mouseSet;
 	static const CefString gameCommand;
 };
@@ -300,8 +299,19 @@ public:                                                                         
 		: ExecutingJSMessageHandler( parent_, messageName ) {}                                       \
 };
 
-DERIVE_MESSAGE_HANDLER( UpdateMainScreenHandler, ExecutingJSMessageHandler::updateMainScreen );
-DERIVE_MESSAGE_HANDLER( UpdateConnectScreenHandler, ExecutingJSMessageHandler::updateConnectScreen );
+class UpdateScreenHandler: public ExecutingJSMessageHandler {
+	// Hide strings delta transmission from JS code
+	CefString demoName;
+	CefString serverName;
+	CefString rejectMessage;
+	CefString downloadFilename;
+
+	bool GetCodeToCall( CefRefPtr<CefProcessMessage> &message, CefStringBuilder &sb ) override;
+public:
+	explicit UpdateScreenHandler( WswCefV8Handler *parent_ )
+		: ExecutingJSMessageHandler( parent_, ExecutingJSMessageHandler::updateScreen ) {}
+};
+
 DERIVE_MESSAGE_HANDLER( MouseSetHandler, ExecutingJSMessageHandler::mouseSet );
 DERIVE_MESSAGE_HANDLER( GameCommandHandler, ExecutingJSMessageHandler::gameCommand );
 

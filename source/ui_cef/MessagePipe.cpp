@@ -119,56 +119,89 @@ void MessagePipe::OnUiPageReady() {
 	deferredMessages.shrink_to_fit();
 }
 
-void MessagePipe::UpdateMainScreenState( const MainScreenState &prevState, const MainScreenState &currState ) {
+void MessagePipe::UpdateScreenState( const MainScreenState &prevState, const MainScreenState &currState ) {
 	if( !isReady ) {
 		return;
 	}
 
-	// No delta encoding for now, just checking equality
+	// Skip updates if there was at least a single update and the new state is the same
 	if( wasReady && prevState == currState ) {
 		return;
 	}
 
 	wasReady = true;
 
-	auto message( CefProcessMessage::Create( ExecutingJSMessageHandler::updateMainScreen ) );
+	auto message( CefProcessMessage::Create( ExecutingJSMessageHandler::updateScreen ) );
 	auto args( message->GetArgumentList() );
 
-	args->SetInt( 0, currState.clientState );
-	args->SetInt( 1, currState.serverState );
-	args->SetInt( 2, currState.demoTime );
-	args->SetString( 3, currState.demoName );
-	args->SetBool( 4, currState.demoPlaying );
-	args->SetBool( 5, currState.demoPaused );
-	args->SetBool( 6, currState.showCursor );
-	args->SetBool( 7, currState.background );
+	// Write the main part, no reasons to use a delta encoding for it
 
-	SendMessage( message );
-}
+	size_t argNum = 0;
+	args->SetInt( argNum++, currState.clientState );
+	args->SetInt( argNum++, currState.serverState );
+	args->SetBool( argNum++, currState.showCursor );
+	args->SetBool( argNum++, currState.background );
 
-void MessagePipe::UpdateConnectScreenState( const ConnectScreenState &prevState, const ConnectScreenState &currState ) {
-	if( !isReady ) {
+	if( !currState.connectionState && !currState.demoPlaybackState ) {
+		SendMessage( message );
 		return;
 	}
 
-	// No delta encoding for now, just checking equality
-	if( wasReady && prevState == currState ) {
+	// Write attachments, either demo playback state or connection (process of connection) state
+	if( const auto &dps = currState.demoPlaybackState ) {
+		args->SetInt( argNum++, MainScreenState::DEMO_PLAYBACK_ATTACHMENT );
+		args->SetInt( argNum++, (int)dps->time );
+		args->SetBool( argNum++, dps->paused );
+		// Send a demo name only if it is needed
+		if( !prevState.demoPlaybackState || ( dps->demoName != prevState.demoPlaybackState->demoName ) ) {
+			args->SetString( argNum++, dps->demoName );
+		}
+		SendMessage( message );
 		return;
 	}
 
-	wasReady = true;
+	args->SetInt( argNum++, MainScreenState::CONNECTION_ATTACHMENT );
+	auto *currConnState = currState.connectionState;
+	assert( currConnState );
+	auto *prevConnState = prevState.connectionState;
 
-	auto message( CefProcessMessage::Create( ExecutingJSMessageHandler::updateConnectScreen ) );
-	auto args( message->GetArgumentList() );
+	// Write shared fields (download numbers are always written to simplify parsing of transmitted result)
+	args->SetInt( argNum++, currConnState->connectCount );
+	args->SetInt( argNum++, currConnState->downloadType );
+	args->SetDouble( argNum++, currConnState->downloadSpeed );
+	args->SetDouble( argNum++, currConnState->downloadPercent );
 
-	args->SetString( 0, currState.serverName );
-	args->SetString( 1, currState.rejectMessage );
-	args->SetString( 2, currState.downloadFileName );
-	args->SetInt( 3, currState.downloadType );
-	args->SetDouble( 4, currState.downloadPercent );
-	args->SetDouble( 5, currState.downloadSpeed );
-	args->SetInt( 6, currState.connectCount );
-	args->SetBool( 7, currState.background );
+	int flags = 0;
+	if( !prevConnState ) {
+		if( !currConnState->serverName.empty() ) {
+			flags |= ConnectionState::SERVER_NAME_ATTACHMENT;
+		}
+		if( !currConnState->rejectMessage.empty() ) {
+			flags |= ConnectionState::REJECT_MESSAGE_ATTACHMENT;
+		}
+		if( !currConnState->downloadFileName.empty() ) {
+			flags |= ConnectionState::DOWNLOAD_FILENAME_ATTACHMENT;
+		}
+	} else {
+		if( currConnState->serverName != prevConnState->serverName ) {
+			flags |= ConnectionState::SERVER_NAME_ATTACHMENT;
+		}
+		if( currConnState->rejectMessage != prevConnState->rejectMessage ) {
+			flags |= ConnectionState::REJECT_MESSAGE_ATTACHMENT;
+		}
+		if( currConnState->downloadFileName != prevConnState->downloadFileName ) {
+			flags |= ConnectionState::DOWNLOAD_FILENAME_ATTACHMENT;
+		}
+	}
 
-	SendMessage( message );
+	args->SetInt( argNum++, flags );
+	if( flags & ConnectionState::SERVER_NAME_ATTACHMENT ) {
+		args->SetString( argNum++, currConnState->serverName );
+	}
+	if( flags & ConnectionState::REJECT_MESSAGE_ATTACHMENT ) {
+		args->SetString( argNum++, currConnState->rejectMessage );
+	}
+	if( flags & ConnectionState::DOWNLOAD_FILENAME_ATTACHMENT ) {
+		args->SetString( argNum++, currConnState->downloadFileName );
+	}
 }

@@ -99,19 +99,37 @@ void UiFacade::Refresh( int64_t time, int clientState, int serverState,
 						unsigned int demoTime, bool backGround, bool showCursor ) {
 	CefDoMessageLoopWork();
 
-	mainScreenState.Flip();
+	// If there was no prior UpdateConnectScreen() call this frame, flip
+	// (get a free storage for data written this frame),
+	// otherwise continue writing to storage reserved in UpdateConnectScreen()
+	if( !hasFlippedStateThisFrame ) {
+		interleavedStateStorage.Flip();
+	}
 
-	auto &state = mainScreenState.Curr();
-	state.clientState = clientState;
-	state.serverState = serverState;
-	state.demoPlaying = demoPlaying;
-	state.demoName = NullToEmpty( demoName );
-	state.demoPaused = demoPaused;
-	state.demoTime = demoTime;
-	state.background = backGround;
-	state.showCursor = showCursor;
+	auto &mainState = interleavedStateStorage.Curr().mainState;
 
-	messagePipe.UpdateMainScreenState( mainScreenState.Prev(), mainScreenState.Curr() );
+	mainState.clientState = clientState;
+	mainState.serverState = serverState;
+	mainState.background = backGround;
+	mainState.showCursor = showCursor;
+
+	mainState.demoPlaybackState = nullptr;
+	if( demoPlaying ) {
+		auto *dps = mainState.demoPlaybackState = &interleavedStateStorage.Curr().demoPlaybackState;
+		dps->demoName = demoName;
+		dps->time = demoTime;
+		dps->paused = demoPaused;
+	}
+
+	if( !hasFlippedStateThisFrame ) {
+		mainState.connectionState = nullptr;
+	} else {
+		mainState.connectionState = &interleavedStateStorage.Curr().connectionState;
+	}
+
+	hasFlippedStateThisFrame = false;
+
+	messagePipe.UpdateScreenState( interleavedStateStorage.Prev().mainState, mainState );
 
 	DrawUi();
 }
@@ -122,18 +140,18 @@ void UiFacade::UpdateConnectScreen( const char *serverName, const char *rejectMe
 									int connectCount, bool backGround ) {
 	CefDoMessageLoopWork();
 
-	connectScreenState.Flip();
+	// Prepare free storage for this frame updates
+	interleavedStateStorage.Flip();
+	// Don't flip again this frame in Refresh()
+	hasFlippedStateThisFrame = true;
 
-	auto &state = connectScreenState.Curr();
+	auto &state = interleavedStateStorage.Curr().connectionState;
 	state.serverName = NullToEmpty( serverName );
 	state.rejectMessage = NullToEmpty( rejectMessage );
 	state.downloadType = downloadType;
 	state.downloadFileName = NullToEmpty( downloadFilename );
 	state.downloadPercent = downloadPercent;
 	state.connectCount = connectCount;
-	state.background = backGround;
-
-	messagePipe.UpdateConnectScreenState( connectScreenState.Prev(), connectScreenState.Curr() );
 
 	DrawUi();
 }

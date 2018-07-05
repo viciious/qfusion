@@ -9,29 +9,13 @@
 class CefBrowser;
 class WswCefRenderHandler;
 
-struct MainScreenState {
-	int clientState;
-	int serverState;
-	unsigned demoTime;
-	std::string demoName;
-	bool demoPlaying;
-	bool demoPaused;
-	bool showCursor;
-	bool background;
+struct ConnectionState {
+	enum {
+		SERVER_NAME_ATTACHMENT = 1,
+		REJECT_MESSAGE_ATTACHMENT = 2,
+		DOWNLOAD_FILENAME_ATTACHMENT = 4
+	};
 
-	bool operator==( const MainScreenState &that ) const {
-		return clientState == that.clientState &&
-			   serverState == that.serverState &&
-			   demoTime == that.demoTime &&
-			   demoPlaying == that.demoPlaying &&
-			   demoPaused == that.demoPaused &&
-			   showCursor == that.showCursor &&
-			   background == that.background &&
-			   demoName == that.demoName;
-	}
-};
-
-struct ConnectScreenState {
 	std::string serverName;
 	std::string rejectMessage;
 	std::string downloadFileName;
@@ -39,17 +23,66 @@ struct ConnectScreenState {
 	float downloadPercent;
 	float downloadSpeed;
 	int connectCount;
+
+	bool Equals( ConnectionState *that ) {
+		if( !that ) {
+			return false;
+		}
+		// Put cheap tests first
+		if( connectCount != that->connectCount || downloadType != that->downloadType ) {
+			return false;
+		}
+		if( downloadPercent != that->downloadPercent || downloadSpeed != that->downloadSpeed ) {
+			return false;
+		}
+		return serverName == that->serverName &&
+			   rejectMessage == that->rejectMessage &&
+			   downloadFileName == that->downloadFileName;
+	}
+};
+
+struct DemoPlaybackState {
+	std::string demoName;
+	unsigned time;
+	bool paused;
+
+	bool Equals( const DemoPlaybackState *that ) const {
+		if( !that ) {
+			return false;
+		}
+		return time == that->time && paused == that->paused && demoName == that->demoName;
+	}
+};
+
+struct MainScreenState {
+	enum {
+		CONNECTION_ATTACHMENT = 1,
+		DEMO_PLAYBACK_ATTACHMENT = 2
+	};
+
+	ConnectionState *connectionState;
+	DemoPlaybackState *demoPlaybackState;
+	int clientState;
+	int serverState;
+	bool showCursor;
 	bool background;
 
-	bool operator==( const ConnectScreenState &that ) const {
-		return downloadType == that.downloadType &&
-			   downloadPercent == that.downloadPercent &&
-			   downloadSpeed == that.downloadSpeed &&
-			   connectCount == that.connectCount &&
-			   background == that.background &&
-			   serverName == that.serverName &&
-			   rejectMessage == that.rejectMessage &&
-			   downloadFileName == that.downloadFileName;
+	bool operator==( const MainScreenState &that ) const {
+		// Put cheap tests first
+		if( clientState != that.clientState || serverState != that.serverState ) {
+			return false;
+		}
+		if( showCursor != that.showCursor || background != that.background ) {
+			return false;
+		}
+
+		if( connectionState && !connectionState->Equals( that.connectionState ) ) {
+			return false;
+		}
+		if( demoPlaybackState && !demoPlaybackState->Equals( that.demoPlaybackState ) ) {
+			return false;
+		}
+		return true;
 	}
 };
 
@@ -79,8 +112,14 @@ class UiFacade {
 		}
 	};
 
-	InterleavedStorage<MainScreenState> mainScreenState;
-	InterleavedStorage<ConnectScreenState> connectScreenState;
+	struct StateStorage {
+		MainScreenState mainState;
+		ConnectionState connectionState;
+		DemoPlaybackState demoPlaybackState;
+	};
+
+	InterleavedStorage<StateStorage> interleavedStateStorage;
+	bool hasFlippedStateThisFrame { false };
 
 	int demoProtocol;
 	std::string demoExtension;
