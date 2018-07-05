@@ -30,28 +30,9 @@ void GetDemoMetaDataRequestLauncher::StartExec( const CefV8ValueList &jsArgs,
 	Commit( std::move( request ), context, message, retVal, exception );
 }
 
-UiFacade::DemoMetaData UiFacade::GetDemoMetaData( const std::string &path ) {
-	char localBuffer[2048];
-	std::unique_ptr<char[]> allocationHolder;
-	char *metaData = localBuffer;
+typedef std::vector<std::pair<std::string, std::string>> DemoMetaData;
 
-	size_t realSize = api->CL_ReadDemoMetaData( path.c_str(), localBuffer, sizeof( localBuffer ) );
-	if( realSize > sizeof( localBuffer ) ) {
-		std::unique_ptr<char[]> allocated( new char[realSize] );
-		metaData = allocated.get();
-
-		// Check whether we have read the same data (might have been modified)
-		if( api->CL_ReadDemoMetaData( path.c_str(), metaData, realSize ) != realSize ) {
-			return std::vector<std::pair<std::string, std::string>>();
-		}
-
-		allocationHolder.swap( allocated );
-	}
-
-	return ParseDemoMetaData( metaData, realSize );
-}
-
-UiFacade::DemoMetaData UiFacade::ParseDemoMetaData( const char *p, size_t size ) {
+static DemoMetaData ParseDemoMetaData( const char *p, size_t size ) {
 	class ResultBuilder {
 		const char *tokens[2];
 		size_t lens[2];
@@ -81,10 +62,31 @@ UiFacade::DemoMetaData UiFacade::ParseDemoMetaData( const char *p, size_t size )
 	return builder.Result();
 }
 
+static DemoMetaData GetDemoMetaData( const std::string &path ) {
+	char localBuffer[2048];
+	std::unique_ptr<char[]> allocationHolder;
+	char *metaData = localBuffer;
+
+	size_t realSize = api->CL_ReadDemoMetaData( path.c_str(), localBuffer, sizeof( localBuffer ) );
+	if( realSize > sizeof( localBuffer ) ) {
+		std::unique_ptr<char[]> allocated( new char[realSize] );
+		metaData = allocated.get();
+
+		// Check whether we have read the same data (might have been modified)
+		if( api->CL_ReadDemoMetaData( path.c_str(), metaData, realSize ) != realSize ) {
+			return DemoMetaData();
+		}
+
+		allocationHolder.swap( allocated );
+	}
+
+	return ParseDemoMetaData( metaData, realSize );
+}
+
 class PostDemoMetaDataTask: public IOPendingCallbackRequestTask {
-	UiFacade::DemoMetaData metaData;
+	DemoMetaData metaData;
 public:
-	PostDemoMetaDataTask( FSPendingCallbackRequestTask *parent, UiFacade::DemoMetaData &&metaData_ )
+	PostDemoMetaDataTask( FSPendingCallbackRequestTask *parent, DemoMetaData &&metaData_ )
 		: IOPendingCallbackRequestTask( parent ), metaData( metaData_ ) {}
 
 	CefRefPtr<CefProcessMessage> FillMessage() override {
@@ -105,7 +107,7 @@ public:
 		: FSPendingCallbackRequestTask( browser_, callId_ ), path( path_ ) {}
 
 	CefRefPtr<IOPendingCallbackRequestTask> CreatePostResultsTask() override {
-		return AsCefPtr( new PostDemoMetaDataTask( this, UiFacade::GetDemoMetaData( path ) ) );
+		return AsCefPtr( new PostDemoMetaDataTask( this, GetDemoMetaData( path ) ) );
 	}
 
 	IMPLEMENT_REFCOUNTING( GetDemoMetaDataTask );

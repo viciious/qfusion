@@ -56,14 +56,6 @@ struct ConnectScreenState {
 class UiFacade {
 	friend class MessagePipe;
 
-public:
-	typedef std::vector<std::pair<int, int>> VideoModesList;
-	typedef std::vector<std::string> FilesList;
-	typedef std::vector<std::pair<std::string, std::string>> GametypesList;
-	typedef std::vector<std::pair<std::string, std::string>> DemoMetaData;
-	typedef std::vector<std::pair<std::string, std::string>> MapsList;
-	typedef std::vector<std::pair<std::string, std::string>> LocalizedPairsList;
-private:
 	CefRefPtr<CefBrowser> browser;
 	WswCefRenderHandler *renderHandler;
 
@@ -113,8 +105,6 @@ private:
 	static bool InitCef( int argc, char **argv, void *hInstance );
 
 	void DrawUi();
-
-	static DemoMetaData ParseDemoMetaData( const char *p, size_t size );
 public:
 	static bool Init( int argc, char **argv, void *hInstance, int width_, int height_,
 					  int demoProtocol_, const char *demoExtension_, const char *basePath_ );
@@ -173,18 +163,6 @@ public:
 	void ShowQuickMenu( bool show ) {
 		messagePipe.ShowQuickMenu( show );
 	}
-
-	static VideoModesList GetVideoModes();
-
-	static FilesList GetHuds();
-
-	static MapsList GetMaps();
-
-	static LocalizedPairsList GetLocalizedStrings( const std::vector<std::string> &request );
-
-	static DemoMetaData GetDemoMetaData( const std::string &path );
-
-	static std::pair<FilesList, FilesList> FindDemosAndSubDirs( const std::string &dir );
 };
 
 #endif

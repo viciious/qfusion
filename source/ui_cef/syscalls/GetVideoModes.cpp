@@ -21,41 +21,46 @@ void GetVideoModesRequestLauncher::StartExec( const CefV8ValueList &arguments,
 	Commit( std::move( request ), context, message, retval, exception );
 }
 
-UiFacade::VideoModesList UiFacade::GetVideoModes() {
-	VideoModesList result;
-	result.reserve( 32 );
+class VideoModesSource {
+	unsigned index { 0 };
+	const int currWidth;
+	const int currHeight;
+	bool wasCurrModeListed { false };
+public:
+	VideoModesSource()
+		: currWidth( (int)api->Cvar_Value( "vid_width" ) ),
+		  currHeight( (int)api->Cvar_Value( "vid_height" ) ) {}
 
-	const auto currWidth = (int)api->Cvar_Value( "vid_width" );
-	const auto currHeight = (int)api->Cvar_Value( "vid_height" );
-
-	bool isCurrModeListed = false;
-	int width, height;
-	for( unsigned i = 0; api->VID_GetModeInfo( &width, &height, i ); ++i ) {
-		if( currWidth == width && currHeight == height ) {
-			isCurrModeListed = true;
+	bool Next( int *width, int *height ) {
+		if( api->VID_GetModeInfo( width, height, index++ ) ) {
+			if( *width == currWidth && *height == currHeight ) {
+				wasCurrModeListed = true;
+			}
+			return true;
 		}
-		result.emplace_back( std::make_pair( width, height ) );
+		if( !wasCurrModeListed ) {
+			*width = currWidth;
+			*height = currHeight;
+			wasCurrModeListed = true;
+			return true;
+		}
+		return false;
 	}
-
-	if( !isCurrModeListed ) {
-		result.emplace_back( std::make_pair( currWidth, currHeight ) );
-	}
-
-	return result;
 };
 
 void GetVideoModesRequestHandler::ReplyToRequest( CefRefPtr<CefBrowser> browser, CefRefPtr<CefProcessMessage> ingoing ) {
 	const int id = ingoing->GetArgumentList()->GetInt( 0 );
 
-	std::vector<std::pair<int, int>> modes( UiFacade::GetVideoModes() );
-
 	auto outgoing( NewMessage() );
 	auto args( outgoing->GetArgumentList() );
-	args->SetInt( 0, id );
-	size_t i = 1;
-	for( const auto &mode: modes ) {
-		args->SetInt( i++, mode.first );
-		args->SetInt( i++, mode.second );
+	size_t argNum = 0;
+	args->SetInt( argNum++, id );
+
+	int width, height;
+	VideoModesSource videoModesSource;
+	while( videoModesSource.Next( &width, &height ) ) {
+		args->SetInt( argNum++, width );
+		args->SetInt( argNum++, height );
 	}
 
 	browser->SendProcessMessage( PID_RENDERER, outgoing );

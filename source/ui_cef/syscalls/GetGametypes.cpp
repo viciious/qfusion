@@ -4,23 +4,25 @@ void GetGametypesRequestLauncher::StartExec( const CefV8ValueList &jsArgs, CefRe
 	return DefaultSingleArgStartExecImpl( jsArgs, retVal, ex );
 }
 
+typedef std::vector<std::pair<std::string, std::string>> GametypesList;
+
 class GametypesRetrievalHelper: public DirectoryWalker {
-	UiFacade::GametypesList result;
+	GametypesList result;
 
 	void ParseFile( const char *contents );
 	inline const char *SkipWhile( const char *contents, const std::function<bool(char)> &fn );
 public:
 	GametypesRetrievalHelper(): DirectoryWalker( ".gt" ) {}
 
-	UiFacade::GametypesList Exec();
+	GametypesList Exec();
 
 	void ConsumeEntry( const char *p, size_t, const char *lastDot ) override;
 };
 
-UiFacade::GametypesList GametypesRetrievalHelper::Exec() {
+GametypesList GametypesRetrievalHelper::Exec() {
 	DirectoryWalker::Exec( "progs/gametypes" );
 
-	UiFacade::GametypesList retVal;
+	GametypesList retVal;
 	result.swap( retVal );
 	return retVal;
 }
@@ -85,9 +87,9 @@ void GametypesRetrievalHelper::ParseFile( const char *contents ) {
 }
 
 class PostGametypesTask: public IOPendingCallbackRequestTask {
-	UiFacade::GametypesList gametypes;
+	GametypesList gametypes;
 public:
-	PostGametypesTask( FSPendingCallbackRequestTask *parent, UiFacade::GametypesList &&gametypes_ )
+	PostGametypesTask( FSPendingCallbackRequestTask *parent, GametypesList &&gametypes_ )
 		: IOPendingCallbackRequestTask( parent ), gametypes( gametypes_ ) {}
 
 	CefRefPtr<CefProcessMessage> FillMessage() override {

@@ -4,22 +4,21 @@ void GetMapsRequestLauncher::StartExec( const CefV8ValueList &jsArgs, CefRefPtr<
 	return DefaultSingleArgStartExecImpl( jsArgs, retVal, ex );
 }
 
-UiFacade::MapsList UiFacade::GetMaps() {
-	UiFacade::MapsList result;
+class MapsListSource {
+	int index { 0 };
 	char buffer[( MAX_CONFIGSTRING_CHARS + 1 ) * 2];
-	// TODO: These all APIs are horribly inefficient... Transfer an ownership of dynamically allocated strings instead
-	for( int i = 0; api->ML_GetMapByNum( i, buffer, sizeof( buffer ) ); ++i ) {
-		const char *shortName = buffer;
-		size_t shortNameLen = strlen( buffer );
-		const char *fullName = buffer + shortNameLen + 1;
-		size_t fullNameLen = strlen( fullName );
-		auto pair( std::make_pair( std::string( shortName, shortNameLen ), std::string( fullName, fullNameLen ) ) );
-		result.emplace_back( std::move( pair ) );
+public:
+	bool Next( const char **shortName, const char **fullName ) {
+		// TODO: These all APIs are horribly inefficient...
+		// Transfer an ownership of dynamically allocated strings instead
+		if( !api->ML_GetMapByNum( index++, buffer, sizeof( buffer ) ) ) {
+			return false;
+		}
+		*shortName = buffer;
+		*fullName = buffer + strlen( *shortName ) + 1;
+		return true;
 	}
-	return result;
-}
-
-
+};
 
 void GetMapsRequestHandler::ReplyToRequest( CefRefPtr<CefBrowser> browser, CefRefPtr<CefProcessMessage> ingoing ) {
 	const int id = ingoing->GetArgumentList()->GetInt( 0 );
@@ -29,12 +28,14 @@ void GetMapsRequestHandler::ReplyToRequest( CefRefPtr<CefBrowser> browser, CefRe
 	size_t argNum = 0;
 	args->SetInt( argNum++, id );
 
-	// TODO: Is not it so expensive that worth a different thread?
+	// TODO: Is not it all so expensive that worth a different thread?
 	// Unfortunately heap operations that lock everything are the most expensive part.
-	auto mapList( UiFacade::GetMaps() );
-	for( const auto &mapNames: mapList ) {
-		args->SetString( argNum++, mapNames.first );
-		args->SetString( argNum++, mapNames.second );
+
+	const char *shortName, *fullName;
+	MapsListSource mapsListSource;
+	while( mapsListSource.Next( &shortName, &fullName ) ) {
+		args->SetString( argNum++, shortName );
+		args->SetString( argNum++, fullName );
 	}
 
 	browser->SendProcessMessage( PID_RENDERER, message );

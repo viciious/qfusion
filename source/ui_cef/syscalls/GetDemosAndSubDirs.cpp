@@ -30,26 +30,13 @@ void GetDemosAndSubDirsRequestLauncher::StartExec( const CefV8ValueList &args,
 	Commit( std::move( request ), context, message, retval, exception );
 }
 
-std::pair<UiFacade::FilesList, UiFacade::FilesList> UiFacade::FindDemosAndSubDirs( const std::string &dir ) {
-	const char *realDir = dir.empty() ? "demos" : dir.c_str();
-
-	auto findFiles = [&]( const char *ext ) {
-		StlCompatDirectoryWalker walker( ext, false );
-		return walker.Exec( realDir );
-	};
-
-	return std::make_pair( findFiles( APP_DEMO_EXTENSION_STR ), findFiles( "/" ) );
-};
+typedef std::vector<std::string> FilesList;
 
 class PostDemosAndSubDirsTask: public IOPendingCallbackRequestTask {
-	UiFacade::FilesList demos, subDirs;
+	FilesList demos, subDirs;
 public:
-	PostDemosAndSubDirsTask( FSPendingCallbackRequestTask *parent,
-						   UiFacade::FilesList &&demos_,
-						   UiFacade::FilesList &&subDirs_ )
-		: IOPendingCallbackRequestTask( parent )
-		, demos( demos_ )
-		, subDirs( subDirs_ ) {}
+	PostDemosAndSubDirsTask( FSPendingCallbackRequestTask *parent, FilesList &&demos_, FilesList &&subDirs_ )
+		: IOPendingCallbackRequestTask( parent ), demos( demos_ ), subDirs( subDirs_ ) {}
 
 	CefRefPtr<CefProcessMessage> FillMessage() override {
 		auto message( CefProcessMessage::Create( PendingCallbackRequest::getDemosAndSubDirs ) );
@@ -74,9 +61,12 @@ public:
 		: FSPendingCallbackRequestTask( browser, callId ), dir( dir_ ) {}
 
 	CefRefPtr<IOPendingCallbackRequestTask> CreatePostResultsTask() override {
-		UiFacade::FilesList demos, subDirs;
-		std::tie( demos, subDirs ) = UiFacade::FindDemosAndSubDirs( dir );
-		return AsCefPtr( new PostDemosAndSubDirsTask( this, std::move( demos ), std::move( subDirs ) ) );
+		const char *realDir = dir.empty() ? "demos" : dir.c_str();
+		auto findFiles = [&]( const char *ext ) {
+			StlCompatDirectoryWalker walker( ext, false );
+			return walker.Exec( realDir );
+		};
+		return AsCefPtr( new PostDemosAndSubDirsTask( this, findFiles( APP_DEMO_EXTENSION_STR ), findFiles( "/" ) ) );
 	}
 
 	IMPLEMENT_REFCOUNTING( GetDemosAndSubDirsTask );

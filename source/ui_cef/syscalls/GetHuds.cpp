@@ -4,7 +4,9 @@ void GetHudsRequestLauncher::StartExec( const CefV8ValueList &jsArgs, CefRefPtr<
 	return DefaultSingleArgStartExecImpl( jsArgs, retVal, ex );
 }
 
-UiFacade::FilesList UiFacade::GetHuds() {
+typedef std::vector<std::string> FilesList;
+
+static FilesList FindHuds() {
 	StlCompatDirectoryWalker walker( ".hud", false );
 	auto rawFiles = walker.Exec( "huds" );
 	// We should not list touch huds now, and should not supply ones as touch screens
@@ -20,9 +22,9 @@ UiFacade::FilesList UiFacade::GetHuds() {
 }
 
 class PostHudsTask: public IOPendingCallbackRequestTask {
-	UiFacade::FilesList huds;
+	FilesList huds;
 public:
-	PostHudsTask( FSPendingCallbackRequestTask *parent, UiFacade::FilesList &&huds_ )
+	PostHudsTask( FSPendingCallbackRequestTask *parent, FilesList &&huds_ )
 		: IOPendingCallbackRequestTask( parent ), huds( huds_ ) {}
 
 	CefRefPtr<CefProcessMessage> FillMessage() override {
@@ -42,7 +44,7 @@ public:
 		: FSPendingCallbackRequestTask( browser_, message ) {}
 
 	CefRefPtr<IOPendingCallbackRequestTask> CreatePostResultsTask() override {
-		return AsCefPtr( new PostHudsTask( this, UiFacade::GetHuds() ) );
+		return AsCefPtr( new PostHudsTask( this, FindHuds() ) );
 	}
 
 	IMPLEMENT_REFCOUNTING( GetHudsTask );
