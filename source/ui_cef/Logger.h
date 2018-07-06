@@ -3,12 +3,11 @@
 
 #include "include/cef_browser.h"
 
-class RenderProcessLogger {
-	CefRefPtr<CefBrowser> browser;
-
-	virtual void SendLogMessage( cef_log_severity_t severity, const char *format, va_list va );
+class Logger {
+protected:
+	virtual void SendLogMessage( cef_log_severity_t severity, const char *format, va_list va ) = 0;
 public:
-	explicit RenderProcessLogger( CefRefPtr<CefBrowser> browser_ ): browser( browser_ ) {}
+	virtual ~Logger() {}
 
 #ifndef _MSC_VER
 	void Debug( const char *format, ... ) __attribute__( ( format( printf, 2, 3 ) ) );
@@ -21,10 +20,7 @@ public:
 	void Warning( _Printf_format_string_ const char *format, ... );
 	void Error( _Printf_format_string_ const char *format, ... );
 #endif
-
-	bool UsesBrowser( const CefRefPtr<CefBrowser> &browser_ ) const {
-		return this->browser->IsSame( browser_ );
-	}
 };
+
 
 #endif

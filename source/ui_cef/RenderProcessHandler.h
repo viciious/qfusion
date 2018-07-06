@@ -6,6 +6,18 @@
 
 #include "include/cef_render_process_handler.h"
 
+class RenderProcessLogger: public Logger {
+	CefRefPtr<CefBrowser> browser;
+
+	void SendLogMessage( cef_log_severity_t severity, const char *format, va_list va ) override;
+public:
+	explicit RenderProcessLogger( CefRefPtr<CefBrowser> browser_ ): browser( browser_ ) {}
+
+	bool UsesBrowser( const CefRefPtr<CefBrowser> &browser_ ) const {
+		return this->browser->IsSame( browser_ );
+	}
+};
+
 class WswCefRenderProcessHandler: public CefRenderProcessHandler {
 	CefRefPtr<WswCefV8Handler> v8Handler;
 	std::shared_ptr<RenderProcessLogger> logger;

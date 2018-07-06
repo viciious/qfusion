@@ -1,18 +1,5 @@
 #include "RenderProcessHandler.h"
 
-#define IMPLEMENT_LOGGER_METHOD( Name, SEVERITY )                \
-void RenderProcessLogger::Name( const char *format, ... ) {      \
-	va_list va;                                                  \
-	va_start( va, format );                                      \
-	SendLogMessage( SEVERITY, format, va );                      \
-	va_end( va );                                                \
-}
-
-IMPLEMENT_LOGGER_METHOD( Debug, LOGSEVERITY_DEBUG )
-IMPLEMENT_LOGGER_METHOD( Info, LOGSEVERITY_INFO )
-IMPLEMENT_LOGGER_METHOD( Warning, LOGSEVERITY_WARNING )
-IMPLEMENT_LOGGER_METHOD( Error, LOGSEVERITY_ERROR )
-
 void RenderProcessLogger::SendLogMessage( cef_log_severity_t severity, const char *format, va_list va ) {
 	char buffer[2048];
 	vsnprintf( buffer, sizeof( buffer ), format, va );

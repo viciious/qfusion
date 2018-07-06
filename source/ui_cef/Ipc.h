@@ -2,7 +2,6 @@
 #define UI_CEF_IPC_H
 
 #include "CefStringBuilder.h"
-#include "Logger.h"
 
 #include "include/cef_v8.h"
 #include "include/wrapper/cef_helpers.h"
@@ -10,6 +9,8 @@
 class WswCefRenderProcessHandler;
 
 class WswCefV8Handler;
+
+class RenderProcessLogger;
 
 class PendingCallbackRequest {
 	WswCefV8Handler *const parent;

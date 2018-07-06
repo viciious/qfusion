@@ -1,4 +1,9 @@
 #include "V8Handler.h"
+#include "RenderProcessHandler.h"
+
+inline RenderProcessLogger* WswCefV8Handler::Logger() {
+	return renderProcessHandler->Logger();
+}
 
 bool WswCefV8Handler::Execute( const CefString& name,
 							   CefRefPtr<CefV8Value> object,
