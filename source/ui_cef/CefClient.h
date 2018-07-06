@@ -47,7 +47,7 @@ public:
 };
 
 
-class WswCefClient: public CefClient, public CefLifeSpanHandler {
+class WswCefClient: public CefClient, public CefLifeSpanHandler, public CefContextMenuHandler {
 	friend class CallbackRequestHandler;
 public:
 	IMPLEMENT_REFCOUNTING( WswCefClient );
@@ -94,6 +94,18 @@ public:
 
 	CefRefPtr<CefLifeSpanHandler> GetLifeSpanHandler() override {
 		return this;
+	}
+
+	CefRefPtr<CefContextMenuHandler> GetContextMenuHandler() override {
+		return this;
+	}
+
+	void OnBeforeContextMenu( CefRefPtr<CefBrowser> browser,
+							  CefRefPtr<CefFrame> frame,
+							  CefRefPtr<CefContextMenuParams> params,
+							  CefRefPtr<CefMenuModel> model ) override {
+		// Disable the menu...
+		model->Clear();
 	}
 
 	void OnAfterCreated( CefRefPtr<CefBrowser> browser ) override {

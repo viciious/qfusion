@@ -9,8 +9,15 @@ class UiFacade;
 class MessagePipe {
 	UiFacade *parent;
 
-	bool isReady;
-	bool wasReady;
+	int mouseX { 0 };
+	int mouseY { 0 };
+
+	bool isReady { false };
+	bool wasReady { false };
+
+	uint32_t GetInputModifiers() const;
+	void SendMouseScrollOrButtonEvent( int context, int qKey, bool down );
+	void FillKeyEvent( CefKeyEvent *event, int qKey );
 
 	void SendMouseSet( int context, int mx, int my, bool showCursor );
 	void SendForceMenuOff();
@@ -56,8 +63,7 @@ class MessagePipe {
 
 	inline void SendMessage( CefRefPtr<CefProcessMessage> message );
 public:
-	explicit MessagePipe( UiFacade *parent_ )
-		: parent( parent_ ), isReady( false ), wasReady( false ) {}
+	explicit MessagePipe( UiFacade *parent_ ) : parent( parent_ ) {}
 
 	void Keydown( int context, int key );
 	void Keyup( int context, int key );

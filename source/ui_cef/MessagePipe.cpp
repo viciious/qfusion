@@ -4,7 +4,9 @@
 #include "Ipc.h"
 
 #include "include/cef_browser.h"
+#include "Api.h"
 #include <memory>
+#include "../gameshared/q_keycodes.h"
 
 inline void MessagePipe::SendMessage( CefRefPtr<CefProcessMessage> message ) {
 	CefBrowser *browser = parent->GetBrowser();
@@ -13,32 +15,137 @@ inline void MessagePipe::SendMessage( CefRefPtr<CefProcessMessage> message ) {
 	browser->SendProcessMessage( PID_RENDERER, message );
 }
 
+uint32_t MessagePipe::GetInputModifiers() const {
+	uint32_t result = 0;
+	if( api->Key_IsDown( K_LCTRL ) || api->Key_IsDown( K_RCTRL ) ) {
+		result |= EVENTFLAG_CONTROL_DOWN;
+	}
+	if( api->Key_IsDown( K_LALT ) || api->Key_IsDown( K_RALT ) ) {
+		result |= EVENTFLAG_ALT_DOWN;
+	}
+	if( api->Key_IsDown( K_LSHIFT ) || api->Key_IsDown( K_RSHIFT ) ) {
+		result |= EVENTFLAG_SHIFT_DOWN;
+	}
+	if( api->Key_IsDown( K_CAPSLOCK ) ) {
+		result |= EVENTFLAG_CAPS_LOCK_ON;
+	}
+	if( api->Key_IsDown( K_MOUSE1 ) ) {
+		result |= EVENTFLAG_LEFT_MOUSE_BUTTON;
+	}
+	if( api->Key_IsDown( K_MOUSE2 ) ) {
+		result |= EVENTFLAG_RIGHT_MOUSE_BUTTON;
+	}
+	if( api->Key_IsDown( K_MOUSE3 ) ) {
+		result |= EVENTFLAG_MIDDLE_MOUSE_BUTTON;
+	}
+	return result;
+}
+
+void MessagePipe::SendMouseScrollOrButtonEvent( int context, int key, bool down ) {
+	CefMouseEvent event;
+	event.x = mouseX;
+	event.y = mouseY;
+	event.modifiers = GetInputModifiers();
+
+	if( key == K_MWHEELUP || key == K_MWHEELDOWN ) {
+		parent->GetBrowser()->GetHost()->SendMouseWheelEvent( event, 0, key == K_MWHEELUP ? 10 : -10 );
+		return;
+	}
+
+	int clickCount = 1;
+	CefBrowserHost::MouseButtonType type;
+	if( key == K_MOUSE1 ) {
+		type = MBT_LEFT;
+	} else if( key == K_MOUSE2 ) {
+		type = MBT_RIGHT;
+	} else if( key == K_MOUSE3 ) {
+		type = MBT_MIDDLE;
+	} else if( key == K_MOUSE1DBLCLK ) {
+		type = MBT_LEFT;
+		clickCount = 2;
+	} else {
+		return;
+	}
+	parent->GetBrowser()->GetHost()->SendMouseClickEvent( event, type, !down, clickCount );
+}
+
+void MessagePipe::FillKeyEvent( CefKeyEvent *event, int qKey ) {
+	event->modifiers = GetInputModifiers();
+	event->native_key_code = qKey;
+	event->windows_key_code = qKey;
+	event->focus_on_editable_field = false;
+	event->character = qKey;
+	event->unmodified_character = qKey;
+}
+
 void MessagePipe::Keydown( int context, int key ) {
 	if( !isReady ) {
-		printf( "Keydown: Is not ready, ignoring\n" );
+		return;
 	}
+
+	if( key >= K_MOUSE1 ) {
+		SendMouseScrollOrButtonEvent( context, key, true );
+		return;
+	}
+
+	CefKeyEvent event;
+	FillKeyEvent( &event, key );
+	event.type = KEYEVENT_RAWKEYDOWN;
+	parent->GetBrowser()->GetHost()->SendKeyEvent( event );
+	event.type = KEYEVENT_CHAR;
+	parent->GetBrowser()->GetHost()->SendKeyEvent( event );
 }
 
 void MessagePipe::Keyup( int context, int key ) {
 	if( !isReady ) {
-		printf( "Keyup: Is not ready, ignoring\n" );
+		return;
 	}
-	// Send a specialized message
+
+	if( key >= K_MOUSE1 ) {
+		SendMouseScrollOrButtonEvent( context, key, true );
+		return;
+	}
+
+	CefKeyEvent event;
+	FillKeyEvent( &event, key );
+	event.type = KEYEVENT_KEYUP;
+	parent->GetBrowser()->GetHost()->SendKeyEvent( event );
 }
 
 void MessagePipe::CharEvent( int context, int key ) {
 	if( !isReady ) {
-		printf( "CharEvent: Is not ready, ignoring\n" );
+		return;
 	}
+
+	CefKeyEvent event;
+	event.type = KEYEVENT_CHAR;
+	FillKeyEvent( &event, key );
+	parent->GetBrowser()->GetHost()->SendKeyEvent( event );
 }
 
 void MessagePipe::MouseMove( int context, int frameTime, int dx, int dy ) {
+	mouseX += dx;
+	clamp( mouseX, 0, parent->width );
+	mouseY += dy;
+	clamp( mouseY, 0, parent->height );
+
 	if( !isReady ) {
-		printf( "MouseMove: Is not ready, ignoring\n" );
+		return;
 	}
+
+	CefMouseEvent event;
+	event.x = mouseX;
+	event.y = mouseY;
+	event.modifiers = GetInputModifiers();
+	parent->GetBrowser()->GetHost()->SendMouseMoveEvent( event, false );
 }
 
 void MessagePipe::MouseSet( int context, int mx, int my, bool showCursor ) {
+	mouseX = mx;
+	assert( mouseX >= 0 && mouseX < parent->width );
+	mouseY = my;
+	assert( mouseY >= 0 && mouseY < parent->height );
+
 	if( isReady ) {
 		SendMouseSet( context, mx, my, showCursor );
 		return;
@@ -117,6 +224,8 @@ void MessagePipe::OnUiPageReady() {
 
 	deferredMessages.clear();
 	deferredMessages.shrink_to_fit();
+
+	parent->GetBrowser()->GetHost()->SendFocusEvent( true );
 }
 
 void MessagePipe::UpdateScreenState( const MainScreenState &prevState, const MainScreenState &currState ) {
