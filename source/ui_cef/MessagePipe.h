@@ -9,15 +9,13 @@ class UiFacade;
 class MessagePipe {
 	UiFacade *parent;
 
-	int mouseX { 0 };
-	int mouseY { 0 };
-
 	bool isReady { false };
 	bool wasReady { false };
 
-	uint32_t GetInputModifiers() const;
-	void SendMouseScrollOrButtonEvent( int context, int qKey, bool down );
-	void FillKeyEvent( CefKeyEvent *event, int qKey );
+	inline CefRefPtr<CefBrowserHost> GetBrowserHost();
+	inline CefMouseEvent NewMouseEvent( uint32_t modifiers ) const;
+
+	void KeyUpOrDown( int context, int qKey, int nativeScanCode, int nativeKeyCode, uint32_t modifiers, bool down );
 
 	void SendMouseSet( int context, int mx, int my, bool showCursor );
 	void SendForceMenuOff();
@@ -65,10 +63,19 @@ class MessagePipe {
 public:
 	explicit MessagePipe( UiFacade *parent_ ) : parent( parent_ ) {}
 
-	void Keydown( int context, int key );
-	void Keyup( int context, int key );
-	void CharEvent( int context, int key );
-	void MouseMove( int context, int frameTime, int dx, int dy );
+	void KeyUp( int context, int qKey, int nativeScanCode, int nativeKeyCode, uint32_t modifiers ) {
+		KeyUpOrDown( context, qKey, nativeScanCode, nativeKeyCode, modifiers, false );
+	}
+	void KeyDown( int context, int qKey, int nativeScanCode, int nativeKeyCode, uint32_t modifiers ) {
+		KeyUpOrDown( context, qKey, nativeScanCode, nativeKeyCode, modifiers, true );
+	}
+
+	void CharEvent( int context, int qKey, int character, int nativeKeyCode, int nativeScanCode, uint32_t modifiers );
+
+	void MouseScroll( int context, int scrollY, uint32_t modifiers );
+	void MouseClick( int context, int button, int clicksCount, uint32_t modifiers, bool down );
+	void MouseMove( int context, uint32_t modifiers );
+
 	void MouseSet( int context, int mx, int my, bool showCursor );
 	void ForceMenuOff();
 	void ShowQuickMenu( bool show );

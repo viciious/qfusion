@@ -144,6 +144,23 @@ class UiFacade {
 	static bool InitCef( int argc, char **argv, void *hInstance );
 
 	void DrawUi();
+
+	int64_t lastRefreshAt;
+
+	struct shader_s *cursorShader;
+
+	int64_t lastScrollAt;
+	int numScrollsInARow;
+	int lastScrollDirection;
+
+	int mouseXY[2] { 0, 0 };
+
+	uint32_t GetInputModifiers() const;
+	bool ProcessAsMouseKey( int context, int qKey, bool down );
+	void AddToScroll( int context, int direction );
+
+	struct cvar_s *menu_sensitivity { nullptr };
+	struct cvar_s *menu_mouseAccel { nullptr };
 public:
 	static bool Init( int argc, char **argv, void *hInstance, int width_, int height_,
 					  int demoProtocol_, const char *demoExtension_, const char *basePath_ );
@@ -175,21 +192,13 @@ public:
 							  float downloadPercent, int downloadSpeed,
 							  int connectCount, bool backGround );
 
-	void Keydown( int context, int key ) {
-		messagePipe.Keydown( context, key );
-	}
+	void Keydown( int context, int qKey );
 
-	void Keyup( int context, int key ) {
-		messagePipe.Keyup( context, key );
-	}
+	void Keyup( int context, int qKey );
 
-	void CharEvent( int context, int key ) {
-		messagePipe.CharEvent( context, key );
-	}
+	void CharEvent( int context, int qKey );
 
-	void MouseMove( int context, int frameTime, int dx, int dy ) {
-		messagePipe.MouseMove( context, frameTime, dx, dy );
-	}
+	void MouseMove( int context, int frameTime, int dx, int dy );
 
 	void MouseSet( int context, int mx, int my, bool showCursor ) {
 		messagePipe.MouseSet( context, mx, my, showCursor );

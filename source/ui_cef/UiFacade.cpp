@@ -3,6 +3,7 @@
 #include "CefClient.h"
 #include "Api.h"
 
+#include "../gameshared/q_keycodes.h"
 
 UiFacade *UiFacade::instance = nullptr;
 
@@ -56,10 +57,14 @@ UiFacade::UiFacade( int width_, int height_, int demoProtocol_, const char *demo
 	, demoExtension( demoExtension_ )
 	, basePath( basePath_ )
 	, messagePipe( this ) {
+	cursorShader = api->R_RegisterPic( "gfx/ui/cursor.tga" );
 	api->Cmd_AddCommand( "menu_force", &MenuForceHandler );
 	api->Cmd_AddCommand( "menu_open", &MenuOpenHandler );
 	api->Cmd_AddCommand( "menu_modal", &MenuModalHandler );
 	api->Cmd_AddCommand( "menu_close", &MenuCloseHandler );
+
+	menu_sensitivity = api->Cvar_Get( "menu_sensitivity", "1.0", CVAR_ARCHIVE );
+	menu_mouseAccel = api->Cvar_Get( "menu_mouseAccel", "0.5", CVAR_ARCHIVE );
 }
 
 UiFacade::~UiFacade() {
@@ -97,6 +102,8 @@ inline const char *NullToEmpty( const char *s ) {
 void UiFacade::Refresh( int64_t time, int clientState, int serverState,
 						bool demoPlaying, const char *demoName, bool demoPaused,
 						unsigned int demoTime, bool backGround, bool showCursor ) {
+	lastRefreshAt = time;
+
 	CefDoMessageLoopWork();
 
 	// If there was no prior UpdateConnectScreen() call this frame, flip
@@ -160,4 +167,142 @@ void UiFacade::DrawUi() {
 	auto *uiImage = api->R_RegisterRawPic( "uiBuffer", width, height, renderHandler->drawnEveryFrameBuffer, 4 );
 	vec4_t color = { 1.0f, 1.0f, 1.0f, 1.0f };
 	api->R_DrawStretchPic( 0, 0, width, height, 0.0f, 0.0f, 1.0f, 1.0f, color, uiImage );
+
+	// Draw cursor every refresh frame
+	// TODO: make this aware of display density!
+	// TODO: This should be displayed as 32x32 dp, the image is 64x64 px
+	api->R_DrawStretchPic( mouseXY[0], mouseXY[1], 32, 32, 0.0f, 0.0f, 1.0f, 1.0f, color, cursorShader );
+}
+
+uint32_t UiFacade::GetInputModifiers() const {
+	// TODO: Precache for a frame?
+	uint32_t result = 0;
+	if( api->Key_IsDown( K_LCTRL ) || api->Key_IsDown( K_RCTRL ) ) {
+		result |= EVENTFLAG_CONTROL_DOWN;
+	}
+	if( api->Key_IsDown( K_LALT ) || api->Key_IsDown( K_RALT ) ) {
+		result |= EVENTFLAG_ALT_DOWN;
+	}
+	if( api->Key_IsDown( K_LSHIFT ) || api->Key_IsDown( K_RSHIFT ) ) {
+		result |= EVENTFLAG_SHIFT_DOWN;
+	}
+	if( api->Key_IsDown( K_CAPSLOCK ) ) {
+		result |= EVENTFLAG_CAPS_LOCK_ON;
+	}
+	if( api->Key_IsDown( K_MOUSE1 ) ) {
+		result |= EVENTFLAG_LEFT_MOUSE_BUTTON;
+	}
+	if( api->Key_IsDown( K_MOUSE2 ) ) {
+		result |= EVENTFLAG_RIGHT_MOUSE_BUTTON;
+	}
+	if( api->Key_IsDown( K_MOUSE3 ) ) {
+		result |= EVENTFLAG_MIDDLE_MOUSE_BUTTON;
+	}
+	return result;
+}
+
+bool UiFacade::ProcessAsMouseKey( int context, int qKey, bool down ) {
+	if( qKey < K_MOUSE1 ) {
+		return false;
+	}
+
+	for( auto keyAndDir: { std::make_pair( K_MWHEELUP, + 1), std::make_pair( K_MWHEELDOWN, -1 ) } ) {
+		if( qKey == keyAndDir.first ) {
+			// The client code emits 2 consequent down/up events for scrolling. Skip dummy "up" ones
+			if( down ) {
+				AddToScroll( context, keyAndDir.second );
+			}
+			return true;
+		}
+	}
+
+	int button;
+	int clicksCount = 1;
+	if( qKey == K_MOUSE1 ) {
+		button = 1;
+	} else if( qKey == K_MOUSE2 ) {
+		button = 2;
+	} else if( qKey == K_MOUSE3 ) {
+		button = 3;
+	} else if( qKey == K_MOUSE1DBLCLK ) {
+		button = 1;
+		clicksCount = 2;
+	} else {
+		return false;
+	}
+
+	messagePipe.MouseClick( context, button, clicksCount, GetInputModifiers(), down );
+	return true;
+}
+
+void UiFacade::AddToScroll( int context, int direction ) {
+	if( lastRefreshAt - lastScrollAt > 300 ) {
+		numScrollsInARow = 0;
+	} else if( lastScrollDirection != direction ) {
+		numScrollsInARow = 0;
+	}
+	lastScrollAt = lastRefreshAt;
+	lastScrollDirection = direction;
+	messagePipe.MouseScroll( context, direction * ( 1 + numScrollsInARow ), GetInputModifiers() );
+	numScrollsInARow++;
+}
+
+void UiFacade::Keydown( int context, int qKey ) {
+	if( ProcessAsMouseKey( context, qKey, true ) ) {
+		return;
+	}
+
+	// TODO: Provide scan codes/virtual keys
+	messagePipe.KeyDown( context, qKey, qKey, qKey, GetInputModifiers() );
+}
+
+void UiFacade::Keyup( int context, int qKey ) {
+	if( ProcessAsMouseKey( context, qKey, false ) ) {
+		return;
+	}
+
+	// TODO: Provide scan codes/virtual keys!
+	messagePipe.KeyUp( context, qKey, qKey, qKey, GetInputModifiers() );
+}
+
+void UiFacade::CharEvent( int context, int qKey ) {
+	// TODO: Provide scan codes/virtual keys!
+	messagePipe.CharEvent( context, qKey, qKey, qKey, qKey, GetInputModifiers() );
+}
+
+void UiFacade::MouseMove( int context, int frameTime, int dx, int dy ) {
+	int bounds[2] = { width, height };
+	int deltas[2] = { dx, dy };
+
+	if( menu_sensitivity->modified ) {
+		if( menu_sensitivity->value <= 0.0f || menu_sensitivity->value > 10.0f ) {
+			api->Cvar_ForceSet( menu_sensitivity->name, "1.0" );
+		}
+	}
+
+	if( menu_mouseAccel->modified ) {
+		if( menu_mouseAccel->value < 0.0f || menu_mouseAccel->value > 1.0f ) {
+			api->Cvar_ForceSet( menu_mouseAccel->name, "0.5" );
+		}
+	}
+
+	float sensitivity = menu_sensitivity->value;
+	if( frameTime > 0 ) {
+		sensitivity += menu_mouseAccel->value * sqrtf( dx * dx + dy * dy ) / (float)( frameTime );
+	}
+
+	for( int i = 0; i < 2; ++i ) {
+		if( !deltas[i] ) {
+			continue;
+		}
+		int scaledDelta = (int)( deltas[i] * sensitivity );
+		// Make sure we won't lose a mouse movement due to fractional part loss
+		if( !scaledDelta ) {
+			scaledDelta = Q_sign( deltas[i] );
+		}
+		mouseXY[i] += scaledDelta;
+		clamp( mouseXY[i], 0, bounds[i] );
+	}
+
+	messagePipe.MouseMove( context, GetInputModifiers() );
 }
