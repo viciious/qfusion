@@ -9,6 +9,7 @@
 #include "include/cef_render_handler.h"
 
 class WswCefRenderHandler: public CefRenderHandler {
+	uint8_t *browserRenderedBuffer;
 	const int width;
 	const int height;
 
@@ -20,17 +21,21 @@ class WswCefRenderHandler: public CefRenderHandler {
 	}
 
 public:
-	uint8_t *drawnEveryFrameBuffer;
-
-IMPLEMENT_REFCOUNTING( WswCefRenderHandler );
-public:
-	WswCefRenderHandler(): width( 1024 ), height( 768 ) {
-		drawnEveryFrameBuffer = new uint8_t[width * height * 4];
+	WswCefRenderHandler( int width_, int height_ ): width( width_ ), height( height_ ) {
+		// Check dimensions for sanity
+		assert( width > 0 && width <= ( 1 << 16 ) );
+		assert( height > 0 && height <= ( 1 << 16 ) );
+		browserRenderedBuffer = new uint8_t[width * height * NumColorComponents()];
 	}
 
 	~WswCefRenderHandler() override {
-		delete drawnEveryFrameBuffer;
+		delete browserRenderedBuffer;
 	}
+
+	const uint8_t *BrowserRenderedBuffer() const { return browserRenderedBuffer; }
+	int Width() const { return width; }
+	int Height() const { return height; }
+	int NumColorComponents() const { return 4; }
 
 	bool GetRootScreenRect( CefRefPtr<CefBrowser> browser, CefRect& rect ) override {
 		FillRect( rect );
@@ -43,14 +48,14 @@ public:
 	}
 
 	void OnPaint( CefRefPtr<CefBrowser> browser, PaintElementType type, const RectList& dirtyRects,
-				  const void* buffer, int width, int height ) override;
+				  const void* buffer, int width_, int height_ ) override;
+
+	IMPLEMENT_REFCOUNTING( WswCefRenderHandler );
 };
 
 
 class WswCefClient: public CefClient, public CefLifeSpanHandler, public CefContextMenuHandler {
 	friend class CallbackRequestHandler;
-public:
-	IMPLEMENT_REFCOUNTING( WswCefClient );
 
 	CallbackRequestHandler *requestHandlersHead;
 
@@ -67,10 +72,10 @@ public:
 	GetKeyBindingsRequestHandler getKeyBindings;
 	GetKeyNamesRequestHandler getKeyNames;
 
-public:
 	CefRefPtr<WswCefRenderHandler> renderHandler;
 
-	WswCefClient()
+public:
+	WswCefClient( int width, int height )
 		: requestHandlersHead( nullptr )
 		, getCVar( this )
 		, setCVar( this )
@@ -84,7 +89,7 @@ public:
 		, getLocalizedStrings( this )
 		, getKeyBindings( this )
 		, getKeyNames( this )
-		, renderHandler( new WswCefRenderHandler ) {
+		, renderHandler( new WswCefRenderHandler( width, height ) ) {
 		UiFacade::Instance()->RegisterRenderHandler( renderHandler.get() );
 	}
 
@@ -119,6 +124,8 @@ public:
 	bool OnProcessMessageReceived( CefRefPtr<CefBrowser> browser,
 								   CefProcessId source_process,
 								   CefRefPtr<CefProcessMessage> message ) override;
+
+	IMPLEMENT_REFCOUNTING( WswCefClient );
 };
 
 #endif

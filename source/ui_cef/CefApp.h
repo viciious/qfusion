@@ -25,12 +25,8 @@ inline CefRefPtr<T> AsCefPtr( T *value ) {
 class WswCefApp: public CefApp {
 	CefRefPtr<CefBrowserProcessHandler> browserProcessHandler;
 	CefRefPtr<CefRenderProcessHandler> renderProcessHandler;
-
 public:
-	IMPLEMENT_REFCOUNTING( WswCefApp );
-
-public:
-	WswCefApp();
+	WswCefApp( int width = -1, int height = -1 );
 
 	void OnBeforeCommandLineProcessing( const CefString& process_type, CefRefPtr<CefCommandLine> command_line ) override;
 	void OnRegisterCustomSchemes( CefRawPtr<CefSchemeRegistrar> registrar) override;
@@ -42,6 +38,8 @@ public:
 	CefRefPtr<CefRenderProcessHandler> GetRenderProcessHandler() override {
 		return renderProcessHandler;
 	}
+
+	IMPLEMENT_REFCOUNTING( WswCefApp );
 };
 
 

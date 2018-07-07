@@ -3,12 +3,12 @@
 void WswCefRenderHandler::OnPaint( CefRefPtr<CefBrowser> browser,
 								   CefRenderHandler::PaintElementType type,
 								   const CefRenderHandler::RectList &dirtyRects,
-								   const void *buffer, int width, int height ) {
-	assert( width == this->width );
-	assert( height == this->height );
+								   const void *buffer, int width_, int height_ ) {
+	assert( width_ == this->width );
+	assert( height_ == this->height );
 	// TODO: If the total amount of pixel data is small, copy piecewise
 	// TODO: I'm unsure if this would be faster due to non-optimal cache access patterns
-	memcpy( drawnEveryFrameBuffer, buffer, width * height * 4u );
+	memcpy( browserRenderedBuffer, buffer, (size_t)( width * height * NumColorComponents() ) );
 }
 
 bool WswCefClient::OnProcessMessageReceived( CefRefPtr<CefBrowser> browser,

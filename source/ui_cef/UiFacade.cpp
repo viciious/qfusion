@@ -13,7 +13,7 @@ bool UiFacade::Init( int argc, char **argv, void *hInstance, int width_, int hei
 	// It is expected to be present when various CEF initialization callbacks are fired.
 	instance = new UiFacade( width_, height_, demoProtocol_, demoExtension_, basePath_ );
 
-	if( !InitCef( argc, argv, hInstance ) ) {
+	if( !InitCef( argc, argv, hInstance, width_, height_ ) ) {
 		delete instance;
 		return false;
 	}
@@ -21,10 +21,10 @@ bool UiFacade::Init( int argc, char **argv, void *hInstance, int width_, int hei
 	return true;
 }
 
-bool UiFacade::InitCef( int argc, char **argv, void *hInstance ) {
+bool UiFacade::InitCef( int argc, char **argv, void *hInstance, int width, int height ) {
 	CefMainArgs mainArgs( argc, argv );
 
-	CefRefPtr<WswCefApp> app( new WswCefApp );
+	CefRefPtr<WswCefApp> app( new WswCefApp( width, height ) );
 
 	CefSettings settings;
 	CefString( &settings.locale ).FromASCII( "en_US" );
@@ -164,7 +164,12 @@ void UiFacade::UpdateConnectScreen( const char *serverName, const char *rejectMe
 }
 
 void UiFacade::DrawUi() {
-	auto *uiImage = api->R_RegisterRawPic( "uiBuffer", width, height, renderHandler->drawnEveryFrameBuffer, 4 );
+	assert( this->width == renderHandler->Width() );
+	assert( this->height == renderHandler->Height() );
+	assert( renderHandler->NumColorComponents() == 4 );
+	uint8_t *buffer = const_cast<uint8_t *>( renderHandler->BrowserRenderedBuffer() );
+	// TODO: Make this aware of linear/sRGB colorspaces and BGRA swizzles
+	auto *uiImage = api->R_RegisterRawPic( "uiBuffer", width, height, buffer, 4 );
 	vec4_t color = { 1.0f, 1.0f, 1.0f, 1.0f };
 	api->R_DrawStretchPic( 0, 0, width, height, 0.0f, 0.0f, 1.0f, 1.0f, color, uiImage );
 

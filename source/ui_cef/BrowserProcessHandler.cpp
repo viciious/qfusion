@@ -283,7 +283,6 @@ bool WswCefResourceHandler::ReadResponse( void *data_out,
 }
 
 class WswCefSchemeHandlerFactory: public CefSchemeHandlerFactory {
-IMPLEMENT_REFCOUNTING( WswCefSchemeHandlerFactory );
 public:
 	CefRefPtr<CefResourceHandler> Create( CefRefPtr<CefBrowser> browser,
 										  CefRefPtr<CefFrame> frame,
@@ -291,6 +290,8 @@ public:
 										  CefRefPtr<CefRequest> request ) override {
 		return CefRefPtr<CefResourceHandler>( new WswCefResourceHandler );
 	}
+
+	IMPLEMENT_REFCOUNTING( WswCefSchemeHandlerFactory );
 };
 
 void WswCefBrowserProcessHandler::OnContextInitialized() {
@@ -300,7 +301,7 @@ void WswCefBrowserProcessHandler::OnContextInitialized() {
 	CefWindowInfo info;
 	info.SetAsWindowless( 0 );
 	CefBrowserSettings settings;
-	CefRefPtr<WswCefClient> client( new WswCefClient );
+	CefRefPtr<WswCefClient> client( new WswCefClient( width, height ) );
 	CefString url( "ui://index.html" );
 	CefBrowserHost::CreateBrowserSync( info, client, url, settings, nullptr );
 }

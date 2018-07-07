@@ -2,8 +2,8 @@
 #include "BrowserProcessHandler.h"
 #include "RenderProcessHandler.h"
 
-WswCefApp::WswCefApp()
-	: browserProcessHandler( new WswCefBrowserProcessHandler )
+WswCefApp::WswCefApp( int width, int height )
+	: browserProcessHandler( new WswCefBrowserProcessHandler( width, height ) )
 	, renderProcessHandler( new WswCefRenderProcessHandler ) {}
 
 void WswCefApp::OnBeforeCommandLineProcessing( const CefString& process_type, CefRefPtr<CefCommandLine> command_line ) {

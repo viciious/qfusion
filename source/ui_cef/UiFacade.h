@@ -141,7 +141,7 @@ class UiFacade {
 
 	CefBrowser *GetBrowser() { return browser.get(); }
 
-	static bool InitCef( int argc, char **argv, void *hInstance );
+	static bool InitCef( int argc, char **argv, void *hInstance, int width, int height );
 
 	void DrawUi();
 
