@@ -6,7 +6,8 @@
 #include "../CefApp.h"
 #include "../UiFacade.h"
 
-
+// Hack for (temporarily) downgraded CEF distribution
+#define TID_FILE_BACKGROUND ( TID_FILE )
 
 class IOPendingCallbackRequestTask;
 

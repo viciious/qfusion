@@ -8,7 +8,7 @@ void Logger::Name( const char *format, ... ) {                   \
 	va_end( va );                                                \
 }
 
-IMPLEMENT_LOGGER_METHOD( Debug, LOGSEVERITY_DEBUG )
+IMPLEMENT_LOGGER_METHOD( Debug, LOGSEVERITY_VERBOSE )
 IMPLEMENT_LOGGER_METHOD( Info, LOGSEVERITY_INFO )
 IMPLEMENT_LOGGER_METHOD( Warning, LOGSEVERITY_WARNING )
 IMPLEMENT_LOGGER_METHOD( Error, LOGSEVERITY_ERROR )
