@@ -1,6 +1,7 @@
 #ifndef QFUSION_UIFACADE_H
 #define QFUSION_UIFACADE_H
 
+#include "Logger.h"
 #include "MessagePipe.h"
 
 #include <string>
@@ -86,6 +87,10 @@ struct MainScreenState {
 	}
 };
 
+class BrowserProcessLogger: public Logger {
+	void SendLogMessage( cef_log_severity_t severity, const char *format, va_list va ) override;
+};
+
 class UiFacade {
 	friend class MessagePipe;
 
@@ -161,6 +166,8 @@ class UiFacade {
 
 	struct cvar_s *menu_sensitivity { nullptr };
 	struct cvar_s *menu_mouseAccel { nullptr };
+
+	BrowserProcessLogger logger;
 public:
 	static bool Init( int argc, char **argv, void *hInstance, int width_, int height_,
 					  int demoProtocol_, const char *demoExtension_, const char *basePath_ );
@@ -171,6 +178,8 @@ public:
 	}
 
 	static UiFacade *Instance() { return instance; }
+
+	Logger *Logger() { return &logger; }
 
 	void RegisterRenderHandler( CefRenderHandler *handler_ );
 	void RegisterBrowser( CefRefPtr<CefBrowser> browser_ );

@@ -112,11 +112,11 @@ ExecutingJSMessageHandler::ExecutingJSMessageHandler( WswCefV8Handler *parent_, 
 
 std::string ExecutingJSMessageHandler::DescribeException( const CefString &code, CefRefPtr<CefV8Exception> exception ) {
 	std::stringstream s;
-	s << "An execution of `" << code.ToString() << "` has failed with exception: ";
 
-	s << "message=`" << exception->GetMessage().ToString() << "`,";
-	s << "line="     << exception->GetLineNumber() << ",";
-	s << "column="   << exception->GetStartColumn();
+	s << "An execution of `" << code.ToString() << "` has failed with exception ";
+	s << "at line " << exception->GetLineNumber() << ", ";
+	s << "column " << exception->GetStartColumn() << ": ";
+	s << '`' << exception->GetMessage().ToString() << '`';
 
 	return s.str();
 }

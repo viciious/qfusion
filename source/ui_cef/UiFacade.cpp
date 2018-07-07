@@ -5,6 +5,47 @@
 
 #include "../gameshared/q_keycodes.h"
 
+void BrowserProcessLogger::SendLogMessage( cef_log_severity_t severity, const char *format, va_list va ) {
+	// Make sure we always have a room for trailing ^7\n that is added on successful string formatting
+	static_assert( sizeof( S_COLOR_WHITE ) == 3, "A color token is assumed to contain 2 significant chars" );
+	constexpr size_t tailSize = sizeof( S_COLOR_WHITE ) + 1;
+	char buffer[2048 + tailSize];
+	// Put the color prefix first and then start printing actual data
+	char *dest = buffer;
+	size_t destSize = sizeof( buffer ) - tailSize;
+	// Do not assume the prefix to be just a color token (even if it is atm)
+	std::pair<int, const char*> prefixForSeverity[] = {
+		std::make_pair( LOGSEVERITY_WARNING, S_COLOR_YELLOW ),
+		std::make_pair( LOGSEVERITY_ERROR, S_COLOR_RED )
+	};
+
+	for( auto &severityAndPrefix: prefixForSeverity ) {
+		if( severityAndPrefix.first == severity ) {
+			const char *src = severityAndPrefix.second;
+			while( ( *dest++ = *src++ ) ) {
+				destSize--;
+			}
+			// Rewind the pointer so the null character will be overwritten
+			dest--;
+			// Check for wrapping (actually never occurs)
+			assert( destSize <= sizeof( buffer ) );
+			// Check whether we can append a tail (a failure never actually occurs)
+			assert( destSize > tailSize );
+			break;
+		}
+	}
+
+	// Always terminate the message by resetting the console color, as well as by \n\0
+	int charsWritten = vsnprintf( dest, destSize, format, va );
+	char *endp = charsWritten >= 0 ? dest + charsWritten : dest + destSize - tailSize;
+	*endp++ = S_COLOR_WHITE[0];
+	*endp++ = S_COLOR_WHITE[1];
+	*endp++ = '\n';
+	*endp++ = '\0';
+
+	api->Print( buffer );
+}
+
 UiFacade *UiFacade::instance = nullptr;
 
 bool UiFacade::Init( int argc, char **argv, void *hInstance, int width_, int height_,

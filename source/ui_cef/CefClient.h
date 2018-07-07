@@ -74,6 +74,7 @@ class WswCefClient: public CefClient, public CefLifeSpanHandler, public CefConte
 
 	CefRefPtr<WswCefRenderHandler> renderHandler;
 
+	inline Logger *Logger() { return UiFacade::Instance()->Logger(); }
 public:
 	WswCefClient( int width, int height )
 		: requestHandlersHead( nullptr )
