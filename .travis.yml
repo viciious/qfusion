@@ -53,25 +53,14 @@ matrix:
             - libfreetype6-dev
             - zlib1g-dev
             - libcurl4-gnutls-dev
-    - dist: precise
-      language: android
-      env: QF_ARCH=android
-      jdk: oraclejdk7
-      android:
-        components:
-          - build-tools-21.0.2
-          - android-19
 
 install:
-  - if [[ "$QF_ARCH" == "android" ]] && [ ! -e "$HOME/.deps/android-ndk-r11c" ]; then curl -L http://dl.google.com/android/repository/android-ndk-r11c-linux-x86_64.zip >ndk.zip && unzip ndk.zip -d $HOME/.deps &> /dev/null && rm ndk.zip; fi
-  - if [[ "$QF_ARCH" == "android" ]]; then export NDK_HOME=$HOME/.deps/android-ndk-r11c && export PATH="$PATH:$NDK_HOME"; fi
   - if [[ "$QF_ARCH" == "x86_64" ]]; then export CC=clang CXX=clang++; fi
   - if [[ "$QF_ARCH" == "x86" ]]; then export CC=gcc-4.9 CXX=g++-4.9; fi
   - cd "$TRAVIS_BUILD_DIR/source"
   - if [[ "$QF_ARCH" == "x86_64" ]]; then cmake -DQFUSION_APPLICATION_VERSION_HEADER=\"version.warsow.h\" .; fi
   - if [[ "$QF_ARCH" == "x86" ]]; then cmake -DQFUSION_APPLICATION_VERSION_HEADER=\"version.warsow.h\" -DCMAKE_TOOLCHAIN_FILE=cmake/i386-linux-gnu.cmake -DCMAKE_C_FLAGS=-m32 -DCMAKE_CXX_FLAGS=-m32 -DGAME_MODULES_ONLY=1 .; fi
   - if [[ "$QF_ARCH" == "OSX" ]]; then cmake -DQFUSION_APPLICATION_VERSION_HEADER=\"version.warsow.h\" -G Xcode .; fi
-  - if [[ "$QF_ARCH" == "android" ]]; then mkdir -p build/libs && cd ../platforms/android/projects/qfusion/jni && ln -s ../../../../../libsrcs libsrcs && ln -s ../../../../../third-party third-party && ln -s ../../../../../source source && ln -s ../../../../../icons icons; fi
   - cd "$TRAVIS_BUILD_DIR"
 
 script:
@@ -79,4 +68,3 @@ script:
   - if [[ "$QF_ARCH" == "x86_64" ]]; then make -j8; fi
   - if [[ "$QF_ARCH" == "x86" ]]; then make -j8 game cgame; fi
   - if [[ "$QF_ARCH" == "OSX" ]]; then xcodebuild -project qfusion.xcodeproj/ -jobs 4 -configuration Release -target ALL_BUILD; fi
-  - if [[ "$QF_ARCH" == "android" ]]; then cd ../platforms/android/projects/qfusion/jni && ndk-build -j8 && cd "$TRAVIS_BUILD_DIR/source" && cp -Rd ../platforms/android/projects/qfusion/libs/* build/; fi
