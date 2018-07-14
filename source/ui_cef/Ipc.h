@@ -1,6 +1,7 @@
 #ifndef UI_CEF_IPC_H
 #define UI_CEF_IPC_H
 
+#include "Allocator.h"
 #include "CefStringBuilder.h"
 
 #include "include/cef_v8.h"
@@ -11,6 +12,10 @@ class WswCefRenderProcessHandler;
 class WswCefV8Handler;
 
 class RenderProcessLogger;
+
+class MessagePipe;
+
+class Logger;
 
 class PendingCallbackRequest {
 	WswCefV8Handler *const parent;
@@ -269,51 +274,239 @@ DERIVE_PENDING_CALLBACK_REQUEST( GetKeyNamesRequest, PendingCallbackRequest::get
 DERIVE_REQUEST_FOR_KEYS_LAUNCHER( GetKeyNamesRequest, PendingCallbackRequest::getKeyNames );
 DERIVE_REQUEST_FOR_KEYS_HANDLER( GetKeyNamesRequest, PendingCallbackRequest::getKeyNames );
 
-class ExecutingJSMessageHandler {
-protected:
-	WswCefV8Handler *parent;
-	const CefString &messageName;
-	std::string logTag;
-	ExecutingJSMessageHandler *next;
-
-	virtual bool GetCodeToCall( CefRefPtr<CefProcessMessage> &message, CefStringBuilder &sb ) = 0;
-
-	std::string DescribeException( const CefString &code, CefRefPtr<CefV8Exception> exception );
+class SimplexMessage: public AllocatorChild {
+	const CefString &name;
 public:
-	explicit ExecutingJSMessageHandler( WswCefV8Handler *parent_, const CefString &messageName_ );
+	SimplexMessage( const CefString &name_, RawAllocator *allocator_ )
+		: AllocatorChild( allocator_ ), name( name_ ) {}
 
-	const CefString &MessageName() { return messageName; }
-	ExecutingJSMessageHandler *Next() { return next; };
-
-	void Handle( CefRefPtr<CefBrowser> &browser, CefRefPtr<CefProcessMessage> &message );
+	const CefString &Name() const { return name; }
 
 	static const CefString updateScreen;
 	static const CefString mouseSet;
 	static const CefString gameCommand;
 };
 
-#define DERIVE_MESSAGE_HANDLER( Derived, messageName )                                               \
-class Derived: public ExecutingJSMessageHandler {                                                    \
-	bool GetCodeToCall( CefRefPtr<CefProcessMessage> &message, CefStringBuilder &sb ) override;      \
-public:                                                                                              \
-	explicit Derived( WswCefV8Handler *parent_ )                                                     \
-		: ExecutingJSMessageHandler( parent_, messageName ) {}                                       \
+/**
+ * A sender of a simplex Frontend -> Backend message that runs in the main process.
+ */
+class SimplexMessageSender {
+	MessagePipe *parent;
+	const CefString &messageName;
+protected:
+	inline CefRefPtr<CefProcessMessage> NewProcessMessage() {
+		return CefProcessMessage::Create( messageName );
+	}
+
+	void SendProcessMessage( CefRefPtr<CefProcessMessage> message );
+
+	void DeleteMessage( SimplexMessage *message );
+public:
+	const CefString &MessageName() const { return messageName; }
+
+	/**
+	 * The name tells explicitly that the sender acquires an ownership of the message.
+	 * Don't try accessing the message in a caller code after this call.
+	 * Both NewPooledObject() and default-heap allocations are supported.
+	 */
+	virtual void AcquireAndSend( SimplexMessage *message ) = 0;
+
+	SimplexMessageSender( MessagePipe *parent_, const CefString &messageName_ )
+		: parent( parent_ ), messageName( messageName_ ) {}
 };
 
-class UpdateScreenHandler: public ExecutingJSMessageHandler {
-	// Hide strings delta transmission from JS code
-	CefString demoName;
-	CefString serverName;
-	CefString rejectMessage;
-	CefString downloadFilename;
+/**
+ * A handler of a simplex Frontend -> Backend message that runs in the UI process.
+ */
+class SimplexMessageHandler {
+protected:
+	WswCefV8Handler *parent;
+	const CefString &messageName;
+	std::string logTag;
+	SimplexMessageHandler *next;
 
-	bool GetCodeToCall( CefRefPtr<CefProcessMessage> &message, CefStringBuilder &sb ) override;
+	// Note: We do not want these methods below accept templates for several reasons.
+	// TODO: Split "message deserializer" and "message handler"?
+
+	/**
+	 * Creates a simplex message using a raw data read from the process message.
+	 * The message is assumed to be allocated via its allocator ().
+	 * DeleteSelf() should be called.
+	 * Might return null if deserialization has failed.
+	 */
+	virtual SimplexMessage *DeserializeMessage( CefRefPtr<CefProcessMessage> &message ) = 0;
+	/**
+	 * Given the message constructed by DeserializeMessage(),
+	 * builds the code of the corresponding Javascript call.
+	 * Returns false on failure.
+	 */
+	virtual bool GetCodeToCall( const SimplexMessage *message, CefStringBuilder &sb ) = 0;
+
+	std::string DescribeException( const CefString &code, CefRefPtr<CefV8Exception> exception );
+
+	inline Logger *Logger();
+public:
+	explicit SimplexMessageHandler( WswCefV8Handler *parent_, const CefString &messageName_ );
+
+	const CefString &MessageName() { return messageName; }
+	SimplexMessageHandler *Next() { return next; };
+
+	void Handle( CefRefPtr<CefBrowser> &browser, CefRefPtr<CefProcessMessage> &message );
+};
+
+/**
+ * Defines an interface that has two implementations
+ * (an optimized one is used for the happy frequently used path)
+ */
+class GameCommandMessage: public SimplexMessage {
+public:
+	explicit GameCommandMessage( RawAllocator *allocator_ )
+		: SimplexMessage( SimplexMessage::gameCommand, allocator_ ) {}
+
+	virtual int GetNumArgs() const = 0;
+
+	/**
+	 * @note This signature does not enforce efficient usage patterns (reusing)
+	 * but there were some troubles tied to CefString behaviour otherwise.
+	 */
+	virtual CefString GetArg( int argNum ) const = 0;
+};
+
+/**
+ * Takes an ownership over its arguments and keeps it during the entire lifecycle.
+ * Should be used for keeping game command messages while the message pipe is not ready.
+ */
+class DeferredGameCommandMessage: public GameCommandMessage {
+public:
+	typedef std::vector<std::string> ArgsList;
+
+	ArgsList args;
+
+	DeferredGameCommandMessage( ArgsList &&args_, RawAllocator *allocator_ )
+		: GameCommandMessage( allocator_ ), args( args_ ) {}
+
+	int GetNumArgs() const override {
+		return (int)args.size();
+	}
+
+	CefString GetArg( int argNum ) const override {
+		return CefString( args[argNum] );
+	}
+};
+
+/**
+ * A proxy implementation of the game command interface
+ * that redirects its calls to underlying data managed by some external code.
+ */
+class ProxyingGameCommandMessage: public GameCommandMessage {
+public:
+	typedef std::function<CefString(int)> ArgGetter;
+private:
+	const int numArgs;
+	ArgGetter argGetter;
+public:
+	ProxyingGameCommandMessage( int numArgs_, ArgGetter &&argGetter_, RawAllocator *allocator_ )
+		: GameCommandMessage( allocator_ ), numArgs( numArgs_ ), argGetter( argGetter_ ) {}
+
+	int GetNumArgs() const override { return (int)numArgs; }
+
+	CefString GetArg( int argNum ) const override {
+		return argGetter( argNum );
+	}
+
+	static ProxyingGameCommandMessage *NewPooledObject( int numArgs_, ArgGetter &&argGetter_ );
+};
+
+class MouseSetMessage: public SimplexMessage {
+public:
+	int context;
+	int mx, my;
+	bool showCursor;
+
+	MouseSetMessage( int context_, int mx_, int my_, bool showCursor_, RawAllocator *allocator_ )
+		: SimplexMessage( SimplexMessage::mouseSet, allocator_ )
+		, context( context_ )
+		, mx( mx_ ), my( my_ )
+		, showCursor( showCursor_ ) {
+		// Sanity checks, have already helped to spot bugs
+		assert( context == 0 || context == 1 );
+		assert( mx >= 0 && mx < ( 1 << 16 ) );
+		assert( my >= 0 && my < ( 1 << 16 ) );
+	}
+
+	static MouseSetMessage *NewPooledObject( int context_, int mx_, int my_, bool showCursor_ );
+};
+
+struct MainScreenState;
+struct ConnectionState;
+struct DemoPlaybackState;
+
+class UpdateScreenMessage: public SimplexMessage {
+	/**
+	 * @note in order to save allocations every frame, fields of a reused object are just cleaned up
+	 */
+	void OnBeforeAllocatorFreeCall() override;
+public:
+	/**
+	 * We do not want fusing MainScreenState and UpdateScreenMessage even if it's possible.
+	 */
+	MainScreenState *screenState { nullptr };
+
+	explicit UpdateScreenMessage( RawAllocator *allocator_ )
+		: SimplexMessage( SimplexMessage::updateScreen, allocator_ ) {}
+
+	static UpdateScreenMessage *NewPooledObject( MainScreenState *screenState );
+};
+
+#define DERIVE_MESSAGE_SENDER( Derived, messageName )              \
+class Derived##Sender: public SimplexMessageSender {               \
+public:                                                            \
+	explicit Derived##Sender( MessagePipe *parent_ )               \
+		: SimplexMessageSender( parent_, messageName ) {}          \
+	void AcquireAndSend( SimplexMessage *message ) override;       \
+}
+
+#define DERIVE_MESSAGE_HANDLER( Derived, messageName )                                        \
+class Derived##Handler: public SimplexMessageHandler {                                        \
+	bool GetCodeToCall( const SimplexMessage *message, CefStringBuilder &sb ) override;       \
+	SimplexMessage *DeserializeMessage( CefRefPtr<CefProcessMessage> &message ) override;     \
+public:                                                                                       \
+	explicit Derived##Handler( WswCefV8Handler *parent_ )                                     \
+		: SimplexMessageHandler( parent_, messageName ) {}                                    \
+}
+
+class UpdateScreenSender: public SimplexMessageSender {
+	MainScreenState *prevState;
+	bool forceUpdate { true };
+	void SaveStateAndRelease( UpdateScreenMessage *message );
+public:
+	explicit UpdateScreenSender( MessagePipe *parent_ );
+	~UpdateScreenSender();
+
+	void AcquireAndSend( SimplexMessage *message ) override;
+};
+
+class UpdateScreenHandler: public SimplexMessageHandler {
+	/**
+	 * These fields are not transmitted with every message.
+	 * Look at MainScreenState for encoding details
+	 */
+	std::string demoName;
+	std::string serverName;
+	std::string rejectMessage;
+	std::string downloadFileName;
+
+	bool GetCodeToCall( const SimplexMessage *message, CefStringBuilder &sb ) override;
+	SimplexMessage *DeserializeMessage( CefRefPtr<CefProcessMessage> &message ) override;
 public:
 	explicit UpdateScreenHandler( WswCefV8Handler *parent_ )
-		: ExecutingJSMessageHandler( parent_, ExecutingJSMessageHandler::updateScreen ) {}
+		: SimplexMessageHandler( parent_, SimplexMessage::updateScreen ) {}
 };
 
-DERIVE_MESSAGE_HANDLER( MouseSetHandler, ExecutingJSMessageHandler::mouseSet );
-DERIVE_MESSAGE_HANDLER( GameCommandHandler, ExecutingJSMessageHandler::gameCommand );
+DERIVE_MESSAGE_SENDER( MouseSet, SimplexMessage::mouseSet );
+DERIVE_MESSAGE_HANDLER( MouseSet, SimplexMessage::mouseSet );
+
+DERIVE_MESSAGE_SENDER( GameCommand, SimplexMessage::gameCommand );
+DERIVE_MESSAGE_HANDLER( GameCommand, SimplexMessage::gameCommand );
 
 #endif

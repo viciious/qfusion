@@ -3,89 +3,13 @@
 
 #include "Logger.h"
 #include "MessagePipe.h"
+#include "Ipc.h"
 
 #include <string>
 #include <include/cef_render_handler.h>
 
 class CefBrowser;
 class WswCefRenderHandler;
-
-struct ConnectionState {
-	enum {
-		SERVER_NAME_ATTACHMENT = 1,
-		REJECT_MESSAGE_ATTACHMENT = 2,
-		DOWNLOAD_FILENAME_ATTACHMENT = 4
-	};
-
-	std::string serverName;
-	std::string rejectMessage;
-	std::string downloadFileName;
-	int downloadType;
-	float downloadPercent;
-	float downloadSpeed;
-	int connectCount;
-
-	bool Equals( ConnectionState *that ) {
-		if( !that ) {
-			return false;
-		}
-		// Put cheap tests first
-		if( connectCount != that->connectCount || downloadType != that->downloadType ) {
-			return false;
-		}
-		if( downloadPercent != that->downloadPercent || downloadSpeed != that->downloadSpeed ) {
-			return false;
-		}
-		return serverName == that->serverName &&
-			   rejectMessage == that->rejectMessage &&
-			   downloadFileName == that->downloadFileName;
-	}
-};
-
-struct DemoPlaybackState {
-	std::string demoName;
-	unsigned time;
-	bool paused;
-
-	bool Equals( const DemoPlaybackState *that ) const {
-		if( !that ) {
-			return false;
-		}
-		return time == that->time && paused == that->paused && demoName == that->demoName;
-	}
-};
-
-struct MainScreenState {
-	enum {
-		CONNECTION_ATTACHMENT = 1,
-		DEMO_PLAYBACK_ATTACHMENT = 2
-	};
-
-	ConnectionState *connectionState;
-	DemoPlaybackState *demoPlaybackState;
-	int clientState;
-	int serverState;
-	bool showCursor;
-	bool background;
-
-	bool operator==( const MainScreenState &that ) const {
-		// Put cheap tests first
-		if( clientState != that.clientState || serverState != that.serverState ) {
-			return false;
-		}
-		if( showCursor != that.showCursor || background != that.background ) {
-			return false;
-		}
-
-		if( connectionState && !connectionState->Equals( that.connectionState ) ) {
-			return false;
-		}
-		if( demoPlaybackState && !demoPlaybackState->Equals( that.demoPlaybackState ) ) {
-			return false;
-		}
-		return true;
-	}
-};
 
 class BrowserProcessLogger: public Logger {
 	void SendLogMessage( cef_log_severity_t severity, const char *format, va_list va ) override;
@@ -100,31 +24,7 @@ class UiFacade {
 	const int width;
 	const int height;
 
-	template <typename T>
-	class InterleavedStorage {
-		T values[2];
-		uint8_t currIndex, prevIndex;
-
-	public:
-		T &Curr() { return values[currIndex]; }
-		T &Prev() { return values[prevIndex]; }
-		const T &Curr() const { return values[currIndex]; }
-		const T &Prev() const { return values[prevIndex]; }
-
-		void Flip() {
-			prevIndex = currIndex;
-			currIndex = (uint8_t)( ( prevIndex + 1 ) & 1 );
-		}
-	};
-
-	struct StateStorage {
-		MainScreenState mainState;
-		ConnectionState connectionState;
-		DemoPlaybackState demoPlaybackState;
-	};
-
-	InterleavedStorage<StateStorage> interleavedStateStorage;
-	bool hasFlippedStateThisFrame { false };
+	MainScreenState *thisFrameScreenState { nullptr };
 
 	int demoProtocol;
 	std::string demoExtension;

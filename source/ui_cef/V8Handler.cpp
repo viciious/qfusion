@@ -33,7 +33,7 @@ bool WswCefV8Handler::Execute( const CefString& name,
 
 bool WswCefV8Handler::TryHandle( CefRefPtr<CefBrowser> &browser, CefRefPtr<CefProcessMessage> &message ) {
 	CefString name( message->GetName() );
-	for( ExecutingJSMessageHandler *handler = messageHandlersHead; handler; handler = handler->Next() ) {
+	for( SimplexMessageHandler *handler = messageHandlersHead; handler; handler = handler->Next() ) {
 		if( !handler->MessageName().compare( name ) ) {
 			handler->Handle( browser, message );
 			return true;

@@ -98,11 +98,11 @@ void PendingRequestLauncher::Commit( std::shared_ptr<PendingCallbackRequest> req
 	}
 }
 
-const CefString ExecutingJSMessageHandler::updateScreen( "updateScreen" );
-const CefString ExecutingJSMessageHandler::mouseSet( "mouseSet" );
-const CefString ExecutingJSMessageHandler::gameCommand( "gameCommand" );
+const CefString SimplexMessage::updateScreen( "updateScreen" );
+const CefString SimplexMessage::mouseSet( "mouseSet" );
+const CefString SimplexMessage::gameCommand( "gameCommand" );
 
-ExecutingJSMessageHandler::ExecutingJSMessageHandler( WswCefV8Handler *parent_, const CefString &messageName_ )
+SimplexMessageHandler::SimplexMessageHandler( WswCefV8Handler *parent_, const CefString &messageName_ )
 	: parent( parent_ )
 	, messageName( messageName_ )
 	, logTag( "MessageHandler@" + messageName_.ToString() ) {
@@ -110,7 +110,23 @@ ExecutingJSMessageHandler::ExecutingJSMessageHandler( WswCefV8Handler *parent_, 
 	parent_->messageHandlersHead = this;
 }
 
-std::string ExecutingJSMessageHandler::DescribeException( const CefString &code, CefRefPtr<CefV8Exception> exception ) {
+void SimplexMessageSender::SendProcessMessage( CefRefPtr<CefProcessMessage> message ) {
+	parent->SendProcessMessage( message );
+}
+
+void SimplexMessageSender::DeleteMessage( SimplexMessage *message ) {
+	// The message is either allocated using NewPooledObject()
+	// or allocated dynamically in a default heap
+	// (if the message pipe has deferred these messages transmission till the ui has signaled its ready state).
+	// If the message is allocated somewhere else, a default heap will surely detect it / crash.
+	if( message->ShouldDeleteSelf() ) {
+		message->DeleteSelf();
+	} else {
+		delete message;
+	}
+}
+
+std::string SimplexMessageHandler::DescribeException( const CefString &code, CefRefPtr<CefV8Exception> exception ) {
 	std::stringstream s;
 
 	s << "An execution of `" << code.ToString() << "` has failed with exception ";
@@ -121,7 +137,7 @@ std::string ExecutingJSMessageHandler::DescribeException( const CefString &code,
 	return s.str();
 }
 
-void ExecutingJSMessageHandler::Handle( CefRefPtr<CefBrowser> &browser, CefRefPtr<CefProcessMessage> &message ) {
+void SimplexMessageHandler::Handle( CefRefPtr<CefBrowser> &browser, CefRefPtr<CefProcessMessage> &processMessage ) {
 	RenderProcessLogger logger( browser );
 
 	auto frame = browser->GetMainFrame();
@@ -131,10 +147,20 @@ void ExecutingJSMessageHandler::Handle( CefRefPtr<CefBrowser> &browser, CefRefPt
 		return;
 	}
 
-	CefStringBuilder stringBuilder;
-	if( !GetCodeToCall( message, stringBuilder ) ) {
-		logger.Error( "%s: Cannot build code to call, looks like the message is malformed", logTag.c_str() );
+	SimplexMessage *deserializedMessage = DeserializeMessage( processMessage );
+	if( !deserializedMessage ) {
+		logger.Error( "%s: Message deserialization has failed", logTag.c_str() );
+		return;
 	}
+
+	CefStringBuilder stringBuilder;
+	if( !GetCodeToCall( deserializedMessage, stringBuilder ) ) {
+		logger.Error( "%s: Cannot build code to call, looks like the message is malformed", logTag.c_str() );
+		deserializedMessage->DeleteSelf();
+		return;
+	}
+
+	deserializedMessage->DeleteSelf();
 
 	CefString code( stringBuilder.ReleaseOwnership() );
 

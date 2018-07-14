@@ -10,13 +10,13 @@ class WswCefV8Handler: public CefV8Handler {
 	friend class PendingCallbackRequest;
 	friend class PendingRequestLauncher;
 	friend class WswCefRenderProcessHandler;
-	friend class ExecutingJSMessageHandler;
+	friend class SimplexMessageHandler;
 
 	WswCefRenderProcessHandler *renderProcessHandler;
 
 	PendingRequestLauncher *requestLaunchersHead;
 
-	ExecutingJSMessageHandler *messageHandlersHead;
+	SimplexMessageHandler *messageHandlersHead;
 
 	GetCVarRequestLauncher getCVar;
 	SetCVarRequestLauncher setCVar;

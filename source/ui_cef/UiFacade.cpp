@@ -2,6 +2,7 @@
 #include "CefApp.h"
 #include "CefClient.h"
 #include "Api.h"
+#include "ScreenState.h"
 
 #include "../gameshared/q_keycodes.h"
 
@@ -147,14 +148,12 @@ void UiFacade::Refresh( int64_t time, int clientState, int serverState,
 
 	CefDoMessageLoopWork();
 
-	// If there was no prior UpdateConnectScreen() call this frame, flip
-	// (get a free storage for data written this frame),
-	// otherwise continue writing to storage reserved in UpdateConnectScreen()
-	if( !hasFlippedStateThisFrame ) {
-		interleavedStateStorage.Flip();
+	// Might have been allocated in a prior UpdateConnectScreen() call this frame
+	if( !thisFrameScreenState ) {
+		thisFrameScreenState = MainScreenState::NewPooledObject();
 	}
 
-	auto &mainState = interleavedStateStorage.Curr().mainState;
+	auto &mainState = *thisFrameScreenState;
 
 	mainState.clientState = clientState;
 	mainState.serverState = serverState;
@@ -163,21 +162,14 @@ void UiFacade::Refresh( int64_t time, int clientState, int serverState,
 
 	mainState.demoPlaybackState = nullptr;
 	if( demoPlaying ) {
-		auto *dps = mainState.demoPlaybackState = &interleavedStateStorage.Curr().demoPlaybackState;
+		auto *dps = mainState.demoPlaybackState = DemoPlaybackState::NewPooledObject();
 		dps->demoName = demoName;
 		dps->time = demoTime;
 		dps->paused = demoPaused;
 	}
 
-	if( !hasFlippedStateThisFrame ) {
-		mainState.connectionState = nullptr;
-	} else {
-		mainState.connectionState = &interleavedStateStorage.Curr().connectionState;
-	}
-
-	hasFlippedStateThisFrame = false;
-
-	messagePipe.UpdateScreenState( interleavedStateStorage.Prev().mainState, mainState );
+	messagePipe.ConsumeScreenState( thisFrameScreenState );
+	thisFrameScreenState = nullptr;
 
 	DrawUi();
 }
@@ -188,12 +180,11 @@ void UiFacade::UpdateConnectScreen( const char *serverName, const char *rejectMe
 									int connectCount, bool backGround ) {
 	CefDoMessageLoopWork();
 
-	// Prepare free storage for this frame updates
-	interleavedStateStorage.Flip();
-	// Don't flip again this frame in Refresh()
-	hasFlippedStateThisFrame = true;
+	assert( !thisFrameScreenState );
+	thisFrameScreenState = MainScreenState::NewPooledObject();
+	thisFrameScreenState->connectionState = ConnectionState::NewPooledObject();
 
-	auto &state = interleavedStateStorage.Curr().connectionState;
+	auto &state = *thisFrameScreenState->connectionState;
 	state.serverName = NullToEmpty( serverName );
 	state.rejectMessage = NullToEmpty( rejectMessage );
 	state.downloadType = downloadType;
