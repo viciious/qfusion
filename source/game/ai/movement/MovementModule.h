@@ -7,12 +7,15 @@
 
 #include "MovementPredictionContext.h"
 
+#include "VisibleNextReachCache.h"
+
 #include "LandOnSavedAreasAction.h"
 #include "RidePlatformAction.h"
 #include "BunnyInterpolatingReachChainAction.h"
 #include "BunnyStraighteningReachChainAction.h"
 #include "BunnyToBestShortcutAreaAction.h"
 #include "BunnyToBestClusterPointAction.h"
+#include "BunnyInVelocityDirectionAction.h"
 #include "CampASpotAction.h"
 #include "CombatDodgeToTargetAction.h"
 #include "FallbackMovementAction.h"
@@ -99,6 +102,7 @@ class BotMovementModule {
 	friend class BunnyToBestShortcutAreaAction;
 	friend class BunnyToBestFloorClusterPointAction;
 	friend class BunnyInterpolatingChainAtStartAction;
+	friend class BunnyInVelocityDirectionAction;
 	friend class BunnyInterpolatingReachChainAction;
 	friend class WalkOrSlideInterpolatingReachChainAction;
 	friend class CombatDodgeSemiRandomlyToTargetAction;
@@ -123,6 +127,8 @@ class BotMovementModule {
 	// otherwise a bot might loop attempts forever)
 	RateLimiter weaponJumpAttemptsRateLimiter;
 
+	VisibleNextReachCache visibleNextReachCache;
+
 	// Must be initialized before any of movement actions constructors is called
 	StaticVector<BaseMovementAction *, 20> movementActions;
 
@@ -138,6 +144,7 @@ class BotMovementModule {
 	BunnyToBestShortcutAreaAction bunnyToBestShortcutAreaAction;
 	BunnyToBestFloorClusterPointAction bunnyToBestFloorClusterPointAction;
 	BunnyInterpolatingChainAtStartAction bunnyInterpolatingChainAtStartAction;
+	BunnyInVelocityDirectionAction bunnyInVelocityDirectionAction;
 	BunnyInterpolatingReachChainAction bunnyInterpolatingReachChainAction;
 	WalkOrSlideInterpolatingReachChainAction walkOrSlideInterpolatingReachChainAction;
 	CombatDodgeSemiRandomlyToTargetAction combatDodgeSemiRandomlyToTargetAction;
