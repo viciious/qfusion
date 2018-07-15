@@ -299,7 +299,7 @@ SelectedNavEntity BotItemsSelector::SuggestGoalNavEntity( const SelectedNavEntit
 	auto rawCandidatesIter = rawWeightCandidates.begin();
 	const auto rawCandidatesEnd = rawWeightCandidates.end();
 	const NavEntity *rawBestNavEnt = ( *rawCandidatesIter ).goal;
-	const int rawBestAreaNum = rawBestNavEnt->AasAreaNum();
+	int rawBestAreaNum = rawBestNavEnt->AasAreaNum();
 	unsigned botToBestRawEntMoveDuration = 0;
 	for(;; ) {
 		botToBestRawEntMoveDuration = 10U * routeCache->PreferredRouteToGoalArea( fromAreaNums, numFromAreas, rawBestAreaNum );
@@ -311,7 +311,8 @@ SelectedNavEntity BotItemsSelector::SuggestGoalNavEntity( const SelectedNavEntit
 			Debug( "Can't find a feasible long-term goal nav. entity\n" );
 			return SelectedNavEntity( nullptr, std::numeric_limits<float>::max(), 0.0f, level.time + 200 );
 		}
-		rawBestNavEnt = ( *rawCandidatesEnd ).goal;
+		rawBestNavEnt = ( *rawCandidatesIter ).goal;
+		rawBestAreaNum = rawBestNavEnt->AasAreaNum();
 	}
 
 	const EnemyPathBlockingDetector pathBlockingDetector( self );
@@ -421,12 +422,25 @@ SelectedNavEntity BotItemsSelector::SuggestGoalNavEntity( const SelectedNavEntit
 			currGoalEntCost = moveCost;
 		}
 
-		if( weight > bestWeight ) {
-			bestNavEnt = navEnt;
-			bestWeight = weight;
-			// Waiting time is handled by the planner for wait actions separately.
-			bestNavEntCost = moveCost;
+		if( weight <= bestWeight ) {
+			// Go to next entity doing this additional check:
+			// Reset the curr goal entity weight if it was set and a path to it is blocked.
+			if( currGoalNavEntity == navEnt && pathBlockingDetector.IsPathToNavEntityBlocked( navEnt ) ) {
+				currGoalEntWeight = 0.0f;
+				currGoalEntCost = 0.0f;
+			}
+			continue;
 		}
+
+		// We tried to defer this extremely expensive test as long as we can
+		if( pathBlockingDetector.IsPathToNavEntityBlocked( navEnt ) ) {
+			continue;
+		}
+
+		bestNavEnt = navEnt;
+		bestWeight = weight;
+		// Waiting time is handled by the planner for wait actions separately.
+		bestNavEntCost = moveCost;
 	}
 
 	if( !bestNavEnt ) {
