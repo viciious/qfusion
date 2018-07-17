@@ -245,7 +245,7 @@ inline BaseMovementAction &BaseMovementAction::DefaultWalkAction() {
 }
 
 inline BaseMovementAction &BaseMovementAction::DefaultBunnyAction() {
-	return module->bunnyToBestFloorClusterPointAction;
+	return module->bunnyToStairsOrRampExitAction;
 }
 
 inline BaseMovementAction &BaseMovementAction::FallbackBunnyAction() {

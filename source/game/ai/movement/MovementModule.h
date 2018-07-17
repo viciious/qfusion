@@ -11,6 +11,7 @@
 
 #include "LandOnSavedAreasAction.h"
 #include "RidePlatformAction.h"
+#include "BunnyToStairsOrRampExitAction.h"
 #include "BunnyInterpolatingReachChainAction.h"
 #include "BunnyStraighteningReachChainAction.h"
 #include "BunnyToBestShortcutAreaAction.h"
@@ -98,6 +99,7 @@ class BotMovementModule {
 	friend class CampASpotMovementAction;
 	friend class WalkCarefullyAction;
 	friend class GenericRunBunnyingAction;
+	friend class BunnyToStairsOrRampExitAction;
 	friend class BunnyStraighteningReachChainAction;
 	friend class BunnyToBestShortcutAreaAction;
 	friend class BunnyToBestFloorClusterPointAction;
@@ -140,6 +142,7 @@ class BotMovementModule {
 	FlyUntilLandingAction flyUntilLandingAction;
 	CampASpotMovementAction campASpotMovementAction;
 	WalkCarefullyAction walkCarefullyAction;
+	BunnyToStairsOrRampExitAction bunnyToStairsOrRampExitAction;
 	BunnyStraighteningReachChainAction bunnyStraighteningReachChainAction;
 	BunnyToBestShortcutAreaAction bunnyToBestShortcutAreaAction;
 	BunnyToBestFloorClusterPointAction bunnyToBestFloorClusterPointAction;
