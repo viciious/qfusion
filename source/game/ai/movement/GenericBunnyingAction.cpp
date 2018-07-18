@@ -485,15 +485,45 @@ void GenericRunBunnyingAction::CheckPredictionStepResults( Context *context ) {
 		minTravelTimeToNavTargetSoFar = currTravelTimeToNavTarget;
 		minTravelTimeAreaNumSoFar = context->CurrAasAreaNum();
 
-		if( groundedAreaNum ) {
-			// This travel time advantage restriction is very lenient!
-			if( travelTimeAtSequenceStart && travelTimeAtSequenceStart > 1 + currTravelTimeToNavTarget ) {
-				if( squareDistanceFromStart > SQUARE( 64 ) ) {
-					if( newEntityPhysicsState.Velocity()[2] / newEntityPhysicsState.Speed() < -0.1f ) {
-						MarkForTruncation( context );
-					} else if( newEntityPhysicsState.GroundEntity() || context->frameEvents.hasJumped ) {
-						MarkForTruncation( context );
+		// Try set "may stop at area num" if it has not been set yet
+		if( !mayStopAtAreaNum ) {
+			bool trySet = false;
+			if( groundedAreaNum && travelTimeAtSequenceStart ) {
+				// This is a very lenient condition, just check whether we are a bit closer to the target
+				if( travelTimeAtSequenceStart > 1 + currTravelTimeToNavTarget ) {
+					if( squareDistanceFromStart > SQUARE( 72 ) ) {
+						trySet = true;
 					}
+				} else if( travelTimeAtSequenceStart == currTravelTimeToNavTarget ) {
+					// We're in the same start area.
+					if( squareDistanceFromStart > SQUARE( 96 ) ) {
+						auto &startArea = aasWorld->Areas()[groundedAreaAtSequenceStart];
+						// The area must be really huge
+						if( Distance2DSquared( startArea.mins, startArea.maxs ) > SQUARE( 108 ) ) {
+							Vec3 velocityDir2D( newEntityPhysicsState.Velocity() );
+							velocityDir2D *= 1.0 / newEntityPhysicsState.Speed2D();
+							auto &reach = aasWorld->Reachabilities()[reachAtSequenceStart];
+							// The next reachability must be relatively far
+							// (a reachability following the next one might have completely different direction)
+							if( Distance2DSquared( reach.start, newEntityPhysicsState.Origin() ) > SQUARE( 48 ) ) {
+								Vec3 reachDir2D = Vec3( reach.end ) - reach.start;
+								reachDir2D.Z() = 0;
+								reachDir2D.Normalize();
+								// Check whether we conform to the next reachability direction
+								if( velocityDir2D.Dot( reachDir2D ) > 0.9f ) {
+									trySet = true;
+								}
+							}
+						}
+					}
+				}
+			}
+
+			if( trySet ) {
+				if( newEntityPhysicsState.Velocity()[2] / newEntityPhysicsState.Speed() < -0.1f ) {
+					MarkForTruncation( context );
+				} else if( newEntityPhysicsState.GroundEntity() || context->frameEvents.hasJumped ) {
+					MarkForTruncation( context );
 				}
 			}
 		}
@@ -556,11 +586,23 @@ void GenericRunBunnyingAction::CheckPredictionStepResults( Context *context ) {
 		auto iter = std::find( checkStopAtAreaNums.begin(), checkStopAtAreaNums.end(), groundedAreaNum );
 		// We have reached an area that is was a "pivot" area at application sequence start.
 		if( iter != checkStopAtAreaNums.end() ) {
-			// In this case we can feel free to interrupt prediction, assuming AREA_NOFALL flags are fairly feasible.
-			if( aasWorld->AreaSettings()[groundedAreaNum].areaflags & AREA_NOFALL ) {
+			// Stop prediction having touched the ground this frame in this kind of area
+			if( newEntityPhysicsState.GroundEntity() || context->frameEvents.hasJumped ) {
 				context->isCompleted = true;
 				return;
 			}
+
+			if( aasWorld->AreaSettings()[groundedAreaNum].areaflags & AREA_NOFALL ) {
+				// We have decided still perform additional checks in this case.
+				// (the bot is in a "check stop at area num" area and is in a "no-fall" area but is in air).
+				// Bumping into walls on high speed is the most painful issue.
+				if( CastRayForPrematureCompletion( context ) ) {
+					context->isCompleted = true;
+					return;
+				}
+				// Can't say much, lets continue prediction
+			}
+
 			if( !mayStopAtAreaNum ) {
 				mayStopAtAreaNum = groundedAreaNum;
 				mayStopAtStackFrame = (int)context->topOfStackIndex;
@@ -634,6 +676,63 @@ void GenericRunBunnyingAction::CheckPredictionStepResults( Context *context ) {
 	context->StopTruncatingStackAt( (unsigned)mayStopAtStackFrame );
 }
 
+bool GenericRunBunnyingAction::CastRayForPrematureCompletion( MovementPredictionContext *context ) {
+	const auto &newEntityPhysicsState = context->movementState->entityPhysicsState;
+
+	// Interpolate origin using full (non-2D) velocity
+	Vec3 velocityDir( newEntityPhysicsState.Velocity() );
+	velocityDir *= 1.0f / newEntityPhysicsState.Speed();
+	Vec3 xerpPoint( velocityDir );
+	float checkDistanceLimit = 40.0f + 40.0f * BoundedFraction( newEntityPhysicsState.Speed2D(), 750.0f );
+	xerpPoint *= 256.0f;
+	float timeSeconds = sqrtf( Distance2DSquared( xerpPoint.Data(), vec3_origin ) );
+	timeSeconds /= newEntityPhysicsState.Speed2D();
+	xerpPoint += newEntityPhysicsState.Origin();
+	xerpPoint.Z() -= 0.5f * level.gravity * timeSeconds * timeSeconds;
+
+	trace_t trace;
+	SolidWorldTrace( &trace, newEntityPhysicsState.Origin(), xerpPoint.Data() );
+	// Check also contents for sanity
+	const auto badContents = CONTENTS_LAVA | CONTENTS_SLIME | CONTENTS_DONOTENTER;
+	if( trace.fraction == 1.0f || ( trace.contents & badContents ) ) {
+		return false;
+	}
+
+	const float minPermittedZ = newEntityPhysicsState.Origin()[2] - newEntityPhysicsState.HeightOverGround() - 16.0f;
+	if( trace.endpos[2] < minPermittedZ ) {
+		return false;
+	}
+
+	if( ISWALKABLEPLANE( &trace.plane ) ) {
+		return true;
+	}
+
+	Vec3 firstHitPoint( trace.endpos );
+	Vec3 firstHitNormal( trace.plane.normal );
+
+	// Check ground below. AREA_NOFALL detection is still very lenient.
+
+	Vec3 start( trace.endpos );
+	start += trace.plane.normal;
+	Vec3 end( start );
+	end.Z() -= 64.0f;
+	SolidWorldTrace( &trace, start.Data(), end.Data() );
+	if( trace.fraction == 1.0f || ( trace.contents & badContents ) ) {
+		return false;
+	}
+
+	if( trace.endpos[2] < minPermittedZ ) {
+		return false;
+	}
+
+	// We surely have some time for maneuvering in this case
+	if( firstHitPoint.SquareDistance2DTo( newEntityPhysicsState.Origin() ) > SQUARE( checkDistanceLimit ) ) {
+		return true;
+	}
+
+	return firstHitNormal.Dot( velocityDir ) < 0.3f;
+}
+
 void GenericRunBunnyingAction::OnApplicationSequenceStarted( Context *context ) {
 	BaseMovementAction::OnApplicationSequenceStarted( context );
 	context->MarkSavepoint( this, context->topOfStackIndex );
@@ -647,10 +746,15 @@ void GenericRunBunnyingAction::OnApplicationSequenceStarted( Context *context ) 
 	mayStopAtStackFrame = -1;
 	mayStopAtTravelTime = 0;
 
+	travelTimeAtSequenceStart = 0;
+	reachAtSequenceStart = 0;
+	groundedAreaAtSequenceStart = context->CurrGroundedAasAreaNum();
+
 	if( context->NavTargetAasAreaNum() ) {
 		if( int travelTime = context->TravelTimeToNavTarget() ) {
 			minTravelTimeToNavTargetSoFar = travelTime;
 			travelTimeAtSequenceStart = travelTime;
+			reachAtSequenceStart = context->NextReachNum();
 		}
 	}
 

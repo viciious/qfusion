@@ -11,6 +11,8 @@ protected:
 	StaticVector<int, 8> checkStopAtAreaNums;
 
 	int travelTimeAtSequenceStart;
+	int reachAtSequenceStart;
+	int groundedAreaAtSequenceStart;
 	// Best results so far achieved in the action application sequence
 	int minTravelTimeToNavTargetSoFar;
 	int minTravelTimeAreaNumSoFar;
@@ -76,11 +78,15 @@ protected:
 	// Can be overridden for finer control over tests
 	virtual bool CheckStepSpeedGainOrLoss( MovementPredictionContext *context );
 
+	bool CastRayForPrematureCompletion( MovementPredictionContext *context );
+
 	inline void MarkForTruncation( MovementPredictionContext *context );
 public:
 	GenericRunBunnyingAction( BotMovementModule *module_, const char *name_, int debugColor_ = 0 )
 		: BaseMovementAction( module_, name_, debugColor_ )
 		, travelTimeAtSequenceStart( 0 )
+		, reachAtSequenceStart( 0 )
+		, groundedAreaAtSequenceStart( 0 )
 		, minTravelTimeToNavTargetSoFar( 0 )
 		, minTravelTimeAreaNumSoFar( 0 )
 		, mayStopAtAreaNum( 0 )
