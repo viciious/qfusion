@@ -42,6 +42,10 @@ inline float MovementPredictionContext::GetRunSpeed() const {
 	return GetPMoveStatValue( this->currPlayerState, PM_STAT_MAXSPEED, DEFAULT_PLAYERSPEED );
 }
 
+inline unsigned MovementPredictionContext::DefaultFrameTime() const {
+	return defaultFrameTime;
+}
+
 inline Vec3 MovementPredictionContext::NavTargetOrigin() const {
 	return bot->NavTargetOrigin();
 }

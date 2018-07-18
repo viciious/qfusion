@@ -744,7 +744,10 @@ bool MovementPredictionContext::NextPredictionStep() {
 
 	// If prediction step millis time has not been set, set it to a default value
 	if( !this->predictionStepMillis ) {
-		this->predictionStepMillis = 48;
+		this->predictionStepMillis = DefaultFrameTime();
+		if( this->topOfStackIndex >= 4 ) {
+			this->predictionStepMillis *= ( this->topOfStackIndex < MAX_PREDICTED_STATES / 2 ) ? 3 : 6;
+		}
 	}
 
 	NextMovementStep();

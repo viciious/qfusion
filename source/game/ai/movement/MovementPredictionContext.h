@@ -182,6 +182,11 @@ private:
 	CachesStack<HitWhileRunningTestResult, MAX_PREDICTED_STATES> mayHitWhileRunningCachesStack;
 	CachesStack<bool, MAX_PREDICTED_STATES> canSafelyKeepHighSpeedCachesStack;
 	StaticVector<EnvironmentTraceCache, MAX_PREDICTED_STATES> environmentTestResultsStack;
+
+	// We have decided to keep the frametime hardcoded.
+	// The server code uses a hardcoded one too.
+	// Its easy to change it here at least.
+	const unsigned defaultFrameTime { 16 };
 public:
 	struct NearbyTriggersCache {
 		vec3_t lastComputedForMins;
@@ -299,6 +304,8 @@ public:
 	inline bool IsInNavTargetArea() const;
 
 	bool CanSafelyKeepHighSpeed();
+
+	inline unsigned DefaultFrameTime() const;
 
 	const Ai::ReachChainVector &NextReachChain();
 	inline EnvironmentTraceCache &TraceCache();

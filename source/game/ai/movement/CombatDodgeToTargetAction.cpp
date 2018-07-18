@@ -70,7 +70,7 @@ void CombatDodgeSemiRandomlyToTargetAction::PlanPredictionStep( Context *context
 				if( entityPhysicsState.Speed() < speedThreshold ) {
 					if( !pmStats[PM_STAT_DASHTIME] ) {
 						botInput->SetSpecialButton( true );
-						context->predictionStepMillis = 16;
+						context->predictionStepMillis = context->DefaultFrameTime();
 					}
 				}
 			}
@@ -92,7 +92,7 @@ void CombatDodgeSemiRandomlyToTargetAction::PlanPredictionStep( Context *context
 		if( ShouldTrySpecialMovement() ) {
 			if( ( pmStats[PM_STAT_FEATURES] & PMFEAT_WALLJUMP ) && !pmStats[PM_STAT_WJTIME] && !pmStats[PM_STAT_STUN] ) {
 				botInput->SetSpecialButton( true );
-				context->predictionStepMillis = 16;
+				context->predictionStepMillis = context->DefaultFrameTime();
 			}
 		}
 

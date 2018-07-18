@@ -98,12 +98,12 @@ void CampASpotMovementAction::PlanPredictionStep( Context *context ) {
 		botInput->ClearMovementDirections();
 		botInput->SetWalkButton( true );
 		// Use a coarse prediction in this case
-		context->predictionStepMillis = 48;
+		context->predictionStepMillis = 3 * context->DefaultFrameTime();
 		return;
 	}
 
 	// We need a fairly precise prediction while moving on ground
-	context->predictionStepMillis = 16;
+	context->predictionStepMillis = context->DefaultFrameTime();
 
 	// Keep actual look dir as-is, adjust position by keys only
 	botInput->SetIntendedLookDir( intendedLookDir, true );
@@ -112,7 +112,7 @@ void CampASpotMovementAction::PlanPredictionStep( Context *context ) {
 	if( distance / campingSpotState->Radius() < 1.0f ) {
 		// If there was no move dirs update and the bot is withing the spot radius, use lesser prediction precision
 		if( !TryUpdateKeyMoveDirs( context ) ) {
-			context->predictionStepMillis = 32;
+			context->predictionStepMillis = 2 * context->DefaultFrameTime();
 		}
 
 		// All move dirs might be falsely considered blocked (while not really being blocked) in some environments

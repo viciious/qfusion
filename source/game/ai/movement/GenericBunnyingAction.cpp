@@ -102,7 +102,7 @@ void GenericRunBunnyingAction::SetupCommonBunnyingInput( Context *context ) {
 			botInput->SetSpecialButton( true );
 			botInput->SetUpMovement( 0 );
 			// Predict dash precisely
-			context->predictionStepMillis = 16;
+			context->predictionStepMillis = context->DefaultFrameTime();
 		} else {
 			botInput->SetUpMovement( 1 );
 		}
@@ -211,7 +211,7 @@ bool GenericRunBunnyingAction::SetupBunnying( const Vec3 &intendedLookVec, Conte
 
 	if( ShouldPrepareForCrouchSliding( context, 8.0f ) ) {
 		botInput->SetUpMovement( -1 );
-		context->predictionStepMillis = 16;
+		context->predictionStepMillis = context->DefaultFrameTime();
 	}
 
 	TrySetWalljump( context );
@@ -237,7 +237,7 @@ void GenericRunBunnyingAction::TrySetWalljump( Context *context ) {
 	botInput->ClearMovementDirections();
 	botInput->SetSpecialButton( true );
 	// Predict a frame precisely for walljumps
-	context->predictionStepMillis = 16;
+	context->predictionStepMillis = context->DefaultFrameTime();
 }
 
 #define TEST_TRACE_RESULT_NORMAL( traceResult )                                   \

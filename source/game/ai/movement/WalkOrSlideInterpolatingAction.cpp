@@ -121,7 +121,7 @@ void WalkOrSlideInterpolatingReachChainAction::PlanPredictionStep( Context *cont
 
 	if( TrySetupCrouchSliding( context, interpolator.Result() ) ) {
 		// Predict crouch sliding precisely
-		context->predictionStepMillis = 16;
+		context->predictionStepMillis = context->DefaultFrameTime();
 		numSlideFrames++;
 		return;
 	}
@@ -138,7 +138,7 @@ void WalkOrSlideInterpolatingReachChainAction::PlanPredictionStep( Context *cont
 	} else if( ShouldPrepareForCrouchSliding( context ) ) {
 		botInput->SetUpMovement( -1 );
 		// Predict crouch sliding precisely
-		context->predictionStepMillis = 16;
+		context->predictionStepMillis = context->DefaultFrameTime();
 	}
 
 	botInput->SetForwardMovement( keyMoves[0] );
