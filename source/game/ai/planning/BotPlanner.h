@@ -46,7 +46,7 @@ class BotPlanner : public BasePlanner
 	inline int WavesReadyToFireCount() const { return AmmoReadyToFireCount<WEAP_SHOCKWAVE>(); }
 	inline int InstasReadyToFireCount() const { return AmmoReadyToFireCount<WEAP_INSTAGUN>(); }
 
-	bool FindDodgeDangerSpot( const Danger &danger, vec3_t spotOrigin );
+	bool FindDodgeHazardSpot( const Danger &danger, vec3_t spotOrigin );
 
 	void PrepareCurrWorldState( WorldState *worldState ) override;
 

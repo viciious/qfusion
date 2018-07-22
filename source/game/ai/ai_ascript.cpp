@@ -3,7 +3,6 @@
 #include "navigation/AasRouteCache.h"
 #include "teamplay/ObjectiveBasedTeam.h"
 #include "bot.h"
-#include "combat/TacticalSpotsRegistry.h"
 #include "../g_as_local.h"
 #include "../../angelwrap/addon/addon_any.h"
 #include "ai_manager.h"
@@ -1466,57 +1465,6 @@ void asFunc_RemoveOffenseSpot( int team, int id )
     GetObjectiveBasedTeam(__FUNCTION__, team)->RemoveOffenseSpot(id);
 }
 
-static int SuggestDefencePlantingSpots(const edict_t *defendedEntity, float searchRadius, vec3_t *spots, int maxSpots)
-{
-    const TacticalSpotsRegistry *tacticalSpotsRegistry = TacticalSpotsRegistry::Instance();
-    if (!tacticalSpotsRegistry)
-        return 0;
-
-    TacticalSpotsRegistry::OriginParams originParams(defendedEntity, searchRadius, AiAasRouteCache::Shared());
-    TacticalSpotsRegistry::AdvantageProblemParams problemParams(defendedEntity);
-
-    // A reachability to a spot from an entity will be checked.
-    // Checking a reachability from a planting spot to an entity does not make sense.
-    problemParams.SetCheckToAndBackReachability(false);
-    problemParams.SetOriginDistanceInfluence(0.9f);
-    // This means weight never falls off and farther spots have greater weight.
-    problemParams.SetOriginWeightFalloffDistanceRatio(1.0f);
-    // Travel time should not affect it significantly (spots planting is a "background task" for bots).
-    problemParams.SetTravelTimeInfluence(0.2f);
-    // Allow planting on ground and a bit below if there are no elevated areas
-    problemParams.SetMinHeightAdvantageOverOrigin(-64.0f);
-    // Prefer elevated areas
-    problemParams.SetHeightOverOriginInfluence(0.9f);
-    // Prevent selection of spots that are too close to each other
-    problemParams.SetSpotProximityThreshold(128.0f);
-    return tacticalSpotsRegistry->FindPositionalAdvantageSpots(originParams, problemParams, spots, maxSpots);
-}
-
-static CScriptArrayInterface *asFunc_SuggestDefencePlantingSpots(const edict_t *defendedEntity, float radius, int maxSpots)
-{
-    CHECK_ARG(defendedEntity);
-    if (maxSpots > 8)
-    {
-        G_Printf(S_COLOR_YELLOW "asFunc_SuggestDefencePlantingSpots(): maxSpots value %d will be limited to 8\n", maxSpots);
-        maxSpots = 8;
-    }
-
-    vec3_t spots[8];
-    unsigned numSpots = (unsigned)SuggestDefencePlantingSpots(defendedEntity, radius, spots, maxSpots);
-
-    auto *ctx = angelExport->asGetActiveContext();
-    auto *engine = ctx->GetEngine();
-    auto *arrayObjectType = engine->GetObjectTypeById(engine->GetTypeIdByDecl("array<Vec3>"));
-
-    CScriptArrayInterface *result = angelExport->asCreateArrayCpp( numSpots, arrayObjectType );
-    for (unsigned i = 0; i < numSpots; ++i)
-    {
-        asvec3_t *dst = (asvec3_t *)result->At( i );
-        VectorCopy(spots[i], dst->v);
-    }
-    return result;
-}
-
 // AS does not have forward class declarations, and script AIScriptGoalFactory class
 // cannot be registered to the moment of the base engine script initialization.
 // We have to pass a reference to a script goal factory in the `any` container class.
@@ -1564,8 +1512,6 @@ const asglobfuncs_t asAIGlobFuncs[] =
     DECLARE_FUNC("void RemoveOffenseSpot(int team, int id)", asFunc_RemoveOffenseSpot),
 
     DECLARE_FUNC("void DefenceSpotAlert(int team, int id, float level, uint timeoutPeriod)", asFunc_DefenceSpotAlert),
-
-    DECLARE_FUNC("array<Vec3> @SuggestDefencePlantingSpots(Entity @defendedEntity, float radius, int maxSpots)", asFunc_SuggestDefencePlantingSpots),
 
     { NULL }
 };

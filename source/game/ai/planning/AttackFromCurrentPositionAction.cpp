@@ -1,6 +1,6 @@
 #include "PlanningLocal.h"
 #include "../bot.h"
-#include "../combat/TacticalSpotsRegistry.h"
+#include "../combat/SideStepDodgeProblemSolver.h"
 
 void BotAttackFromCurrentPositionActionRecord::Activate() {
 	BotBaseActionRecord::Activate();
@@ -20,10 +20,12 @@ AiBaseActionRecord::Status BotAttackFromCurrentPositionActionRecord::CheckStatus
 
 	if( navTarget.Origin().SquareDistance2DTo( self->s.origin ) < 16 * 16 ) {
 		vec3_t spotOrigin;
-		TacticalSpotsRegistry::OriginParams originParams( self, 128.0f, AiAasRouteCache::Shared() );
-		const float *keepVisOrigin = self->ai->botRef->GetSelectedEnemies().LastSeenOrigin().Data();
-		if( TacticalSpotsRegistry::Instance()->FindShortSideStepDodgeSpot( originParams, keepVisOrigin, spotOrigin ) ) {
-			self->ai->botRef->SetNavTarget( Vec3( spotOrigin ), 16.0f );
+		SideStepDodgeProblemSolver::OriginParams originParams( self, 128.0f, AiAasRouteCache::Shared() );
+		const float *keepVisibleOrigin = self->ai->botRef->GetSelectedEnemies().LastSeenOrigin().Data();
+		SideStepDodgeProblemSolver::ProblemParams problemParams( keepVisibleOrigin );
+		SideStepDodgeProblemSolver solver( originParams, problemParams );
+		if( solver.FindSingle( spotOrigin ) ) {
+			self->ai->botRef->SetNavTarget( Vec3( spotOrigin ), 4.0f );
 		}
 	}
 

@@ -282,6 +282,10 @@ public:
 		begin_ = basePtr;
 		end_ = basePtr + size;
 	}
+	ArrayRange( const T *begin__, const T *end__ ) {
+		this->begin_ = begin__;
+		this->end_ = end__;
+	}
 	const T *begin() const { return begin_; }
 	const T *end() const { return end_; }
 };
@@ -309,6 +313,32 @@ public:
 	Int64Align4() {}
 
 	Int64Align4( int64_t value ) {
+		SetParts( value );
+	}
+};
+
+class alignas( 2 )FloatAlign2 {
+	uint16_t parts[2];
+
+	inline void SetParts( float value ) {
+		uint32_t *p = (uint32_t *)&value;
+		parts[0] = (uint16_t)( ( *p >> 16u ) & 0xFFFFu );
+		parts[1] = (uint16_t)( *p & 0xFFFFu );
+	}
+public:
+	operator float() const {
+		uint32_t v = ( (uint32_t)parts[0] ) << 16u | parts[1];
+		return *( (float *)&v );
+	}
+
+	FloatAlign2 operator=( float value ) {
+		SetParts( value );
+		return *this;
+	}
+
+	FloatAlign2() {}
+
+	FloatAlign2( float value ) {
 		SetParts( value );
 	}
 };

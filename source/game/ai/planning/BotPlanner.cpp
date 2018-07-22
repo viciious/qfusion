@@ -2,7 +2,7 @@
 #include "../ai_ground_trace_cache.h"
 #include "../teamplay/SquadBasedTeam.h"
 #include "BotPlanner.h"
-#include "../combat/TacticalSpotsRegistry.h"
+#include "../combat/DodgeHazardProblemSolver.h"
 #include <algorithm>
 #include <limits>
 #include <stdarg.h>
@@ -30,11 +30,12 @@ BotBaseAction *BotPlanner::GetActionByName( const char *name ) {
 	return nullptr;
 }
 
-bool BotPlanner::FindDodgeDangerSpot( const Danger &danger, vec3_t spotOrigin ) {
+bool BotPlanner::FindDodgeHazardSpot( const Danger &danger, vec3_t spotOrigin ) {
 	float radius = 128.0f + 192.0f * self->ai->botRef->Skill();
-	TacticalSpotsRegistry::OriginParams originParams( self, radius, self->ai->botRef->routeCache );
-	TacticalSpotsRegistry::DodgeDangerProblemParams problemParams( danger.hitPoint, danger.direction, danger.IsSplashLike() );
-	problemParams.SetCheckToAndBackReachability( false );
+	typedef DodgeHazardProblemSolver Solver;
+	Solver::OriginParams originParams( self, radius, self->ai->botRef->routeCache );
+	Solver::ProblemParams problemParams( danger.hitPoint, danger.direction, danger.IsSplashLike() );
+	problemParams.SetCheckToAndBackReach( false );
 	problemParams.SetMinHeightAdvantageOverOrigin( -64.0f );
 	// Influence values are quite low because evade direction factor must be primary
 	problemParams.SetHeightOverOriginInfluence( 0.2f );
@@ -42,7 +43,7 @@ bool BotPlanner::FindDodgeDangerSpot( const Danger &danger, vec3_t spotOrigin ) 
 	problemParams.SetOriginDistanceInfluence( 0.4f );
 	problemParams.SetOriginWeightFalloffDistanceRatio( 0.9f );
 	problemParams.SetTravelTimeInfluence( 0.2f );
-	return TacticalSpotsRegistry::Instance()->FindEvadeDangerSpots( originParams, problemParams, (vec3_t *)spotOrigin, 1 ) > 0;
+	return Solver( originParams, problemParams ).FindSingle( spotOrigin );
 }
 
 void BotPlanner::PrepareCurrWorldState( WorldState *worldState ) {
@@ -194,7 +195,7 @@ void BotPlanner::PrepareCurrWorldState( WorldState *worldState ) {
 		worldState->DangerHitPointVar().SetValue( activeHazard->hitPoint );
 		worldState->DangerDirectionVar().SetValue( activeHazard->direction );
 		vec3_t dodgeDangerSpot;
-		if( FindDodgeDangerSpot( *activeHazard, dodgeDangerSpot ) ) {
+		if( FindDodgeHazardSpot( *activeHazard, dodgeDangerSpot ) ) {
 			worldState->DodgeDangerSpotVar().SetValue( dodgeDangerSpot );
 		} else {
 			worldState->DodgeDangerSpotVar().SetIgnore( true );

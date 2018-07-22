@@ -331,16 +331,14 @@ void BotRoamingManager::TryResetAllSpotsDisabledState() {
 }
 
 void BotRoamingManager::DisableSpotsInRadius( const vec3_t origin, float radius ) {
-	uint16_t spotNums[TacticalSpotsRegistry::MAX_SPOTS_PER_QUERY];
 	TacticalSpotsRegistry::OriginParams originParams( self, radius, self->ai->botRef->routeCache );
 	uint16_t insideSpotNum = std::numeric_limits<uint16_t>::max();
-	const unsigned numNearbySpots = tacticalSpotsRegistry->FindSpotsInRadius( originParams, spotNums, &insideSpotNum );
+	const auto &spotsFromQuery = tacticalSpotsRegistry->FindSpotsInRadius( originParams, &insideSpotNum );
 	const int64_t levelTime = level.time;
 
 	// Do not count spots behind a wall / an obstacle as visited.
 	trace_t trace;
-	for( unsigned i = 0; i < numNearbySpots; ++i ) {
-		const unsigned spotNum = spotNums[i];
+	for( const auto spotNum: spotsFromQuery  ) {
 		if( spotNum != insideSpotNum ) {
 			const auto &spot = tacticalSpotsRegistry->spots[spotNum];
 			SolidWorldTrace( &trace, self->s.origin, spot.origin );
