@@ -18,7 +18,7 @@
 #include "planning/Actions.h"
 
 class AiSquad;
-class AiBaseEnemyPool;
+class AiEnemiesTracker;
 
 struct AiAlertSpot {
 	int id;
@@ -93,7 +93,7 @@ class Bot : public Ai
 	friend class AiObjectiveBasedTeam;
 	friend class BotPlanner;
 	friend class AiSquad;
-	friend class AiBaseEnemyPool;
+	friend class AiEnemiesTracker;
 	friend class BotThreatTracker;
 	friend class BotPerceptionManager;
 	friend class BotFireTargetCache;
@@ -204,7 +204,7 @@ public:
 	inline int64_t LastTargetTime( const edict_t *target ) {
 		return threatTracker.LastTargetTime( target );
 	}
-	inline void OnEnemyRemoved( const Enemy *enemy ) {
+	inline void OnEnemyRemoved( const TrackedEnemy *enemy ) {
 		threatTracker.OnEnemyRemoved( enemy );
 	}
 	inline void OnHurtByNewThreat( const edict_t *newThreat, const AiFrameAwareUpdatable *threatDetector ) {
@@ -553,7 +553,7 @@ public:
 
 	KeptInFovPoint keptInFovPoint;
 
-	const Enemy *lastChosenLostOrHiddenEnemy;
+	const TrackedEnemy *lastChosenLostOrHiddenEnemy;
 	unsigned lastChosenLostOrHiddenEnemyInstanceId;
 
 	float baseOffensiveness;
@@ -651,7 +651,7 @@ public:
 
 	const AiAasRouteCache *RouteCache() const { return routeCache; }
 
-	const Enemy *TrackedEnemiesHead() const { return threatTracker.TrackedEnemiesHead(); }
+	const TrackedEnemy *TrackedEnemiesHead() const { return threatTracker.TrackedEnemiesHead(); }
 
 	const BotThreatTracker::HurtEvent *ActiveHurtEvent() const { return threatTracker.GetValidHurtEvent(); }
 

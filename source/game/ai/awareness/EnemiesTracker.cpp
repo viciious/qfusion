@@ -1,4 +1,4 @@
-#include "BaseEnemyPool.h"
+#include "EnemiesTracker.h"
 #include "../bot.h"
 
 constexpr float MAX_ENEMY_WEIGHT = 5.0f;
@@ -40,7 +40,7 @@ float DamageToKill( float health, float armor, float armorProtection, float armo
 	return health / ( 1.0f - armorProtection );
 }
 
-void Enemy::Clear() {
+void TrackedEnemy::Clear() {
 	ent = nullptr;
 	weight = 0.0f;
 	avgPositiveWeight = 0.0f;
@@ -61,7 +61,7 @@ void Enemy::Clear() {
 	listLinks[ACTIVE_LIST_INDEX].Clear();
 }
 
-void Enemy::OnViewed( const float *specifiedOrigin ) {
+void TrackedEnemy::OnViewed( const float *specifiedOrigin ) {
 	if( lastSeenSnapshots.size() == MAX_TRACKED_SNAPSHOTS ) {
 		lastSeenSnapshots.pop_front();
 	}
@@ -77,7 +77,7 @@ void Enemy::OnViewed( const float *specifiedOrigin ) {
 	assert( IsInTrackedList() );
 }
 
-Vec3 Enemy::LookDir() const {
+Vec3 TrackedEnemy::LookDir() const {
 	const auto levelTime = level.time;
 	if( lookDirComputedAt == levelTime ) {
 		return Vec3( lookDir );
@@ -95,7 +95,7 @@ Vec3 Enemy::LookDir() const {
 
 enum { RAIL = 1, SHAFT = 2, ROCKET = 4 };
 
-int Enemy::GetCheckForWeaponHitFlags( float damageToKillTarget ) const {
+int TrackedEnemy::GetCheckForWeaponHitFlags( float damageToKillTarget ) const {
 	auto levelTime = level.time;
 
 	if( weaponHitFlagsComputedAt == levelTime && checkForWeaponHitKillDamage == damageToKillTarget ) {
@@ -108,7 +108,7 @@ int Enemy::GetCheckForWeaponHitFlags( float damageToKillTarget ) const {
 	return ( checkForWeaponHitFlags = ComputeCheckForWeaponHitFlags( damageToKillTarget ) );
 }
 
-int Enemy::ComputeCheckForWeaponHitFlags( float damageToKillTarget ) const {
+int TrackedEnemy::ComputeCheckForWeaponHitFlags( float damageToKillTarget ) const {
 	if( !ent->r.client ) {
 		return 0;
 	}
@@ -135,7 +135,7 @@ int Enemy::ComputeCheckForWeaponHitFlags( float damageToKillTarget ) const {
 	return flags;
 }
 
-bool Enemy::MightBlockArea( float damageToKillTarget, int areaNum, int reachNum, const AiAasWorld *aasWorld ) const {
+bool TrackedEnemy::MightBlockArea( float damageToKillTarget, int areaNum, int reachNum, const AiAasWorld *aasWorld ) const {
 	assert( IsValid() );
 
 	int weaponHitFlags = GetCheckForWeaponHitFlags( damageToKillTarget );
@@ -200,7 +200,7 @@ bool Enemy::MightBlockArea( float damageToKillTarget, int areaNum, int reachNum,
 	return trace.fraction == 1.0f;
 }
 
-int Enemy::GetBoxLeafNums( int **leafNums ) const {
+int TrackedEnemy::GetBoxLeafNums( int **leafNums ) const {
 	auto levelTime = level.time;
 	if( boxLeafNumsComputedAt == levelTime ) {
 		*leafNums = boxLeafNums;
@@ -224,7 +224,7 @@ int Enemy::GetBoxLeafNums( int **leafNums ) const {
 	return numBoxLeafNums;
 }
 
-bool Enemy::IsAreaInPVS( int areaNum, const AiAasWorld *aasWorld ) const {
+bool TrackedEnemy::IsAreaInPVS( int areaNum, const AiAasWorld *aasWorld ) const {
 	const int *areaLeafNums = aasWorld->AreaMapLeafsList( areaNum ) + 1;
 
 	int *enemyLeafNums;
@@ -241,7 +241,7 @@ bool Enemy::IsAreaInPVS( int areaNum, const AiAasWorld *aasWorld ) const {
 	return false;
 }
 
-AiBaseEnemyPool::AiBaseEnemyPool( float avgSkill_ )
+AiEnemiesTracker::AiEnemiesTracker( float avgSkill_ )
 	: avgSkill( avgSkill_ ),
 	numTrackedEnemies( 0 ),
 	maxTrackedAttackers( From1UpToMax( MAX_TRACKED_ATTACKERS, avgSkill_ ) ),
@@ -253,7 +253,7 @@ AiBaseEnemyPool::AiBaseEnemyPool( float avgSkill_ )
 	hasShell( false ),
 	damageToBeKilled( 0.0f ) {
 	// Initialize table slots
-	for( Enemy &enemy: entityToEnemyTable ) {
+	for( TrackedEnemy &enemy: entityToEnemyTable ) {
 		enemy.Clear();
 		enemy.parent = this;
 		enemy.entNum = (int)( &enemy - entityToEnemyTable );
@@ -266,7 +266,7 @@ AiBaseEnemyPool::AiBaseEnemyPool( float avgSkill_ )
 		targets.push_back( AttackStats() );
 }
 
-void AiBaseEnemyPool::Frame() {
+void AiEnemiesTracker::Frame() {
 
 	const int64_t levelTime = level.time;
 
@@ -285,7 +285,7 @@ void AiBaseEnemyPool::Frame() {
 	}
 
 	// If we could see enemy entering teleportation a last Think() frame, update its tracked origin by the actual one.
-	for( Enemy *enemy = TrackedEnemiesHead(); enemy; enemy = enemy->NextInTrackedList() ) {
+	for( TrackedEnemy *enemy = TrackedEnemiesHead(); enemy; enemy = enemy->NextInTrackedList() ) {
 		const edict_t *ent = enemy->ent;
 		if( !ent ) {
 			continue;
@@ -304,19 +304,19 @@ void AiBaseEnemyPool::Frame() {
 	}
 }
 
-void AiBaseEnemyPool::PreThink() {
+void AiEnemiesTracker::PreThink() {
 	hasQuad = CheckHasQuad();
 	hasShell = CheckHasShell();
 	damageToBeKilled = ComputeDamageToBeKilled();
 }
 
-void AiBaseEnemyPool::Think() {
+void AiEnemiesTracker::Think() {
 	const int64_t levelTime = level.time;
 
 	// We have to introduce an intermediate variable and save the next link on each iteration
 	// first because the current variable gets unlinked and next link becomes invalid.
-	Enemy *nextEnemy;
-	for( Enemy *enemy = TrackedEnemiesHead(); enemy; enemy = nextEnemy ) {
+	TrackedEnemy *nextEnemy;
+	for( TrackedEnemy *enemy = TrackedEnemiesHead(); enemy; enemy = nextEnemy ) {
 		assert( enemy->ent );
 		nextEnemy = enemy->NextInTrackedList();
 		// Remove not seen yet enemies
@@ -343,7 +343,7 @@ void AiBaseEnemyPool::Think() {
 	}
 }
 
-float AiBaseEnemyPool::ComputeRawEnemyWeight( const edict_t *enemy ) {
+float AiEnemiesTracker::ComputeRawEnemyWeight( const edict_t *enemy ) {
 	if( !enemy || G_ISGHOSTING( enemy ) ) {
 		return 0.0;
 	}
@@ -398,7 +398,7 @@ float AiBaseEnemyPool::ComputeRawEnemyWeight( const edict_t *enemy ) {
 	return std::min( std::max( 0.0f, weight ), MAX_ENEMY_WEIGHT );
 }
 
-void AiBaseEnemyPool::OnPain( const edict_t *bot, const edict_t *enemy, float kick, int damage ) {
+void AiEnemiesTracker::OnPain( const edict_t *bot, const edict_t *enemy, float kick, int damage ) {
 	int attackerSlot = EnqueueAttacker( enemy, damage );
 	if( attackerSlot < 0 ) {
 		return;
@@ -426,7 +426,7 @@ void AiBaseEnemyPool::OnPain( const edict_t *bot, const edict_t *enemy, float ki
 	}
 }
 
-int64_t AiBaseEnemyPool::LastAttackedByTime( const edict_t *ent ) const {
+int64_t AiEnemiesTracker::LastAttackedByTime( const edict_t *ent ) const {
 	for( const AttackStats &attackStats: attackers )
 		if( ent && attackStats.ent == ent ) {
 			return attackStats.LastActivityAt();
@@ -435,7 +435,7 @@ int64_t AiBaseEnemyPool::LastAttackedByTime( const edict_t *ent ) const {
 	return 0;
 }
 
-int64_t AiBaseEnemyPool::LastTargetTime( const edict_t *ent ) const {
+int64_t AiEnemiesTracker::LastTargetTime( const edict_t *ent ) const {
 	for( const AttackStats &targetStats: targets )
 		if( ent && targetStats.ent == ent ) {
 			return targetStats.LastActivityAt();
@@ -444,7 +444,7 @@ int64_t AiBaseEnemyPool::LastTargetTime( const edict_t *ent ) const {
 	return 0;
 }
 
-float AiBaseEnemyPool::TotalDamageInflictedBy( const edict_t *ent ) const {
+float AiEnemiesTracker::TotalDamageInflictedBy( const edict_t *ent ) const {
 	for( const AttackStats &attackStats: attackers )
 		if( ent && attackStats.ent == ent ) {
 			return attackStats.totalDamage;
@@ -453,7 +453,7 @@ float AiBaseEnemyPool::TotalDamageInflictedBy( const edict_t *ent ) const {
 	return 0;
 }
 
-int AiBaseEnemyPool::EnqueueAttacker( const edict_t *attacker, int damage ) {
+int AiEnemiesTracker::EnqueueAttacker( const edict_t *attacker, int damage ) {
 	if( !attacker ) {
 		return -1;
 	}
@@ -490,7 +490,7 @@ int AiBaseEnemyPool::EnqueueAttacker( const edict_t *attacker, int damage ) {
 	return freeSlot;
 }
 
-void AiBaseEnemyPool::EnqueueTarget( const edict_t *target ) {
+void AiEnemiesTracker::EnqueueTarget( const edict_t *target ) {
 	if( !target ) {
 		return;
 	}
@@ -528,7 +528,7 @@ void AiBaseEnemyPool::EnqueueTarget( const edict_t *target ) {
 	targets[freeSlot].Touch();
 }
 
-void AiBaseEnemyPool::OnEnemyDamaged( const edict_t *bot, const edict_t *target, int damage ) {
+void AiEnemiesTracker::OnEnemyDamaged( const edict_t *bot, const edict_t *target, int damage ) {
 	if( !target ) {
 		return;
 	}
@@ -541,8 +541,8 @@ void AiBaseEnemyPool::OnEnemyDamaged( const edict_t *bot, const edict_t *target,
 	}
 }
 
-bool AiBaseEnemyPool::WillAssignAimEnemy() const {
-	for( const Enemy *enemy = TrackedEnemiesHead(); enemy; enemy = enemy->NextInTrackedList() ) {
+bool AiEnemiesTracker::WillAssignAimEnemy() const {
+	for( const TrackedEnemy *enemy = TrackedEnemiesHead(); enemy; enemy = enemy->NextInTrackedList() ) {
 		if( !enemy->ent ) {
 			continue;
 		}
@@ -558,7 +558,7 @@ bool AiBaseEnemyPool::WillAssignAimEnemy() const {
 	return false;
 }
 
-void AiBaseEnemyPool::UpdateEnemyWeight( Enemy *enemy ) {
+void AiEnemiesTracker::UpdateEnemyWeight( TrackedEnemy *enemy ) {
 	// Explicitly limit effective reaction time to a time quantum between Think() calls
 	// This method gets called before all enemies are viewed.
 	// For seen enemy registration actual weights of known enemies are mandatory
@@ -579,7 +579,7 @@ void AiBaseEnemyPool::UpdateEnemyWeight( Enemy *enemy ) {
 	}
 }
 
-const Enemy *AiBaseEnemyPool::ChooseVisibleEnemy( const edict_t *challenger ) {
+const TrackedEnemy *AiEnemiesTracker::ChooseVisibleEnemy( const edict_t *challenger ) {
 	Vec3 botOrigin( challenger->s.origin );
 	vec3_t forward;
 	AngleVectors( challenger->s.angles, forward, nullptr, nullptr );
@@ -591,7 +591,7 @@ const Enemy *AiBaseEnemyPool::ChooseVisibleEnemy( const edict_t *challenger ) {
 	constexpr float distanceBounds = 3500.0f;
 
 	StaticVector<EntAndScore, MAX_EDICTS> candidates;
-	for( Enemy *enemy = TrackedEnemiesHead(); enemy; enemy = enemy->NextInTrackedList() ) {
+	for( TrackedEnemy *enemy = TrackedEnemiesHead(); enemy; enemy = enemy->NextInTrackedList() ) {
 		isEntityTested[enemy->entNum] = true;
 
 		if( !enemy->ent ) {
@@ -637,7 +637,7 @@ const Enemy *AiBaseEnemyPool::ChooseVisibleEnemy( const edict_t *challenger ) {
 	}
 
 	// Add current active enemies to merged ones
-	for( Enemy *enemy = ActiveEnemiesHead(); enemy; enemy = enemy->NextInActiveList() ) {
+	for( TrackedEnemy *enemy = ActiveEnemiesHead(); enemy; enemy = enemy->NextInActiveList() ) {
 		if( !isEntityTested[enemy->entNum] ) {
 			mergedActiveEnemies.push_back( EntAndScore( enemy->entNum, enemy->scoreAsActiveEnemy ) );
 		}
@@ -648,7 +648,7 @@ const Enemy *AiBaseEnemyPool::ChooseVisibleEnemy( const edict_t *challenger ) {
 
 	// Clear all links in active enemies list
 	listHeads[ACTIVE_LIST_INDEX] = nullptr;
-	for( Enemy *enemy = TrackedEnemiesHead(); enemy; enemy = enemy->NextInTrackedList() ) {
+	for( TrackedEnemy *enemy = TrackedEnemiesHead(); enemy; enemy = enemy->NextInTrackedList() ) {
 		enemy->listLinks[ACTIVE_LIST_INDEX].Clear();
 	}
 
@@ -658,7 +658,7 @@ const Enemy *AiBaseEnemyPool::ChooseVisibleEnemy( const edict_t *challenger ) {
 	// (and be the first one at the start of iteration via NextInActiveList() calls)
 	for( int i = (int)std::min( mergedActiveEnemies.size(), maxActiveEnemies ) - 1; i >= 0; --i ) {
 		const auto &entAndScore = mergedActiveEnemies[i];
-		Enemy *enemy = entityToEnemyTable + entAndScore.entNum;
+		TrackedEnemy *enemy = entityToEnemyTable + entAndScore.entNum;
 		enemy->scoreAsActiveEnemy = entAndScore.score;
 		LinkToActiveList( enemy );
 		EnqueueTarget( enemy->ent );
@@ -668,7 +668,7 @@ const Enemy *AiBaseEnemyPool::ChooseVisibleEnemy( const edict_t *challenger ) {
 	return ActiveEnemiesHead();
 }
 
-const Enemy *AiBaseEnemyPool::ChooseLostOrHiddenEnemy( const edict_t *challenger, unsigned timeout ) {
+const TrackedEnemy *AiEnemiesTracker::ChooseLostOrHiddenEnemy( const edict_t *challenger, unsigned timeout ) {
 	if( AvgSkill() < 0.33f ) {
 		return nullptr;
 	}
@@ -682,8 +682,8 @@ const Enemy *AiBaseEnemyPool::ChooseLostOrHiddenEnemy( const edict_t *challenger
 	}
 
 	float bestScore = 0.0f;
-	const Enemy *bestEnemy = nullptr;
-	for( Enemy *enemy = TrackedEnemiesHead(); enemy; enemy = enemy->NextInTrackedList() ) {
+	const TrackedEnemy *bestEnemy = nullptr;
+	for( TrackedEnemy *enemy = TrackedEnemiesHead(); enemy; enemy = enemy->NextInTrackedList() ) {
 		if( !enemy->IsValid() ) {
 			continue;
 		}
@@ -716,12 +716,12 @@ const Enemy *AiBaseEnemyPool::ChooseLostOrHiddenEnemy( const edict_t *challenger
 	return bestEnemy;
 }
 
-void AiBaseEnemyPool::OnEnemyViewed( const edict_t *ent ) {
+void AiEnemiesTracker::OnEnemyViewed( const edict_t *ent ) {
 	if( !ent ) {
 		return;
 	}
 
-	Enemy *enemy = entityToEnemyTable + ENTNUM( ent );
+	TrackedEnemy *enemy = entityToEnemyTable + ENTNUM( ent );
 	if( enemy->IsValid() ) {
 		enemy->OnViewed();
 	} else {
@@ -729,14 +729,14 @@ void AiBaseEnemyPool::OnEnemyViewed( const edict_t *ent ) {
 	}
 }
 
-void AiBaseEnemyPool::OnEnemyOriginGuessed( const edict_t *ent,
+void AiEnemiesTracker::OnEnemyOriginGuessed( const edict_t *ent,
 											unsigned minMillisSinceLastSeen,
 											const float *guessedOrigin ) {
 	if( !ent ) {
 		return;
 	}
 
-	Enemy *enemy = entityToEnemyTable + ENTNUM( ent );
+	TrackedEnemy *enemy = entityToEnemyTable + ENTNUM( ent );
 	if( enemy->IsValid() ) {
 		// If there is already an Enemy record containing an entity,
 		// check whether this record timed out enough to be overwritten.
@@ -749,7 +749,7 @@ void AiBaseEnemyPool::OnEnemyOriginGuessed( const edict_t *ent,
 	}
 }
 
-void AiBaseEnemyPool::Forget( const edict_t *ent ) {
+void AiEnemiesTracker::Forget( const edict_t *ent ) {
 	if( !ent ) {
 		return;
 	}
@@ -757,7 +757,7 @@ void AiBaseEnemyPool::Forget( const edict_t *ent ) {
 	RemoveEnemy( entityToEnemyTable + ENTNUM( ent ) );
 }
 
-void AiBaseEnemyPool::RemoveEnemy( Enemy *enemy ) {
+void AiEnemiesTracker::RemoveEnemy( TrackedEnemy *enemy ) {
 	// Call overridden method that should contain domain-specific logic
 	OnEnemyRemoved( enemy );
 
@@ -772,7 +772,7 @@ void AiBaseEnemyPool::RemoveEnemy( Enemy *enemy ) {
 	--numTrackedEnemies;
 }
 
-void Enemy::InitAndLink( const edict_t *ent, const float *specifiedOrigin ) {
+void TrackedEnemy::InitAndLink( const edict_t *ent, const float *specifiedOrigin ) {
 	this->ent = ent;
 	this->registeredAt = level.time;
 	this->weight = 0.0f;

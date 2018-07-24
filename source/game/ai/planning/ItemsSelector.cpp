@@ -203,14 +203,14 @@ class EnemyPathBlockingDetector {
 
 	// The capacity should not exceeded unless in some really bizarre setups.
 	// Extra enemies are just not taken into account in these rare cases.
-	StaticVector<const Enemy *, 16> potentialBlockers;
+	StaticVector<const TrackedEnemy *, 16> potentialBlockers;
 
 	float damageToKillBot;
 
 	int startAreaNums[2];
 	int numStartAreas;
 
-	bool IsAPotentialBlocker( const Enemy *enemy, float damageToKillBot, int botBestWeaponTier ) const;
+	bool IsAPotentialBlocker( const TrackedEnemy *enemy, float damageToKillBot, int botBestWeaponTier ) const;
 
 	bool GetInitialRoutingParams( const NavEntity *navEntity, int *travelFlags, int *fromAreaNum ) const;
 public:
@@ -526,7 +526,7 @@ EnemyPathBlockingDetector::EnemyPathBlockingDetector( const edict_t *self_ )
 
 	const int botBestWeaponTier = FindBestWeaponTier( self_->r.client );
 
-	const Enemy *enemy = self->ai->botRef->TrackedEnemiesHead();
+	const TrackedEnemy *enemy = self->ai->botRef->TrackedEnemiesHead();
 	for(; enemy; enemy = enemy->NextInTrackedList() ) {
 		if( !IsAPotentialBlocker( enemy, damageToKillBot, botBestWeaponTier ) ) {
 			continue;
@@ -538,7 +538,7 @@ EnemyPathBlockingDetector::EnemyPathBlockingDetector( const edict_t *self_ )
 	}
 }
 
-bool EnemyPathBlockingDetector::IsAPotentialBlocker( const Enemy *enemy,
+bool EnemyPathBlockingDetector::IsAPotentialBlocker( const TrackedEnemy *enemy,
 													 float damageToKillBot,
 													 int botBestWeaponTier ) const {
 	if( !enemy->IsValid() ) {
@@ -647,7 +647,7 @@ bool EnemyPathBlockingDetector::IsPathToNavEntityBlocked( const NavEntity *navEn
 		// Don't check for blocking areas that are fairly close to the bot,
 		// so the bot does not get blocked in his current position
 		if( DistanceSquared( aasAreas[currAreaNum].center, self->s.origin ) > 192 * 192 ) {
-			for( const Enemy *enemy: potentialBlockers ) {
+			for( const TrackedEnemy *enemy: potentialBlockers ) {
 				if( enemy->MightBlockArea( damageToKillBot, currAreaNum, reachNum, aasWorld ) ) {
 					return true;
 				}

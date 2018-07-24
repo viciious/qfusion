@@ -2,6 +2,7 @@
 #define QFUSION_BOT_FIRE_TARGET_CACHE_H
 
 #include "WeaponSelector.h"
+#include "../awareness/SelectedEnemies.h"
 
 struct AimParams {
 	vec3_t fireOrigin;

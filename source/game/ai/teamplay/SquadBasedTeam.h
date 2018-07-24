@@ -2,7 +2,7 @@
 #define QFUSION_AI_SQUAD_BASED_TEAM_BRAIN_H
 
 #include "BaseTeam.h"
-#include "../awareness/BaseEnemyPool.h"
+#include "../awareness/EnemiesTracker.h"
 #include "../navigation/AasRouteCache.h"
 #include "../navigation/AasWorld.h"
 #include "../static_vector.h"
@@ -95,13 +95,13 @@ private:
 	// Hack! To be able to access bot's private methods, define this entity physics callback as a (static) member
 	static void SetDroppedEntityAsBotGoal( edict_t *ent );
 
-	class SquadEnemyPool : public AiBaseEnemyPool
+	class SquadEnemiesTracker : public AiEnemiesTracker
 	{
 		friend class AiSquad;
 		AiSquad *squad;
 
 		float botRoleWeights[AiSquad::MAX_SIZE];
-		const Enemy *botEnemies[AiSquad::MAX_SIZE];
+		const TrackedEnemy *botEnemies[AiSquad::MAX_SIZE];
 
 		unsigned GetBotSlot( const Bot *bot ) const;
 		void CheckSquadValid() const;
@@ -111,26 +111,26 @@ protected:
 		virtual bool CheckHasQuad() const override;
 		virtual bool CheckHasShell() const override;
 		virtual float ComputeDamageToBeKilled() const override;
-		virtual void OnEnemyRemoved( const Enemy *enemy ) override;
+		virtual void OnEnemyRemoved( const TrackedEnemy *enemy ) override;
 
 		void SetBotRoleWeight( const edict_t *bot, float weight ) override;
 		float GetAdditionalEnemyWeight( const edict_t *bot, const edict_t *enemy ) const override;
-		void OnBotEnemyAssigned( const edict_t *bot, const Enemy *enemy ) override;
+		void OnBotEnemyAssigned( const edict_t *bot, const TrackedEnemy *enemy ) override;
 
 public:
-		SquadEnemyPool( AiSquad *squad_, float skill );
-		virtual ~SquadEnemyPool() override {}
+		SquadEnemiesTracker( AiSquad *squad_, float skill );
+		virtual ~SquadEnemiesTracker() override {}
 	};
 
 	// We can't use it as a value member because squads should be copyable or moveable
-	SquadEnemyPool *squadEnemyPool;
+	SquadEnemiesTracker *squadEnemiesTracker;
 
 protected:
 	virtual void SetFrameAffinity( unsigned modulo, unsigned offset ) override {
 		// Call super method first
 		AiFrameAwareUpdatable::SetFrameAffinity( modulo, offset );
 		// Allow enemy pool to think
-		squadEnemyPool->SetFrameAffinity( modulo, offset );
+		squadEnemiesTracker->SetFrameAffinity( modulo, offset );
 	}
 
 public:
@@ -143,8 +143,8 @@ public:
 	inline bool InUse() const { return inUse; }
 	inline const BotsList &Bots() const { return bots; };
 
-	inline AiBaseEnemyPool *EnemyPool() { return squadEnemyPool; }
-	inline const AiBaseEnemyPool *EnemyPool() const { return squadEnemyPool; }
+	inline AiEnemiesTracker *EnemiesTracker() { return squadEnemiesTracker; }
+	inline const AiEnemiesTracker *EnemiesTracker() const { return squadEnemiesTracker; }
 
 	void ReleaseBotsTo( StaticVector<Bot *, MAX_CLIENTS> &orphans );
 
@@ -161,17 +161,17 @@ public:
 	void OnBotRemoved( Bot *bot );
 
 	inline void OnBotViewedEnemy( const edict_t *bot, const edict_t *enemy ) {
-		squadEnemyPool->OnEnemyViewed( enemy );
+		squadEnemiesTracker->OnEnemyViewed( enemy );
 	}
 	inline void OnBotGuessedEnemyOrigin( const edict_t *bot, const edict_t *enemy,
 										 unsigned minMillisSinceLastSeen, const float *specifiedOrigin ) {
-		squadEnemyPool->OnEnemyOriginGuessed( enemy, minMillisSinceLastSeen, specifiedOrigin );
+		squadEnemiesTracker->OnEnemyOriginGuessed( enemy, minMillisSinceLastSeen, specifiedOrigin );
 	}
 	inline void OnBotPain( const edict_t *bot, const edict_t *enemy, float kick, int damage ) {
-		squadEnemyPool->OnPain( bot, enemy, kick, damage );
+		squadEnemiesTracker->OnPain( bot, enemy, kick, damage );
 	}
 	inline void OnBotDamagedEnemy( const edict_t *bot, const edict_t *target, int damage ) {
-		squadEnemyPool->OnEnemyDamaged( bot, target, damage );
+		squadEnemiesTracker->OnEnemyDamaged( bot, target, damage );
 	}
 
 	// Assumes the bot is a valid squad member

@@ -126,7 +126,7 @@ void Bot::UpdateKeptInFovPoint() {
 		timeout = ( timeout * 3u ) / 2u;
 	}
 
-	if( const Enemy *lostOrHiddenEnemy = threatTracker.ChooseLostOrHiddenEnemy( timeout ) ) {
+	if( const TrackedEnemy *lostOrHiddenEnemy = threatTracker.ChooseLostOrHiddenEnemy( timeout ) ) {
 		if( !lastChosenLostOrHiddenEnemy ) {
 			lastChosenLostOrHiddenEnemyInstanceId++;
 		} else if( lastChosenLostOrHiddenEnemy->ent != lostOrHiddenEnemy->ent ) {

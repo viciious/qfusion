@@ -59,13 +59,13 @@ int CachedTravelTimesMatrix::FindAASTravelTime( const edict_t *client1, const ed
 	return 0;
 }
 
-AiSquad::SquadEnemyPool::SquadEnemyPool( AiSquad *squad_, float skill )
-	: AiBaseEnemyPool( skill ), squad( squad_ ) {
+AiSquad::SquadEnemiesTracker::SquadEnemiesTracker( AiSquad *squad_, float skill )
+	: AiEnemiesTracker( skill ), squad( squad_ ) {
 	std::fill_n( botRoleWeights, AiSquad::MAX_SIZE, 0.0f );
 	std::fill_n( botEnemies, AiSquad::MAX_SIZE, nullptr );
 }
 
-unsigned AiSquad::SquadEnemyPool::GetBotSlot( const Bot *bot ) const {
+unsigned AiSquad::SquadEnemiesTracker::GetBotSlot( const Bot *bot ) const {
 	for( unsigned i = 0, end = squad->bots.size(); i < end; ++i )
 		if( bot == squad->bots[i] ) {
 			return i;
@@ -78,7 +78,7 @@ unsigned AiSquad::SquadEnemyPool::GetBotSlot( const Bot *bot ) const {
 	}
 }
 
-void AiSquad::SquadEnemyPool::CheckSquadValid() const {
+void AiSquad::SquadEnemiesTracker::CheckSquadValid() const {
 	if( !squad->InUse() ) {
 		FailWith( "Squad %s is not in use", squad->Tag() );
 	}
@@ -89,7 +89,7 @@ void AiSquad::SquadEnemyPool::CheckSquadValid() const {
 
 // We have to skip ghosting bots because squads itself did not think yet when enemy pool thinks
 
-void AiSquad::SquadEnemyPool::OnHurtByNewThreat( const edict_t *newThreat ) {
+void AiSquad::SquadEnemiesTracker::OnHurtByNewThreat( const edict_t *newThreat ) {
 	CheckSquadValid();
 	// TODO: Use more sophisticated bot selection?
 	for( Bot *bot: squad->bots )
@@ -98,7 +98,7 @@ void AiSquad::SquadEnemyPool::OnHurtByNewThreat( const edict_t *newThreat ) {
 		}
 }
 
-bool AiSquad::SquadEnemyPool::CheckHasQuad() const {
+bool AiSquad::SquadEnemiesTracker::CheckHasQuad() const {
 	CheckSquadValid();
 	for( Bot *bot: squad->bots )
 		if( !bot->IsGhosting() && ::HasQuad( bot->Self() ) ) {
@@ -107,7 +107,7 @@ bool AiSquad::SquadEnemyPool::CheckHasQuad() const {
 	return false;
 }
 
-bool AiSquad::SquadEnemyPool::CheckHasShell() const {
+bool AiSquad::SquadEnemiesTracker::CheckHasShell() const {
 	CheckSquadValid();
 	for( Bot *bot: squad->bots )
 		if( !bot->IsGhosting() && ::HasShell( bot->Self() ) ) {
@@ -116,7 +116,7 @@ bool AiSquad::SquadEnemyPool::CheckHasShell() const {
 	return false;
 }
 
-float AiSquad::SquadEnemyPool::ComputeDamageToBeKilled() const {
+float AiSquad::SquadEnemiesTracker::ComputeDamageToBeKilled() const {
 	CheckSquadValid();
 	float result = 0.0f;
 	for( Bot *bot: squad->bots )
@@ -126,18 +126,18 @@ float AiSquad::SquadEnemyPool::ComputeDamageToBeKilled() const {
 	return result;
 }
 
-void AiSquad::SquadEnemyPool::OnEnemyRemoved( const Enemy *enemy ) {
+void AiSquad::SquadEnemiesTracker::OnEnemyRemoved( const TrackedEnemy *enemy ) {
 	CheckSquadValid();
 	for( Bot *bot: squad->bots )
 		bot->OnEnemyRemoved( enemy );
 }
 
-void AiSquad::SquadEnemyPool::SetBotRoleWeight( const edict_t *bot, float weight ) {
+void AiSquad::SquadEnemiesTracker::SetBotRoleWeight( const edict_t *bot, float weight ) {
 	CheckSquadValid();
 	botRoleWeights[GetBotSlot( bot->ai->botRef )] = weight;
 }
 
-float AiSquad::SquadEnemyPool::GetAdditionalEnemyWeight( const edict_t *bot, const edict_t *enemy ) const {
+float AiSquad::SquadEnemiesTracker::GetAdditionalEnemyWeight( const edict_t *bot, const edict_t *enemy ) const {
 	CheckSquadValid();
 	if( !enemy ) {
 		FailWith( "Illegal null enemy" );
@@ -160,7 +160,7 @@ float AiSquad::SquadEnemyPool::GetAdditionalEnemyWeight( const edict_t *bot, con
 	return result;
 }
 
-void AiSquad::SquadEnemyPool::OnBotEnemyAssigned( const edict_t *bot, const Enemy *enemy ) {
+void AiSquad::SquadEnemiesTracker::OnBotEnemyAssigned( const edict_t *bot, const TrackedEnemy *enemy ) {
 	CheckSquadValid();
 	botEnemies[GetBotSlot( bot->ai->botRef )] = enemy;
 }
@@ -179,7 +179,7 @@ AiSquad::AiSquad( CachedTravelTimesMatrix &travelTimesMatrix_ )
 	float skillLevel = trap_Cvar_Value( "sv_skilllevel" ); // {0, 1, 2}
 	float skill = std::min( 1.0f, 0.33f * ( 0.1f + skillLevel + random() ) ); // (0..1)
 	// There is a clash with a getter name, thus we have to introduce a type alias
-	squadEnemyPool = new ( G_Malloc( sizeof( SquadEnemyPool ) ) )SquadEnemyPool( this, skill );
+	squadEnemiesTracker = new ( G_Malloc( sizeof( SquadEnemiesTracker ) ) )SquadEnemiesTracker( this, skill );
 }
 
 AiSquad::AiSquad( AiSquad &&that )
@@ -197,17 +197,17 @@ AiSquad::AiSquad( AiSquad &&that )
 	std::fill_n( lastDroppedForBotTimestamps, MAX_SIZE, 0 );
 
 	// Move the allocated enemy pool
-	this->squadEnemyPool = that.squadEnemyPool;
-	// Hack! Since EnemyPool refers to `that`, modify the reference
-	this->squadEnemyPool->squad = this;
-	that.squadEnemyPool = nullptr;
+	this->squadEnemiesTracker = that.squadEnemiesTracker;
+	// Hack! Since EnemiesTracker refers to `that`, modify the reference
+	this->squadEnemiesTracker->squad = this;
+	that.squadEnemiesTracker = nullptr;
 }
 
 AiSquad::~AiSquad() {
 	// If the enemy pool has not been moved
-	if( squadEnemyPool ) {
-		squadEnemyPool->~SquadEnemyPool();
-		G_Free( squadEnemyPool );
+	if( squadEnemiesTracker ) {
+		squadEnemiesTracker->~SquadEnemiesTracker();
+		G_Free( squadEnemiesTracker );
 	}
 }
 
@@ -260,7 +260,7 @@ constexpr int CONNECTIVITY_MOVE_CENTISECONDS = 400;
 void AiSquad::Frame() {
 	// Update enemy pool
 	if( inUse && isValid ) {
-		squadEnemyPool->Update();
+		squadEnemiesTracker->Update();
 	}
 }
 
@@ -392,13 +392,13 @@ void AiSquad::UpdateBotRoleWeights() {
 	}
 	if( !hasCarriers ) {
 		for( Bot *bot: bots )
-			squadEnemyPool->SetBotRoleWeight( bot->Self(), 0.25f );
+			squadEnemiesTracker->SetBotRoleWeight( bot->Self(), 0.25f );
 	} else {
 		for( Bot *bot: bots ) {
 			if( !bot->IsGhosting() && IsCarrier( bot->Self() ) ) {
-				squadEnemyPool->SetBotRoleWeight( bot->Self(), 1.0f );
+				squadEnemiesTracker->SetBotRoleWeight( bot->Self(), 1.0f );
 			} else {
-				squadEnemyPool->SetBotRoleWeight( bot->Self(), 0.0f );
+				squadEnemiesTracker->SetBotRoleWeight( bot->Self(), 0.0f );
 			}
 		}
 	}
@@ -627,9 +627,9 @@ bool AiSquad::ShouldNotDropItemsNow() const {
 
 	struct PotentialStealer
 	{
-		const Enemy *enemy;
+		const TrackedEnemy *enemy;
 		Vec3 extrapolatedOrigin;
-		PotentialStealer( const Enemy *enemy_, const Vec3 &extrapolatedOrigin_ )
+		PotentialStealer( const TrackedEnemy *enemy_, const Vec3 &extrapolatedOrigin_ )
 			: enemy( enemy_ ), extrapolatedOrigin( extrapolatedOrigin_ ) {}
 
 		// Recently seen stealers should be first in a sorted list
@@ -640,7 +640,7 @@ bool AiSquad::ShouldNotDropItemsNow() const {
 
 	// First reject enemies by distance
 	StaticVector<PotentialStealer, MAX_EDICTS> potentialStealers;
-	for( const Enemy *enemy = squadEnemyPool->TrackedEnemiesHead(); enemy; enemy = enemy->NextInTrackedList() ) {
+	for( const TrackedEnemy *enemy = squadEnemiesTracker->TrackedEnemiesHead(); enemy; enemy = enemy->NextInTrackedList() ) {
 		// Check whether an enemy has been invalidated and invalidation is not processed yet to prevent crash
 		if( !enemy->IsValid() || G_ISGHOSTING( enemy->ent ) ) {
 			continue;

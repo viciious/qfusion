@@ -113,7 +113,7 @@ public:
 	// just adds more jitter and produces fruitless combinations of weights
 	// making convergence to a good solution impossible.
 
-	// There are systems though, like "enemy pool", "weapons selector", etc
+	// There are systems though, like "enemies tracker", "weapons selector", etc
 	// that might benefit from this kind of weights optimization.
 	// There should be an option to freeze goal weights and interbreed only weights for the suggested groups.
 	// This is doable via using scripted evolution manager.

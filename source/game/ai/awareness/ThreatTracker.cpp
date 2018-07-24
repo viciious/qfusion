@@ -3,20 +3,20 @@
 #include "../bot.h"
 
 BotThreatTracker::BotThreatTracker( edict_t *self_, Bot *bot_, float skill_ )
-	: activeEnemyPool( &ownEnemyPool )
+	: activeEnemiesTracker( &ownEnemiesTracker )
 	, squad( nullptr )
 	, self( self_ )
 	, selectedEnemies( bot_->selectedEnemies )
 	, lostEnemies( bot_->lostEnemies )
 	, targetChoicePeriod( (unsigned)( 1500 - 500 * skill_ ) )
 	, reactionTime( 320u - (unsigned)( 300 * skill_ ) )
-	, ownEnemyPool( self_, this, skill_ )
+	, ownEnemiesTracker( self_, this, skill_ )
 	, selectedHazard( nullptr )
 	, triggeredPlanningHazard( nullptr ) {}
 
 void BotThreatTracker::OnAttachedToSquad( AiSquad *squad_ ) {
 	this->squad = squad_;
-	this->activeEnemyPool = squad_->EnemyPool();
+	this->activeEnemiesTracker = squad_->EnemiesTracker();
 }
 
 void BotThreatTracker::OnDetachedFromSquad( AiSquad *squad_ ) {
@@ -28,45 +28,45 @@ void BotThreatTracker::OnDetachedFromSquad( AiSquad *squad_ ) {
 		}
 	}
 	this->squad = nullptr;
-	this->activeEnemyPool = &ownEnemyPool;
+	this->activeEnemiesTracker = &ownEnemiesTracker;
 }
 
 void BotThreatTracker::OnEnemyViewed( const edict_t *enemy ) {
-	ownEnemyPool.OnEnemyViewed( enemy );
+	ownEnemiesTracker.OnEnemyViewed( enemy );
 	if( squad ) {
 		squad->OnBotViewedEnemy( self, enemy );
 	}
 }
 
 void BotThreatTracker::OnEnemyOriginGuessed( const edict_t *enemy, unsigned minMillisSinceLastSeen, const float *guessedOrigin ) {
-	ownEnemyPool.OnEnemyOriginGuessed( enemy, minMillisSinceLastSeen, guessedOrigin );
+	ownEnemiesTracker.OnEnemyOriginGuessed( enemy, minMillisSinceLastSeen, guessedOrigin );
 	if( squad ) {
 		squad->OnBotGuessedEnemyOrigin( self, enemy, minMillisSinceLastSeen, guessedOrigin );
 	}
 }
 
 void BotThreatTracker::OnPain( const edict_t *enemy, float kick, int damage ) {
-	ownEnemyPool.OnPain( self, enemy, kick, damage );
+	ownEnemiesTracker.OnPain( self, enemy, kick, damage );
 	if( squad ) {
 		squad->OnBotPain( self, enemy, kick, damage );
 	}
 }
 
 void BotThreatTracker::OnEnemyDamaged( const edict_t *target, int damage ) {
-	ownEnemyPool.OnEnemyDamaged( self, target, damage );
+	ownEnemiesTracker.OnEnemyDamaged( self, target, damage );
 	if( squad ) {
 		squad->OnBotDamagedEnemy( self, target, damage );
 	}
 }
 
-const Enemy *BotThreatTracker::ChooseLostOrHiddenEnemy( unsigned timeout ) {
-	return activeEnemyPool->ChooseLostOrHiddenEnemy( self, timeout );
+const TrackedEnemy *BotThreatTracker::ChooseLostOrHiddenEnemy( unsigned timeout ) {
+	return activeEnemiesTracker->ChooseLostOrHiddenEnemy( self, timeout );
 }
 
 void BotThreatTracker::Frame() {
 	AiFrameAwareUpdatable::Frame();
 
-	ownEnemyPool.Update();
+	ownEnemiesTracker.Update();
 }
 
 void BotThreatTracker::Think() {
@@ -92,20 +92,20 @@ void BotThreatTracker::UpdateSelectedEnemies() {
 
 	float visibleEnemyWeight = 0.0f;
 
-	if( const Enemy *visibleEnemy = activeEnemyPool->ChooseVisibleEnemy( self ) ) {
+	if( const TrackedEnemy *visibleEnemy = activeEnemiesTracker->ChooseVisibleEnemy( self ) ) {
 		// A compiler prefers a non-const version here, and therefore fails on non-const version of method being private
-		const auto *activeEnemiesHead = ( (const AiBaseEnemyPool *)activeEnemyPool )->ActiveEnemiesHead();
+		const auto *activeEnemiesHead = ( (const AiEnemiesTracker *)activeEnemiesTracker )->ActiveEnemiesHead();
 		selectedEnemies.Set( visibleEnemy, targetChoicePeriod, activeEnemiesHead );
 		visibleEnemyWeight = 0.5f * ( visibleEnemy->AvgWeight() + visibleEnemy->MaxWeight() );
 	}
 
-	if( const Enemy *lostEnemy = activeEnemyPool->ChooseLostOrHiddenEnemy( self ) ) {
+	if( const TrackedEnemy *lostEnemy = activeEnemiesTracker->ChooseLostOrHiddenEnemy( self ) ) {
 		float lostEnemyWeight = 0.5f * ( lostEnemy->AvgWeight() + lostEnemy->MaxWeight() );
 		// If there is a lost or hidden enemy of higher weight, store it
 		if( lostEnemyWeight > visibleEnemyWeight ) {
 			// Provide a pair of iterators to the Set call:
 			// lostEnemies.activeEnemies must contain the lostEnemy.
-			const Enemy *enemies[] = { lostEnemy };
+			const TrackedEnemy *enemies[] = { lostEnemy };
 			lostEnemies.Set( lostEnemy, targetChoicePeriod, enemies, enemies + 1 );
 		}
 	}
@@ -164,12 +164,12 @@ void BotThreatTracker::OnHurtByNewThreat( const edict_t *newThreat, const AiFram
 	// Reject threats detected by bot brain if there is active squad.
 	// Otherwise there may be two calls for a single or different threats
 	// detected by squad and the bot brain enemy pool itself.
-	if( self->ai->botRef->IsInSquad() && threatDetector == &this->ownEnemyPool ) {
+	if( self->ai->botRef->IsInSquad() && threatDetector == &this->ownEnemiesTracker ) {
 		return;
 	}
 
 	bool hadValidThreat = hurtEvent.IsValidFor( self );
-	float totalInflictedDamage = activeEnemyPool->TotalDamageInflictedBy( newThreat );
+	float totalInflictedDamage = activeEnemiesTracker->TotalDamageInflictedBy( newThreat );
 	if( hadValidThreat ) {
 		// The active threat is more dangerous than a new one
 		if( hurtEvent.totalDamage > totalInflictedDamage ) {
@@ -212,7 +212,7 @@ void BotThreatTracker::OnHurtByNewThreat( const edict_t *newThreat, const AiFram
 	}
 }
 
-void BotThreatTracker::OnEnemyRemoved( const Enemy *enemy ) {
+void BotThreatTracker::OnEnemyRemoved( const TrackedEnemy *enemy ) {
 	if( !selectedEnemies.AreValid() ) {
 		return;
 	}
