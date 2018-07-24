@@ -182,7 +182,7 @@ static void ENV_InitRandomTables() {
 	}
 }
 
-static constexpr float REVERB_ENV_DISTANCE_THRESHOLD = 3072.0f;
+static constexpr float REVERB_ENV_DISTANCE_THRESHOLD = 2048.0f + 256.0f;
 
 struct alignas( 4 )LeafProps {
 	uint8_t roomSizeFactor;
@@ -306,7 +306,7 @@ class LeafPropsCache {
 	mutable int numLeafs;
 	LeafProps *leafProps;
 
-	LeafProps ComputeLeafProps( int leafNum, LeafPropsSampler *sampler );
+	LeafProps ComputeLeafProps( int leafNum, LeafPropsSampler *sampler, bool fastAndCoarse );
 
 	bool TryReadFromFile( LeafPropsReader *reader, int actualLeafsNum );
 	void SaveToFile( const char *actualMap, const char *actualChecksum, int actualLeafsNum );
@@ -332,15 +332,17 @@ static ATTRIBUTE_ALIGNED( 8 ) uint8_t leafPropsCacheStorage[sizeof( LeafPropsCac
 static LeafPropsCache *leafPropsCache = nullptr;
 
 class LeafPropsSampler: public GenericRaycastSampler {
-	static constexpr unsigned NUM_RAYS = 1024;
+	static constexpr unsigned MAX_RAYS = 1024;
 
 	// Inline buffers for algorithm intermediates.
 	// Note that instances of this class should be allocated dynamically, so do not bother about arrays size.
-	vec3_t dirs[NUM_RAYS];
-	float distances[NUM_RAYS];
+	vec3_t dirs[MAX_RAYS];
+	float distances[MAX_RAYS];
+	const unsigned maxRays;
 public:
-	LeafPropsSampler() {
-		ENV_SetupSamplingRayDirs( dirs, NUM_RAYS );
+	LeafPropsSampler( bool fastAndCoarse = false )
+		: maxRays( fastAndCoarse ? MAX_RAYS / 3 : MAX_RAYS ) {
+		ENV_SetupSamplingRayDirs( dirs, maxRays );
 	}
 
 	bool ComputeLeafProps( const vec3_t origin, LeafProps *props );
@@ -569,7 +571,7 @@ void LeafPropsCache::EnsureValid() {
 	const char *actualMap = trap_GetConfigString( CS_WORLDMODEL );
 	const int actualNumLeafs = trap_NumLeafs();
 	// Should not be used for empty maps
-	if( !*actualMap || !numLeafs ) {
+	if( !*actualMap || !actualNumLeafs ) {
 		return;
 	}
 
@@ -586,6 +588,8 @@ void LeafPropsCache::EnsureValid() {
 
 	LeafPropsSampler *sampler = nullptr;
 
+	// Has to be initialized before goto that is way too convenient in this case to get rid of it
+	const bool fastAndCoarse = !trap_Cvar_Value( "developer" );
 	// Try reading from the base game filesystem, then from the cache.
 	// We should supply precomputed environment props for maps.
 	for( int flags : { FS_READ, ( FS_READ | FS_CACHE ) } ) {
@@ -595,11 +599,13 @@ void LeafPropsCache::EnsureValid() {
 		}
 	}
 
-	sampler = new( S_Malloc( sizeof( LeafPropsSampler ) ) )LeafPropsSampler;
+	Com_Printf( S_COLOR_YELLOW "Can't load a sound environment cache. Computing a new one (this may take a while)\n" );
+
+	sampler = new( S_Malloc( sizeof( LeafPropsSampler ) ) )LeafPropsSampler( fastAndCoarse );
 
 	leafProps[0] = LeafProps();
 	for( int i = 1; i < actualNumLeafs; ++i ) {
-		leafProps[i] = ComputeLeafProps( i, sampler );
+		leafProps[i] = ComputeLeafProps( i, sampler, fastAndCoarse );
 	}
 
 	sampler->~LeafPropsSampler();
@@ -645,7 +651,7 @@ void LeafPropsCache::SaveToFile( const char *actualMap, const char *actualChecks
 
 bool LeafPropsSampler::ComputeLeafProps( const vec3_t origin, LeafProps *props ) {
 	ResetMutableState( dirs, nullptr, distances, origin );
-	this->numPrimaryRays = NUM_RAYS;
+	this->numPrimaryRays = maxRays;
 
 	EmitPrimaryRays();
 	// Happens mostly if rays outgoing from origin start in solid
@@ -660,7 +666,7 @@ bool LeafPropsSampler::ComputeLeafProps( const vec3_t origin, LeafProps *props )
 	return true;
 }
 
-LeafProps LeafPropsCache::ComputeLeafProps( int leafNum, LeafPropsSampler *sampler ) {
+LeafProps LeafPropsCache::ComputeLeafProps( int leafNum, LeafPropsSampler *sampler, bool fastAndCoarse ) {
 	const vec3_t *leafBounds = trap_GetLeafBounds( leafNum );
 	const float *leafMins = leafBounds[0];
 	const float *leafMaxs = leafBounds[1];
@@ -672,9 +678,16 @@ LeafProps LeafPropsCache::ComputeLeafProps( int leafNum, LeafPropsSampler *sampl
 	LeafProps tmpProps;
 	LeafPropsBuilder propsBuilder;
 
-	// Let maxSamples grow quadratic depending linearly of square extent value.
-	// Cubic growth is more "natural" but leads to way too expensive computations.
-	const int maxSamples = 2 + (int)( squareExtent / ( 256.0f * 256.0f ) );
+	int maxSamples;
+	if( fastAndCoarse ) {
+		// Use a linear growth in this case
+		maxSamples = (int)( 1 + ( sqrtf( squareExtent ) / 256.0f ) );
+	} else {
+		// Let maxSamples grow quadratic depending linearly of square extent value.
+		// Cubic growth is more "natural" but leads to way too expensive computations.
+		maxSamples = (int)( 2 + ( squareExtent / ( 256.0f * 256.0f ) ) );
+	}
+
 	int numSamples = 0;
 	int numAttempts = 0;
 
