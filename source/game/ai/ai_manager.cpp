@@ -76,7 +76,7 @@ AiManager::AiManager( const char *gametype, const char *mapname )
 	REGISTER_BUILTIN_GOAL( BotGrabItemGoal );
 	REGISTER_BUILTIN_GOAL( BotKillEnemyGoal );
 	REGISTER_BUILTIN_GOAL( BotRunAwayGoal );
-	REGISTER_BUILTIN_GOAL( BotReactToDangerGoal );
+	REGISTER_BUILTIN_GOAL( BotReactToHazardGoal );
 	REGISTER_BUILTIN_GOAL( BotReactToThreatGoal );
 	REGISTER_BUILTIN_GOAL( BotReactToEnemyLostGoal );
 	REGISTER_BUILTIN_GOAL( BotAttackOutOfDespairGoal );

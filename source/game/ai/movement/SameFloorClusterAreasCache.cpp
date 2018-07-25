@@ -297,10 +297,10 @@ void BotSameFloorClusterAreasCache::BuildCandidateAreasHeap( Context *context, c
 		return;
 	}
 
-	const auto *dangerToEvade = bot->perceptionManager.PrimaryDanger();
+	const auto *hazardToEvade = bot->perceptionManager.PrimaryHazard();
 	// Reduce branching in the loop below
-	if( bot->ShouldRushHeadless() || ( dangerToEvade && !dangerToEvade->SupportsImpactTests() ) ) {
-		dangerToEvade = nullptr;
+	if( bot->ShouldRushHeadless() || ( hazardToEvade && !hazardToEvade->SupportsImpactTests() ) ) {
+		hazardToEvade = nullptr;
 	}
 
 	const auto *aasAreas = aasWorld->Areas();
@@ -325,7 +325,7 @@ void BotSameFloorClusterAreasCache::BuildCandidateAreasHeap( Context *context, c
 			continue;
 		}
 
-		if( dangerToEvade && dangerToEvade->HasImpactOnPoint( areaPoint ) ) {
+		if( hazardToEvade && hazardToEvade->HasImpactOnPoint( areaPoint ) ) {
 			continue;
 		}
 

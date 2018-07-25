@@ -125,7 +125,7 @@ private:
 		Health,
 		Armor,
 		RawDamageToKill,
-		PotentialDangerDamage,
+		PotentialHazardDamage,
 		ThreatInflictedDamage,
 
 		NUM_SHORT_VARS
@@ -146,7 +146,7 @@ private:
 		IsRunningAway,
 		HasRunAway,
 
-		HasReactedToDanger,
+		HasReactedToHazard,
 		HasReactedToThreat,
 
 		IsReactingToEnemyLost,
@@ -181,11 +181,11 @@ private:
 		NavTargetOrigin,
 		PendingOrigin,
 
-		DangerHitPoint,
-		DangerDirection,
+		HazardHitPoint,
+		HazardDirection,
 		// There are no reasons to make it lazy since it always gets computed
-		// if a danger is present because ReactToDanger is a very high priority goal
-		DodgeDangerSpot,
+		// if a hazard is present because ReactToHazard is a very high priority goal
+		DodgeHazardSpot,
 		ThreatPossibleOrigin,
 		LostEnemyLastSeenOrigin,
 
@@ -616,7 +616,7 @@ public:
 	DECLARE_SHORT_VAR( Health )
 	DECLARE_SHORT_VAR( Armor )
 	DECLARE_SHORT_VAR( RawDamageToKill )
-	DECLARE_SHORT_VAR( PotentialDangerDamage )
+	DECLARE_SHORT_VAR( PotentialHazardDamage )
 	DECLARE_SHORT_VAR( ThreatInflictedDamage )
 
 	DECLARE_BOOL_VAR( HasQuad )
@@ -628,7 +628,7 @@ public:
 	DECLARE_BOOL_VAR( IsRunningAway )
 	DECLARE_BOOL_VAR( HasRunAway )
 
-	DECLARE_BOOL_VAR( HasReactedToDanger )
+	DECLARE_BOOL_VAR( HasReactedToHazard )
 	DECLARE_BOOL_VAR( HasReactedToThreat )
 
 	DECLARE_BOOL_VAR( IsReactingToEnemyLost )
@@ -664,9 +664,9 @@ public:
 	DECLARE_ORIGIN_VAR( NavTargetOrigin )
 	DECLARE_ORIGIN_VAR( PendingOrigin )
 
-	DECLARE_ORIGIN_VAR( DangerHitPoint )
-	DECLARE_ORIGIN_VAR( DangerDirection )
-	DECLARE_ORIGIN_VAR( DodgeDangerSpot )
+	DECLARE_ORIGIN_VAR( HazardHitPoint )
+	DECLARE_ORIGIN_VAR( HazardDirection )
+	DECLARE_ORIGIN_VAR( DodgeHazardSpot )
 	DECLARE_ORIGIN_VAR( ThreatPossibleOrigin )
 	DECLARE_ORIGIN_VAR( LostEnemyLastSeenOrigin )
 

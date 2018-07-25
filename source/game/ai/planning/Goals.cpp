@@ -235,22 +235,22 @@ PlannerNode *BotAttackOutOfDespairGoal::GetWorldStateTransitions( const WorldSta
 	return ApplyExtraActions( firstTransition, worldState );
 }
 
-void BotReactToDangerGoal::GetDesiredWorldState( WorldState *worldState ) {
+void BotReactToHazardGoal::GetDesiredWorldState( WorldState *worldState ) {
 	worldState->SetIgnoreAll( true );
 
-	worldState->HasReactedToDangerVar().SetIgnore( false ).SetValue( true );
+	worldState->HasReactedToHazardVar().SetIgnore( false ).SetValue( true );
 }
 
-void BotReactToDangerGoal::UpdateWeight( const WorldState &currWorldState ) {
+void BotReactToHazardGoal::UpdateWeight( const WorldState &currWorldState ) {
 	this->weight = 0.0f;
 
-	if( currWorldState.PotentialDangerDamageVar().Ignore() ) {
+	if( currWorldState.PotentialHazardDamageVar().Ignore() ) {
 		return;
 	}
 
-	const auto &configGroup = WeightConfig().nativeGoals.reactToDanger;
+	const auto &configGroup = WeightConfig().nativeGoals.reactToHazard;
 
-	float damageFraction = currWorldState.PotentialDangerDamageVar() / currWorldState.DamageToBeKilled();
+	float damageFraction = currWorldState.PotentialHazardDamageVar() / currWorldState.DamageToBeKilled();
 	float weight_ = configGroup.baseWeight + configGroup.dmgFracCoeff * damageFraction;
 	weight_ = BoundedFraction( weight_, configGroup.weightBound );
 	weight_ = configGroup.weightBound / Q_RSqrt( weight_ );
@@ -258,7 +258,7 @@ void BotReactToDangerGoal::UpdateWeight( const WorldState &currWorldState ) {
 	this->weight = weight_;
 }
 
-PlannerNode *BotReactToDangerGoal::GetWorldStateTransitions( const WorldState &worldState ) {
+PlannerNode *BotReactToHazardGoal::GetWorldStateTransitions( const WorldState &worldState ) {
 	PlannerNode *firstTransition = nullptr;
 
 	TRY_APPLY_ACTION( dodgeToSpotAction );

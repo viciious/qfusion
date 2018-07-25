@@ -109,7 +109,7 @@ class Bot : public Ai
 	friend class BotGrabItemGoal;
 	friend class BotKillEnemyGoal;
 	friend class BotRunAwayGoal;
-	friend class BotReactToDangerGoal;
+	friend class BotReactToHazardGoal;
 	friend class BotReactToThreatGoal;
 	friend class BotReactToEnemyLostGoal;
 	friend class BotAttackOutOfDespairGoal;
@@ -370,7 +370,7 @@ private:
 	BotGrabItemGoal grabItemGoal;
 	BotKillEnemyGoal killEnemyGoal;
 	BotRunAwayGoal runAwayGoal;
-	BotReactToDangerGoal reactToDangerGoal;
+	BotReactToHazardGoal reactToHazardGoal;
 	BotReactToThreatGoal reactToThreatGoal;
 	BotReactToEnemyLostGoal reactToEnemyLostGoal;
 	BotAttackOutOfDespairGoal attackOutOfDespairGoal;
@@ -644,7 +644,7 @@ public:
 
 	const SelectedEnemies &GetSelectedEnemies() const { return selectedEnemies; }
 
-	const Danger *PrimaryHazard() const { return perceptionManager.PrimaryDanger(); }
+	const Hazard *PrimaryHazard() const { return perceptionManager.PrimaryHazard(); }
 
 	SelectedMiscTactics &GetMiscTactics() { return selectedTactics; }
 	const SelectedMiscTactics &GetMiscTactics() const { return selectedTactics; }
@@ -654,8 +654,6 @@ public:
 	const TrackedEnemy *TrackedEnemiesHead() const { return threatTracker.TrackedEnemiesHead(); }
 
 	const BotThreatTracker::HurtEvent *ActiveHurtEvent() const { return threatTracker.GetValidHurtEvent(); }
-
-	const Danger *PrimaryDanger() const { return threatTracker.GetValidHazard(); }
 
 	inline bool WillAdvance() const { return selectedTactics.willAdvance; }
 	inline bool WillRetreat() const { return selectedTactics.willRetreat; }

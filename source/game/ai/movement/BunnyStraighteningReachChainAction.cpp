@@ -121,10 +121,10 @@ AreaAndScore *BunnyStraighteningReachChainAction::SelectCandidateAreas( Context 
 	const int navTargetAasAreaNum = context->NavTargetAasAreaNum();
 	const float pointZOffset = -playerbox_stand_mins[2];
 
-	const auto *dangerToEvade = bot->PrimaryHazard();
+	const auto *hazardToEvade = bot->PrimaryHazard();
 	// Reduce branching in the loop below
-	if( bot->ShouldRushHeadless() || ( dangerToEvade && !dangerToEvade->SupportsImpactTests() ) ) {
-		dangerToEvade = nullptr;
+	if( bot->ShouldRushHeadless() || ( hazardToEvade && !hazardToEvade->SupportsImpactTests() ) ) {
+		hazardToEvade = nullptr;
 	}
 
 	int metStairsClusterNum = 0;
@@ -187,7 +187,7 @@ AreaAndScore *BunnyStraighteningReachChainAction::SelectCandidateAreas( Context 
 			continue;
 		}
 
-		if( dangerToEvade && dangerToEvade->HasImpactOnPoint( areaPoint ) ) {
+		if( hazardToEvade && hazardToEvade->HasImpactOnPoint( areaPoint ) ) {
 			continue;
 		}
 

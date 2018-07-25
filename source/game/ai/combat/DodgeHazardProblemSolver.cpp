@@ -151,7 +151,7 @@ Vec3 DodgeHazardProblemSolver::MakeDodgeHazardDir( bool *mightNegateDodgeDir ) c
 	// If bot is not hit in its center, try pick a direction that is opposite to a vector from bot center to hit point
 	if( selfToHitPoint.SquaredLength() > 4 * 4 ) {
 		selfToHitPoint.NormalizeFast();
-		// Check whether this direction really helps to dodge the danger
+		// Check whether this direction really helps to dodge the hazard
 		// (the less is the abs. value of the dot product, the closer is the chosen direction to a perpendicular one)
 		if( fabsf( selfToHitPoint.Dot( originParams.origin ) ) < 0.5f ) {
 			if( fabsf( selfToHitPoint.X() ) < 0.3f ) {
@@ -165,7 +165,7 @@ Vec3 DodgeHazardProblemSolver::MakeDodgeHazardDir( bool *mightNegateDodgeDir ) c
 	}
 
 	*mightNegateDodgeDir = true;
-	// Otherwise just pick a direction that is perpendicular to the danger direction
+	// Otherwise just pick a direction that is perpendicular to the hazard direction
 	float maxCrossSqLen = 0.0f;
 	Vec3 result( 0, 1, 0 );
 	for( int i = 0; i < 3; ++i ) {

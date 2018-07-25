@@ -215,9 +215,9 @@ float SelectedEnemies::ComputeThreatFactor( const edict_t *ent, int enemyNum ) c
 		return 1.0f;
 	}
 
-	if( const auto *danger = self->ai->botRef->PrimaryDanger() ) {
-		if( danger->attacker == ent ) {
-			return 0.5f + 0.5f * BoundedFraction( danger->damage, 75 );
+	if( const auto *hazard = self->ai->botRef->PrimaryHazard() ) {
+		if( hazard->attacker == ent ) {
+			return 0.5f + 0.5f * BoundedFraction( hazard->damage, 75 );
 		}
 	}
 

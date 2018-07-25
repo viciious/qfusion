@@ -4,7 +4,7 @@
 void BotDodgeToSpotActionRecord::Activate() {
 	BotBaseActionRecord::Activate();
 	self->ai->botRef->SetNavTarget( &navTarget );
-	timeoutAt = level.time + Danger::TIMEOUT;
+	timeoutAt = level.time + Hazard::TIMEOUT;
 	self->ai->botRef->GetMiscTactics().PreferAttackRatherThanRun();
 }
 
@@ -25,18 +25,18 @@ AiBaseActionRecord::Status BotDodgeToSpotActionRecord::CheckStatus( const WorldS
 }
 
 PlannerNode *BotDodgeToSpotAction::TryApply( const WorldState &worldState ) {
-	if( worldState.PotentialDangerDamageVar().Ignore() ) {
-		Debug( "Potential danger damage is ignored in the given world state\n" );
+	if( worldState.PotentialHazardDamageVar().Ignore() ) {
+		Debug( "Potential hazard damage is ignored in the given world state\n" );
 		return nullptr;
 	}
 
 #ifndef _DEBUG
 	// Sanity check
-	if( worldState.DangerHitPointVar().Ignore() ) {
-		AI_FailWith( "BotDodgeToSpotAction::TryApply()", "Danger hit point is ignored in the given world state\n" );
+	if( worldState.HazardHitPointVar().Ignore() ) {
+		AI_FailWith( "BotDodgeToSpotAction::TryApply()", "Hazard hit point is ignored in the given world state\n" );
 	}
-	if( worldState.DangerDirectionVar().Ignore() ) {
-		AI_FailWith( "BotDodgeToSpotAction::TryApply()", "Danger direction is ignored in the given world state\n" );
+	if( worldState.HazardDirectionVar().Ignore() ) {
+		AI_FailWith( "BotDodgeToSpotAction::TryApply()", "Hazard direction is ignored in the given world state\n" );
 	}
 #endif
 
@@ -46,12 +46,12 @@ PlannerNode *BotDodgeToSpotAction::TryApply( const WorldState &worldState ) {
 		return nullptr;
 	}
 
-	if( worldState.DodgeDangerSpotVar().Ignore() ) {
-		Debug( "Spot for dodging a danger is ignored in the given world state, can't dodge\n" );
+	if( worldState.DodgeHazardSpotVar().Ignore() ) {
+		Debug( "Spot for dodging a hazard is ignored in the given world state, can't dodge\n" );
 		return nullptr;
 	}
 
-	const Vec3 spotOrigin = worldState.DodgeDangerSpotVar().Value();
+	const Vec3 spotOrigin = worldState.DodgeHazardSpotVar().Value();
 	int travelTimeMillis = self->ai->botRef->CheckTravelTimeMillis( worldState.BotOriginVar().Value(), spotOrigin );
 	if( !travelTimeMillis ) {
 		Debug( "Warning: can't find travel time from the bot origin to the spot origin in the given world state\n" );
@@ -66,10 +66,10 @@ PlannerNode *BotDodgeToSpotAction::TryApply( const WorldState &worldState ) {
 	plannerNode.Cost() = travelTimeMillis;
 	plannerNode.WorldState() = worldState;
 	plannerNode.WorldState().BotOriginVar().SetValue( spotOrigin );
-	plannerNode.WorldState().PotentialDangerDamageVar().SetIgnore( true );
-	plannerNode.WorldState().DangerHitPointVar().SetIgnore( true );
-	plannerNode.WorldState().DangerDirectionVar().SetIgnore( true );
-	plannerNode.WorldState().HasReactedToDangerVar().SetIgnore( false ).SetValue( true );
+	plannerNode.WorldState().PotentialHazardDamageVar().SetIgnore( true );
+	plannerNode.WorldState().HazardHitPointVar().SetIgnore( true );
+	plannerNode.WorldState().HazardDirectionVar().SetIgnore( true );
+	plannerNode.WorldState().HasReactedToHazardVar().SetIgnore( false ).SetValue( true );
 
 	return plannerNode.PrepareActionResult();
 }

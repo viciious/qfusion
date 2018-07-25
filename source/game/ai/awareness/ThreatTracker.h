@@ -64,8 +64,8 @@ private:
 
 	EnemiesTracker ownEnemiesTracker;
 
-	Danger selectedHazard;
-	Danger triggeredPlanningHazard;
+	Hazard selectedHazard;
+	Hazard triggeredPlanningHazard;
 
 	void Frame() override;
 	void Think() override;
@@ -102,7 +102,7 @@ public:
 		return ( (const AiEnemiesTracker *)activeEnemiesTracker )->TrackedEnemiesHead();
 	}
 
-	const Danger *GetValidHazard() const {
+	const Hazard *GetValidHazard() const {
 		// Might be outdated for few frames, check it on access
 		return selectedHazard.IsValid() ? &selectedHazard : nullptr;
 	}

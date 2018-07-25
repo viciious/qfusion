@@ -30,11 +30,11 @@ BotBaseAction *BotPlanner::GetActionByName( const char *name ) {
 	return nullptr;
 }
 
-bool BotPlanner::FindDodgeHazardSpot( const Danger &danger, vec3_t spotOrigin ) {
+bool BotPlanner::FindDodgeHazardSpot( const Hazard &hazard, vec3_t spotOrigin ) {
 	float radius = 128.0f + 192.0f * self->ai->botRef->Skill();
 	typedef DodgeHazardProblemSolver Solver;
 	Solver::OriginParams originParams( self, radius, self->ai->botRef->routeCache );
-	Solver::ProblemParams problemParams( danger.hitPoint, danger.direction, danger.IsSplashLike() );
+	Solver::ProblemParams problemParams( hazard.hitPoint, hazard.direction, hazard.IsSplashLike() );
 	problemParams.SetCheckToAndBackReach( false );
 	problemParams.SetMinHeightAdvantageOverOrigin( -64.0f );
 	// Influence values are quite low because evade direction factor must be primary
@@ -188,23 +188,23 @@ void BotPlanner::PrepareCurrWorldState( WorldState *worldState ) {
 	worldState->IsRunningAwayVar().SetIgnore( true );
 	worldState->HasRunAwayVar().SetIgnore( true );
 
-	const Danger *activeHazard = self->ai->botRef->PrimaryDanger();
-	worldState->HasReactedToDangerVar().SetValue( false );
+	const Hazard *activeHazard = self->ai->botRef->PrimaryHazard();
+	worldState->HasReactedToHazardVar().SetValue( false );
 	if( self->ai->botRef->Skill() > 0.33f && activeHazard ) {
-		worldState->PotentialDangerDamageVar().SetValue( (short)activeHazard->damage );
-		worldState->DangerHitPointVar().SetValue( activeHazard->hitPoint );
-		worldState->DangerDirectionVar().SetValue( activeHazard->direction );
-		vec3_t dodgeDangerSpot;
-		if( FindDodgeHazardSpot( *activeHazard, dodgeDangerSpot ) ) {
-			worldState->DodgeDangerSpotVar().SetValue( dodgeDangerSpot );
+		worldState->PotentialHazardDamageVar().SetValue( (short)activeHazard->damage );
+		worldState->HazardHitPointVar().SetValue( activeHazard->hitPoint );
+		worldState->HazardDirectionVar().SetValue( activeHazard->direction );
+		vec3_t dodgeHazardSpot;
+		if( FindDodgeHazardSpot( *activeHazard, dodgeHazardSpot ) ) {
+			worldState->DodgeHazardSpotVar().SetValue( dodgeHazardSpot );
 		} else {
-			worldState->DodgeDangerSpotVar().SetIgnore( true );
+			worldState->DodgeHazardSpotVar().SetIgnore( true );
 		}
 	} else {
-		worldState->PotentialDangerDamageVar().SetIgnore( true );
-		worldState->DangerHitPointVar().SetIgnore( true );
-		worldState->DangerDirectionVar().SetIgnore( true );
-		worldState->DodgeDangerSpotVar().SetIgnore( true );
+		worldState->PotentialHazardDamageVar().SetIgnore( true );
+		worldState->HazardHitPointVar().SetIgnore( true );
+		worldState->HazardDirectionVar().SetIgnore( true );
+		worldState->DodgeHazardSpotVar().SetIgnore( true );
 	}
 
 	if( const auto *activeThreat = self->ai->botRef->ActiveHurtEvent() ) {

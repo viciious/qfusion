@@ -63,10 +63,10 @@ AreaAndScore *BunnyToBestShortcutAreaAction::SelectCandidateAreas( Context *cont
 	Vec3 traceStartPoint( entityPhysicsState.Origin() );
 	traceStartPoint.Z() += playerbox_stand_viewheight;
 
-	const auto *dangerToEvade = bot->PrimaryHazard();
+	const auto *hazardToEvade = bot->PrimaryHazard();
 	// Reduce branching in the loop below
-	if( bot->ShouldRushHeadless() || ( dangerToEvade && !dangerToEvade->SupportsImpactTests() ) ) {
-		dangerToEvade = nullptr;
+	if( bot->ShouldRushHeadless() || ( hazardToEvade && !hazardToEvade->SupportsImpactTests() ) ) {
+		hazardToEvade = nullptr;
 	}
 
 	int metStairsClusterNum = 0;
@@ -135,7 +135,7 @@ AreaAndScore *BunnyToBestShortcutAreaAction::SelectCandidateAreas( Context *cont
 			continue;
 		}
 
-		if( dangerToEvade && dangerToEvade->HasImpactOnPoint( areaPoint ) ) {
+		if( hazardToEvade && hazardToEvade->HasImpactOnPoint( areaPoint ) ) {
 			continue;
 		}
 

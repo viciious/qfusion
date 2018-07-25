@@ -153,13 +153,13 @@ void BaseMovementAction::CheckPredictionStepResults( Context *context ) {
 		return;
 	}
 
-	if( this->failPredictionOnEnteringDangerImpactZone ) {
-		if( const auto *danger = bot->PrimaryHazard() ) {
-			if( danger->SupportsImpactTests() ) {
+	if( this->failPredictionOnEnteringHazardImpactZone ) {
+		if( const auto *hazard = bot->PrimaryHazard() ) {
+			if( hazard->SupportsImpactTests() ) {
 				// Check the new origin condition first to cut off early
-				if( danger->HasImpactOnPoint( newEntityPhysicsState.Origin() ) ) {
-					if( !danger->HasImpactOnPoint( oldEntityPhysicsState.Origin() ) ) {
-						Debug( "A prediction step has lead to entering a danger influence zone, should rollback\n" );
+				if( hazard->HasImpactOnPoint( newEntityPhysicsState.Origin() ) ) {
+					if( !hazard->HasImpactOnPoint( oldEntityPhysicsState.Origin() ) ) {
+						Debug( "A prediction step has lead to entering a hazard influence zone, should rollback\n" );
 						context->SetPendingRollback();
 						return;
 					}

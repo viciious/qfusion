@@ -330,7 +330,7 @@ DEFINE_NATIVE_WS_VAR_GETTER(UnsignedVar, similar, Similar, WorldStateInstanceIdV
 DEFINE_NATIVE_WS_VAR_GETTER(ShortVar, health, Health, Var);
 DEFINE_NATIVE_WS_VAR_GETTER(ShortVar, armor, Armor, Var);
 DEFINE_NATIVE_WS_VAR_GETTER(ShortVar, raw, Raw, DamageToKillVar);
-DEFINE_NATIVE_WS_VAR_GETTER(ShortVar, potential, Potential, DangerDamageVar);
+DEFINE_NATIVE_WS_VAR_GETTER(ShortVar, potential, Potential, HazardDamageVar);
 DEFINE_NATIVE_WS_VAR_GETTER(ShortVar, threat, Threat, InflictedDamageVar);
 
 DEFINE_NATIVE_WS_VAR_GETTER(BoolVar, has, Has, QuadVar);
@@ -342,7 +342,7 @@ DEFINE_NATIVE_WS_VAR_GETTER(BoolVar, has, Has, JustPickedGoalItemVar);
 DEFINE_NATIVE_WS_VAR_GETTER(BoolVar, is, Is, RunningAwayVar);
 DEFINE_NATIVE_WS_VAR_GETTER(BoolVar, has, Has, RunAwayVar);
 
-DEFINE_NATIVE_WS_VAR_GETTER(BoolVar, has, Has, ReactedToDangerVar);
+DEFINE_NATIVE_WS_VAR_GETTER(BoolVar, has, Has, ReactedToHazardVar);
 DEFINE_NATIVE_WS_VAR_GETTER(BoolVar, has, Has, ReactedToThreatVar);
 
 DEFINE_NATIVE_WS_VAR_GETTER(BoolVar, is, Is, ReactingToEnemyLostVar);
@@ -378,9 +378,9 @@ DEFINE_NATIVE_WS_VAR_GETTER(OriginVar, enemy, Enemy, OriginVar);
 DEFINE_NATIVE_WS_VAR_GETTER(OriginVar, nav, Nav, TargetOriginVar);
 DEFINE_NATIVE_WS_VAR_GETTER(OriginVar, pending, Pending, OriginVar);
 
-DEFINE_NATIVE_WS_VAR_GETTER(OriginVar, danger, Danger, HitPointVar);
-DEFINE_NATIVE_WS_VAR_GETTER(OriginVar, danger, Danger, DirectionVar);
-DEFINE_NATIVE_WS_VAR_GETTER(OriginVar, dodge, Dodge, DangerSpotVar);
+DEFINE_NATIVE_WS_VAR_GETTER(OriginVar, hazard, Hazard, HitPointVar);
+DEFINE_NATIVE_WS_VAR_GETTER(OriginVar, hazard, Hazard, DirectionVar);
+DEFINE_NATIVE_WS_VAR_GETTER(OriginVar, dodge, Dodge, HazardSpotVar);
 DEFINE_NATIVE_WS_VAR_GETTER(OriginVar, threat, Threat, PossibleOriginVar);
 DEFINE_NATIVE_WS_VAR_GETTER(OriginVar, lost, Lost, EnemyLastSeenOriginVar);
 
@@ -419,7 +419,7 @@ static const asMethod_t asAiWorldState_ObjectMethods[] =
     DECLARE_SCRIPT_WS_GETTER(ShortVar, health, Health, Var),
     DECLARE_SCRIPT_WS_GETTER(ShortVar, armor, Armor, Var),
     DECLARE_SCRIPT_WS_GETTER(ShortVar, raw, Raw, DamageToKillVar),
-    DECLARE_SCRIPT_WS_GETTER(ShortVar, potential, Potential, DangerDamageVar),
+    DECLARE_SCRIPT_WS_GETTER(ShortVar, potential, Potential, HazardDamageVar),
     DECLARE_SCRIPT_WS_GETTER(ShortVar, threat, Threat, InflictedDamageVar),
 
     DECLARE_SCRIPT_WS_GETTER(BoolVar, has, Has, QuadVar),
@@ -431,7 +431,7 @@ static const asMethod_t asAiWorldState_ObjectMethods[] =
     DECLARE_SCRIPT_WS_GETTER(BoolVar, is, Is, RunningAwayVar),
     DECLARE_SCRIPT_WS_GETTER(BoolVar, has, Has, RunAwayVar),
 
-    DECLARE_SCRIPT_WS_GETTER(BoolVar, has, Has, ReactedToDangerVar),
+    DECLARE_SCRIPT_WS_GETTER(BoolVar, has, Has, ReactedToHazardVar),
     DECLARE_SCRIPT_WS_GETTER(BoolVar, has, Has, ReactedToThreatVar),
 
     DECLARE_SCRIPT_WS_GETTER(BoolVar, is, Is, ReactingToEnemyLostVar),
@@ -467,9 +467,9 @@ static const asMethod_t asAiWorldState_ObjectMethods[] =
     DECLARE_SCRIPT_WS_GETTER(OriginVar, nav, Nav, TargetOriginVar),
     DECLARE_SCRIPT_WS_GETTER(OriginVar, pending, Pending, OriginVar),
 
-    DECLARE_SCRIPT_WS_GETTER(OriginVar, danger, Danger, HitPointVar),
-    DECLARE_SCRIPT_WS_GETTER(OriginVar, danger, Danger, DirectionVar),
-    DECLARE_SCRIPT_WS_GETTER(OriginVar, dodge, Dodge, DangerSpotVar),
+    DECLARE_SCRIPT_WS_GETTER(OriginVar, hazard, Hazard, HitPointVar),
+    DECLARE_SCRIPT_WS_GETTER(OriginVar, hazard, Hazard, DirectionVar),
+    DECLARE_SCRIPT_WS_GETTER(OriginVar, dodge, Dodge, HazardSpotVar),
     DECLARE_SCRIPT_WS_GETTER(OriginVar, threat, Threat, PossibleOriginVar),
     DECLARE_SCRIPT_WS_GETTER(OriginVar, lost, Lost, EnemyLastSeenOriginVar),
 

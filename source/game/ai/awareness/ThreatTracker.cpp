@@ -144,7 +144,7 @@ void BotThreatTracker::CheckNewActiveHazard() {
 		return;
 	}
 
-	const Danger *hazard = self->ai->botRef->perceptionManager.PrimaryDanger();
+	const Hazard *hazard = self->ai->botRef->perceptionManager.PrimaryHazard();
 	if( !hazard ) {
 		return;
 	}

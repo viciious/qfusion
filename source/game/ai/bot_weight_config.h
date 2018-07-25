@@ -45,17 +45,17 @@ public:
 				nmyThreatCoeff( this, "NmyThreatCoeff", 1.10f, 3.00f, 1.50f ) {}
 		} runAway;
 
-		struct ReactToDangerGroup : public AiNativeWeightConfigVarGroup {
+		struct ReactToHazardGroup : public AiNativeWeightConfigVarGroup {
 			AiNativeWeightConfigVar baseWeight;
 			AiNativeWeightConfigVar dmgFracCoeff;
 			AiNativeWeightConfigVar weightBound;
 
-			ReactToDangerGroup( AiBaseWeightConfigVarGroup *parent )
-				: AiNativeWeightConfigVarGroup( parent, "ReactToDanger" ),
+			ReactToHazardGroup( AiBaseWeightConfigVarGroup *parent )
+				: AiNativeWeightConfigVarGroup( parent, "ReactToHazard" ),
 				baseWeight( this, "BaseWeight", 0.50f, 1.00f, 0.75f ),
 				dmgFracCoeff( this, "DmgFracCoeff", 0.50f, 5.00f, 2.00f ),
 				weightBound( this, "WeightBound", 1.00f, 5.00f, 2.00f ) {}
-		} reactToDanger;
+		} reactToHazard;
 
 		struct ReactToThreatGroup : public AiNativeWeightConfigVarGroup {
 			AiNativeWeightConfigVar baseWeight;
@@ -102,7 +102,7 @@ public:
 			grabItem( this ),
 			killEnemy( this ),
 			runAway( this ),
-			reactToDanger( this ),
+			reactToHazard( this ),
 			reactToThreat( this ),
 			reactToEnemyLost( this ),
 			attackOutOfDespair( this ) {}

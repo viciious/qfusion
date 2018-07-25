@@ -72,10 +72,10 @@ public:
 	void OnPlanBuildingCompleted( const AiBaseActionRecord *planHead ) override;
 };
 
-class BotReactToDangerGoal : public BotBaseGoal
+class BotReactToHazardGoal : public BotBaseGoal
 {
 public:
-	BotReactToDangerGoal( Ai *ai_ ) : BotBaseGoal( ai_, "BotReactToDangerGoal", COLOR_RGB( 192, 0, 192 ), 750 ) {}
+	BotReactToHazardGoal( Ai *ai_ ) : BotBaseGoal( ai_, "BotReactToHazardGoal", COLOR_RGB( 192, 0, 192 ), 750 ) {}
 
 	void UpdateWeight( const WorldState &currWorldState ) override;
 	void GetDesiredWorldState( WorldState *worldState ) override;

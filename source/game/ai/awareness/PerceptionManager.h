@@ -4,10 +4,10 @@
 #include "../planning/BasePlanner.h"
 #include "../static_deque.h"
 
-struct Danger : public PoolItem {
+struct Hazard : public PoolItem {
 	static constexpr unsigned TIMEOUT = 750;
 
-	Danger( PoolBase *pool_ )
+	Hazard( PoolBase *pool_ )
         : PoolItem( pool_ ),
         hitPoint( 0, 0, 0 ),
         direction( 0, 0, 0 ),
@@ -19,7 +19,7 @@ struct Danger : public PoolItem {
 	// Sorting by this operator is fast but should be used only
 	// to prepare most dangerous entities of the same type.
 	// Ai decisions should be made by more sophisticated code.
-	bool operator<( const Danger &that ) const { return this->damage < that.damage; }
+	bool operator<( const Hazard &that ) const { return this->damage < that.damage; }
 
 	bool IsValid() const { return timeoutAt > level.time; }
 
@@ -38,7 +38,7 @@ struct Danger : public PoolItem {
 	}
 
 	bool HasImpactOnPoint( const vec3_t point ) const {
-		// Currently only splash-like dangers are supported
+		// Currently only splash-like hazards are supported
 		return IsSplashLike() && hitPoint.SquareDistanceTo( point ) <= splashRadius * splashRadius;
 	}
 };
@@ -139,14 +139,14 @@ class BotPerceptionManager: public AiFrameAwareUpdatable
 
 	edict_t *const self;
 
-	static constexpr auto MAX_CLASS_DANGERS = 1;
-	typedef Pool<Danger, MAX_CLASS_DANGERS> DangersPool;
+	static constexpr auto MAX_CLASS_HAZARDS = 1;
+	typedef Pool<Hazard, MAX_CLASS_HAZARDS> HazardPool;
 
-	// Currently there is no more than a single active danger. It might be changed in future.
-	Danger *primaryDanger;
+	// Currently there is no more than a single active hazard. It might be changed in future.
+	Hazard *primaryHazard;
 
 	// We need a bit more space for intermediate results
-	Pool<Danger, 3> dangersPool;
+	Pool<Hazard, 3> hazardPool;
 
 	float viewDirDotTeammateDir[MAX_CLIENTS];
 	float distancesToTeammates[MAX_CLIENTS];
@@ -170,17 +170,17 @@ class BotPerceptionManager: public AiFrameAwareUpdatable
 	static const auto MAX_NONCLIENT_ENTITIES = EntitiesDetector::MAX_NONCLIENT_ENTITIES;
 	typedef EntitiesDetector::EntAndDistance EntAndDistance;
 
-	void ClearDangers();
+	void ClearHazards();
 
-	bool TryAddDanger( float damageScore, const vec3_t hitPoint, const vec3_t direction,
+	bool TryAddHazard( float damageScore, const vec3_t hitPoint, const vec3_t direction,
 					   const edict_t *owner, float splashRadius = 0.0f );
 
 	typedef StaticVector<uint16_t, MAX_NONCLIENT_ENTITIES> EntNumsVector;
-	void FindProjectileDangers( const EntNumsVector &entNums );
+	void FindProjectileHazards( const EntNumsVector &entNums );
 
-	void FindWaveDangers( const EntNumsVector &entNums );
-	void FindPlasmaDangers( const EntNumsVector &entNums );
-	void FindLaserDangers( const EntNumsVector &entNums );
+	void FindWaveHazards( const EntNumsVector &entNums );
+	void FindPlasmaHazards( const EntNumsVector &entNums );
+	void FindLaserHazards( const EntNumsVector &entNums );
 
 	// The failure chance is specified mainly to throttle excessive plasma spam
 	void TryGuessingBeamOwnersOrigins( const EntNumsVector &dangerousEntsNums, float failureChance );
@@ -296,7 +296,7 @@ class BotPerceptionManager: public AiFrameAwareUpdatable
 public:
 	BotPerceptionManager( edict_t *self_ );
 
-	const Danger *PrimaryDanger() const { return primaryDanger; }
+	const Hazard *PrimaryHazard() const { return primaryHazard; }
 
 	void RegisterEvent( const edict_t *ent, int event, int parm );
 

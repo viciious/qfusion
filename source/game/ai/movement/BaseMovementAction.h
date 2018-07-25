@@ -36,7 +36,7 @@ protected:
 	bool stopPredictionOnTouchingPlatform;
 	bool stopPredictionOnTouchingNavEntity;
 	bool stopPredictionOnEnteringWater;
-	bool failPredictionOnEnteringDangerImpactZone;
+	bool failPredictionOnEnteringHazardImpactZone;
 
 	inline BaseMovementAction &DummyAction();
 	inline BaseMovementAction &DefaultWalkAction();
@@ -75,7 +75,7 @@ public:
 		, stopPredictionOnTouchingPlatform( true )
 		, stopPredictionOnTouchingNavEntity( true )
 		, stopPredictionOnEnteringWater( true )
-		, failPredictionOnEnteringDangerImpactZone( true ) {
+		, failPredictionOnEnteringHazardImpactZone( true ) {
 		RegisterSelf();
 	}
 	virtual void PlanPredictionStep( MovementPredictionContext *context ) = 0;
