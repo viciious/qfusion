@@ -297,7 +297,7 @@ void BotSameFloorClusterAreasCache::BuildCandidateAreasHeap( Context *context, c
 		return;
 	}
 
-	const auto *hazardToEvade = bot->perceptionManager.PrimaryHazard();
+	const auto *hazardToEvade = bot->PrimaryHazard();
 	// Reduce branching in the loop below
 	if( bot->ShouldRushHeadless() || ( hazardToEvade && !hazardToEvade->SupportsImpactTests() ) ) {
 		hazardToEvade = nullptr;

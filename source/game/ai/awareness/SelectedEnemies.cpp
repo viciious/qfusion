@@ -1,4 +1,5 @@
 #include "SelectedEnemies.h"
+#include "EntitiesPvsCache.h"
 #include "../bot.h"
 
 bool SelectedEnemies::AreValid() const {

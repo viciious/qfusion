@@ -320,7 +320,7 @@ public:
 
 class AiEnemiesTracker : public AiFrameAwareUpdatable {
 	friend class TrackedEnemy;
-	friend class BotThreatTracker;
+	friend class BotAwarenessModule;
 	friend class AiSquad;
 public:
 	static constexpr unsigned MAX_TRACKED_ATTACKERS = 5;

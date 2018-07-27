@@ -20,8 +20,7 @@ Bot::Bot( edict_t *self_, float skillLevel_ )
 		, PREFERRED_TRAVEL_FLAGS
 		, ALLOWED_TRAVEL_FLAGS )
 	, weightConfig( self_ )
-	, perceptionManager( self_ )
-	, threatTracker( self_, this, skillLevel_ )
+	, awarenessModule( self_, this, skillLevel_ )
 	, botPlanner( this, skillLevel_ )
 	, skillLevel( skillLevel_ )
 	, selectedEnemies( self_ )
@@ -126,7 +125,7 @@ void Bot::UpdateKeptInFovPoint() {
 		timeout = ( timeout * 3u ) / 2u;
 	}
 
-	if( const TrackedEnemy *lostOrHiddenEnemy = threatTracker.ChooseLostOrHiddenEnemy( timeout ) ) {
+	if( const TrackedEnemy *lostOrHiddenEnemy = awarenessModule.ChooseLostOrHiddenEnemy( timeout ) ) {
 		if( !lastChosenLostOrHiddenEnemy ) {
 			lastChosenLostOrHiddenEnemyInstanceId++;
 		} else if( lastChosenLostOrHiddenEnemy->ent != lostOrHiddenEnemy->ent ) {
@@ -153,7 +152,7 @@ void Bot::UpdateKeptInFovPoint() {
 
 	lastChosenLostOrHiddenEnemy = nullptr;
 
-	if( const auto *hurtEvent = threatTracker.GetValidHurtEvent() ) {
+	if( const auto *hurtEvent = awarenessModule.GetValidHurtEvent() ) {
 		keptInFovPoint.Activate( hurtEvent->possibleOrigin, (unsigned)hurtEvent->lastHitTimestamp );
 		return;
 	}
@@ -466,9 +465,7 @@ void Bot::ActiveFrame() {
 	}
 
 	// Always calls Frame() and calls Think() if needed
-	perceptionManager.Update();
-	// Same as for the perception manager
-	threatTracker.Update();
+	awarenessModule.Update();
 
 	weaponsUsageModule.Frame( botPlanner.cachedWorldState );
 

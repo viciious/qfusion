@@ -2,16 +2,17 @@
 #define QFUSION_BOT_THREAT_TRACKER_H
 
 #include "EnemiesTracker.h"
-#include "PerceptionManager.h"
 #include "SelectedEnemies.h"
+#include "HazardsSelector.h"
+#include "EventsTracker.h"
 
 class AiSquad;
 
-class BotThreatTracker: public AiFrameAwareUpdatable {
+class BotAwarenessModule: public AiFrameAwareUpdatable {
 	friend class Bot;
 
-	AiEnemiesTracker *activeEnemiesTracker;
-	AiSquad *squad;
+	AiEnemiesTracker *activeEnemiesTracker { &ownEnemiesTracker };
+	AiSquad *squad { nullptr };
 	const edict_t *const self;
 
 	SelectedEnemies &selectedEnemies;
@@ -20,16 +21,17 @@ class BotThreatTracker: public AiFrameAwareUpdatable {
 	const unsigned targetChoicePeriod;
 	const unsigned reactionTime;
 
+	HazardsDetector hazardsDetector;
+	HazardsSelector hazardsSelector;
+	EventsTracker eventsTracker;
 public:
 	struct HurtEvent {
-		const edict_t *inflictor;
-		int64_t lastHitTimestamp;
-		Vec3 possibleOrigin;
-		float totalDamage;
-
 		// Initialize the inflictor by the world entity (it is never valid as one).
 		// This helps to avoid extra branching from testing for nullity.
-		HurtEvent() : inflictor( world ), lastHitTimestamp( 0 ), possibleOrigin( NAN, NAN, NAN ), totalDamage( 0.0f ) {}
+		const edict_t *inflictor { world };
+		int64_t lastHitTimestamp { 0 };
+		Vec3 possibleOrigin { 0, 0, 0 };
+		float totalDamage { 0.0f };
 
 		bool IsValidFor( const edict_t *self ) const;
 		void Invalidate() { lastHitTimestamp = 0; }
@@ -40,7 +42,7 @@ private:
 
 	class EnemiesTracker : public AiEnemiesTracker {
 		edict_t *const self;
-		BotThreatTracker *const threatTracker;
+		BotAwarenessModule *const threatTracker;
 	protected:
 		void OnHurtByNewThreat( const edict_t *newThreat ) override {
 			threatTracker->OnHurtByNewThreat( newThreat, this );
@@ -56,31 +58,35 @@ private:
 		void OnBotEnemyAssigned( const edict_t *bot_, const TrackedEnemy *enemy ) override {}
 
 	public:
-		EnemiesTracker( edict_t *self_, BotThreatTracker *threatTracker_, float skill_ )
+		EnemiesTracker( edict_t *self_, BotAwarenessModule *threatTracker_, float skill_ )
 			: AiEnemiesTracker( skill_ ), self( self_ ), threatTracker( threatTracker_ ) {
-			SetTag( va( "BotThreatTracker(%s)::EnemiesTracker", self_->r.client->netname ) );
+			SetTag( va( "BotAwarenessModule(%s)::EnemiesTracker", self_->r.client->netname ) );
 		}
 	};
 
 	EnemiesTracker ownEnemiesTracker;
 
-	Hazard selectedHazard;
-	Hazard triggeredPlanningHazard;
+	Hazard triggeredPlanningHazard { nullptr };
 
 	void Frame() override;
 	void Think() override;
 
 	void SetFrameAffinity( unsigned modulo, unsigned offset ) override {
 		AiFrameAwareUpdatable::SetFrameAffinity( modulo, offset );
+		eventsTracker.SetFrameAffinity( modulo, offset );
 		ownEnemiesTracker.SetFrameAffinity( modulo, offset );
 	}
 
 	void UpdateSelectedEnemies();
 	void UpdateBlockedAreasStatus();
-	void CheckNewActiveHazard();
+	void TryTriggerPlanningForNewHazard();
+
+	void RegisterVisibleEnemies();
+
+	void CheckForNewHazards();
 public:
 	// We have to provide both entity and Bot class refs due to initialization order issues
-	BotThreatTracker( edict_t *self_, Bot *bot_, float skill_ );
+	BotAwarenessModule( edict_t *self_, Bot *bot_, float skill_ );
 
 	void OnAttachedToSquad( AiSquad *squad_ );
 	void OnDetachedFromSquad( AiSquad *squad_ );
@@ -91,7 +97,9 @@ public:
 	void OnEnemyViewed( const edict_t *enemy );
 	void OnEnemyOriginGuessed( const edict_t *enemy, unsigned minMillisSinceLastSeen, const float *guessedOrigin = nullptr );
 
-	void AfterAllEnemiesViewed() {}
+	void RegisterEvent( const edict_t *ent, int event, int parm ) {
+		eventsTracker.RegisterEvent( ent, event, parm );
+	}
 
 	void OnPain( const edict_t *enemy, float kick, int damage );
 	void OnEnemyDamaged( const edict_t *target, int damage );
@@ -102,9 +110,15 @@ public:
 		return ( (const AiEnemiesTracker *)activeEnemiesTracker )->TrackedEnemiesHead();
 	}
 
-	const Hazard *GetValidHazard() const {
-		// Might be outdated for few frames, check it on access
-		return selectedHazard.IsValid() ? &selectedHazard : nullptr;
+	const Hazard *PrimaryHazard() const {
+		if( const auto *hazard = hazardsSelector.PrimaryHazard() ) {
+			// The return value must always be valid if present.
+			// Check whether if has not been invalidated since last selection.
+			if( hazard->IsValid() ) {
+				return hazard;
+			}
+		}
+		return nullptr;
 	}
 
 	const HurtEvent *GetValidHurtEvent() const {

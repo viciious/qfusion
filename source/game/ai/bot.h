@@ -2,7 +2,7 @@
 #define AI_BOT_H
 
 #include "static_vector.h"
-#include "awareness/PerceptionManager.h"
+#include "awareness/AwarenessModule.h"
 #include "planning/BotPlanner.h"
 #include "ai_base_ai.h"
 #include "vec3.h"
@@ -10,7 +10,7 @@
 #include "movement/MovementModule.h"
 #include "combat/WeaponsUsageModule.h"
 #include "planning/TacticalSpotsCache.h"
-#include "awareness/ThreatTracker.h"
+#include "awareness/AwarenessModule.h"
 #include "planning/RoamingManager.h"
 #include "bot_weight_config.h"
 
@@ -94,8 +94,7 @@ class Bot : public Ai
 	friend class BotPlanner;
 	friend class AiSquad;
 	friend class AiEnemiesTracker;
-	friend class BotThreatTracker;
-	friend class BotPerceptionManager;
+	friend class BotAwarenessModule;
 	friend class BotFireTargetCache;
 	friend class BotItemsSelector;
 	friend class BotWeaponSelector;
@@ -152,7 +151,7 @@ public:
 
 	void OnPain( const edict_t *enemy, float kick, int damage ) {
 		if( enemy != self ) {
-			threatTracker.OnPain( enemy, kick, damage );
+			awarenessModule.OnPain( enemy, kick, damage );
 		}
 	}
 
@@ -169,7 +168,7 @@ public:
 
 	void OnEnemyDamaged( const edict_t *enemy, int damage ) {
 		if( enemy != self ) {
-			threatTracker.OnEnemyDamaged( enemy, damage );
+			awarenessModule.OnEnemyDamaged( enemy, damage );
 		}
 	}
 
@@ -177,38 +176,38 @@ public:
 		if( !guessedOrigin ) {
 			guessedOrigin = enemy->s.origin;
 		}
-		threatTracker.OnEnemyOriginGuessed( enemy, millisSinceLastSeen, guessedOrigin );
+		awarenessModule.OnEnemyOriginGuessed( enemy, millisSinceLastSeen, guessedOrigin );
 	}
 
 	void RegisterEvent( const edict_t *ent, int event, int parm ) {
-		perceptionManager.RegisterEvent( ent, event, parm );
+		awarenessModule.RegisterEvent( ent, event, parm );
 	}
 
 	inline void OnAttachedToSquad( AiSquad *squad_ ) {
 		this->squad = squad_;
-		threatTracker.OnAttachedToSquad( squad_ );
+		awarenessModule.OnAttachedToSquad( squad_ );
 		ForcePlanBuilding();
 	}
 
 	inline void OnDetachedFromSquad( AiSquad *squad_ ) {
 		this->squad = nullptr;
-		threatTracker.OnDetachedFromSquad( squad_ );
+		awarenessModule.OnDetachedFromSquad( squad_ );
 		ForcePlanBuilding();
 	}
 
 	inline bool IsInSquad() const { return squad != nullptr; }
 
 	inline int64_t LastAttackedByTime( const edict_t *attacker ) {
-		return threatTracker.LastAttackedByTime( attacker );
+		return awarenessModule.LastAttackedByTime( attacker );
 	}
 	inline int64_t LastTargetTime( const edict_t *target ) {
-		return threatTracker.LastTargetTime( target );
+		return awarenessModule.LastTargetTime( target );
 	}
 	inline void OnEnemyRemoved( const TrackedEnemy *enemy ) {
-		threatTracker.OnEnemyRemoved( enemy );
+		awarenessModule.OnEnemyRemoved( enemy );
 	}
 	inline void OnHurtByNewThreat( const edict_t *newThreat, const AiFrameAwareUpdatable *threatDetector ) {
-		threatTracker.OnHurtByNewThreat( newThreat, threatDetector );
+		awarenessModule.OnHurtByNewThreat( newThreat, threatDetector );
 	}
 
 	inline float GetBaseOffensiveness() const { return baseOffensiveness; }
@@ -337,8 +336,7 @@ protected:
 	virtual void SetFrameAffinity( unsigned modulo, unsigned offset ) override {
 		AiFrameAwareUpdatable::SetFrameAffinity( modulo, offset );
 		botPlanner.SetFrameAffinity( modulo, offset );
-		perceptionManager.SetFrameAffinity( modulo, offset );
-		threatTracker.SetFrameAffinity( modulo, offset );
+		awarenessModule.SetFrameAffinity( modulo, offset );
 	}
 
 	virtual void OnNavTargetTouchHandled() override {
@@ -352,8 +350,7 @@ private:
 	}
 
 	BotWeightConfig weightConfig;
-	BotPerceptionManager perceptionManager;
-	BotThreatTracker threatTracker;
+	BotAwarenessModule awarenessModule;
 	BotPlanner botPlanner;
 
 	float skillLevel;
@@ -644,16 +641,22 @@ public:
 
 	const SelectedEnemies &GetSelectedEnemies() const { return selectedEnemies; }
 
-	const Hazard *PrimaryHazard() const { return perceptionManager.PrimaryHazard(); }
+	const Hazard *PrimaryHazard() const {
+		return awarenessModule.PrimaryHazard();
+	}
 
 	SelectedMiscTactics &GetMiscTactics() { return selectedTactics; }
 	const SelectedMiscTactics &GetMiscTactics() const { return selectedTactics; }
 
 	const AiAasRouteCache *RouteCache() const { return routeCache; }
 
-	const TrackedEnemy *TrackedEnemiesHead() const { return threatTracker.TrackedEnemiesHead(); }
+	const TrackedEnemy *TrackedEnemiesHead() const {
+		return awarenessModule.TrackedEnemiesHead();
+	}
 
-	const BotThreatTracker::HurtEvent *ActiveHurtEvent() const { return threatTracker.GetValidHurtEvent(); }
+	const BotAwarenessModule::HurtEvent *ActiveHurtEvent() const {
+		return awarenessModule.GetValidHurtEvent();
+	}
 
 	inline bool WillAdvance() const { return selectedTactics.willAdvance; }
 	inline bool WillRetreat() const { return selectedTactics.willRetreat; }
