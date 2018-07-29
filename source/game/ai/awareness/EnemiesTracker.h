@@ -217,9 +217,10 @@ public:
 	inline int WavesReadyToFireCount() const { return AmmoReadyToFireCount<WEAP_SHOCKWAVE>(); }
 	inline int InstasReadyToFireCount() const { return AmmoReadyToFireCount<WEAP_INSTAGUN>(); }
 
-	inline int PendingWeapon() const {
-		// TODO: It does not check ammo
-		return ent->r.client ? ent->r.client->ps.stats[STAT_PENDING_WEAPON] : WEAP_NONE;
+	bool IsShootableCurrOrPendingWeapon( int weapon ) const;
+
+	inline unsigned FireDelay() const {
+		return ent->r.client ? ent->r.client->ps.stats[STAT_WEAPON_TIME] : 0u;
 	}
 
 	inline int64_t LastSeenAt() const { return lastSeenAt; }

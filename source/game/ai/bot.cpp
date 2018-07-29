@@ -613,3 +613,71 @@ int Bot::GetWeaponsForWeaponJumping( int *weaponNumsBuffer ) {
 
 	return numSuitableWeapons;
 }
+
+bool Bot::ForceCombatKindOfMovement() const {
+	// Return a feasible value for this case
+	if( !selectedEnemies.AreValid() ) {
+		return false;
+	}
+
+	// Self-descriptive...
+	if( ShouldRushHeadless() ) {
+		return false;
+	}
+
+	// Prepare to avoid/dodge an EB/IG shot
+	if( selectedEnemies.AreAboutToHitEBorIG() ) {
+		return true;
+	}
+
+	// Prepare to avoid/dodge beams
+	if( selectedEnemies.AreAboutToHitLGorPG() ) {
+		return true;
+	}
+
+	// As its fairly rarely gets really detected, always return true in this case
+	// (we tried first to apply an additional distance cutoff)
+	return selectedEnemies.AreAboutToHitRLorSW();
+}
+
+bool Bot::IsCombatDashingAllowed() const {
+	// Should not be called with this enemies state but lets return a feasible value for this case
+	if( !selectedEnemies.AreValid() ) {
+		return true;
+	}
+
+	// AD-AD spam vs a quad is pointless, the bot should flee away
+	if( selectedEnemies.HaveQuad() ) {
+		return true;
+	}
+
+	if( const auto *hazard = PrimaryHazard() ) {
+		// Always dash avoiding projectiles
+		if( hazard->IsSplashLike() ) {
+			return true;
+		}
+	}
+
+	// Avoid RL/EB shots
+	if( selectedEnemies.AreAboutToHitRLorSW() || selectedEnemies.AreAboutToHitEBorIG() ) {
+		return true;
+	}
+
+	// Allow dashing for gaining speed to change a position
+	return WillAdvance() || WillRetreat();
+}
+
+bool Bot::IsCombatCrouchingAllowed() const {
+	if( !selectedEnemies.AreValid() ) {
+		return true;
+	}
+
+	// If they're with EB and IG and are about to hit me
+	if( selectedEnemies.AreAboutToHitEBorIG() ) {
+		if( !selectedEnemies.AreAboutToHitRLorSW() && !selectedEnemies.AreAboutToHitLGorPG() ) {
+			return true;
+		}
+	}
+
+	return false;
+}

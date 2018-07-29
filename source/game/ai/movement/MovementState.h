@@ -285,30 +285,27 @@ public:
 
 class alignas ( 2 )BotKeyMoveDirsState
 {
-	uint16_t timeLeft;
-	int8_t forwardMove;
-	int8_t rightMove;
-
 public:
-	static constexpr uint16_t TIMEOUT_PERIOD = 512;
-
-	inline BotKeyMoveDirsState()
-		: timeLeft( 0 ), forwardMove( 0 ), rightMove( 0 ) {}
+	uint16_t timeLeft { 0 };
+	int8_t forwardMove { 0 };
+	int8_t rightMove { 0 };
+public:
+	static constexpr uint16_t TIMEOUT_PERIOD = 768;
 
 	inline void Frame( unsigned frameTime ) {
 		timeLeft = ( decltype( timeLeft ) ) std::max( 0, ( (int)timeLeft - (int)frameTime ) );
 	}
 
-	inline bool IsActive() const { return !timeLeft; }
+	inline bool IsActive() const { return timeLeft != 0; }
 
 	inline void TryDeactivate( const edict_t *self, const class MovementPredictionContext *context = nullptr ) {}
 
 	inline void Deactivate() { timeLeft = 0; }
 
-	inline void Activate( int forwardMove_, int rightMove_ ) {
+	inline void Activate( int forwardMove_, int rightMove_, unsigned timeLeft_ = TIMEOUT_PERIOD ) {
 		this->forwardMove = ( decltype( this->forwardMove ) )forwardMove_;
 		this->rightMove = ( decltype( this->rightMove ) )rightMove_;
-		this->timeLeft = TIMEOUT_PERIOD;
+		this->timeLeft = ( decltype( this->timeLeft ) )timeLeft_;
 	}
 
 	inline int ForwardMove() const { return forwardMove; }

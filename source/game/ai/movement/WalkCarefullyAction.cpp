@@ -8,7 +8,10 @@ void WalkCarefullyAction::PlanPredictionStep( Context *context ) {
 	// Ramp/stairs areas and areas not in floor clusters are exceptions
 	// (these kinds of areas are still troublesome for bot movement).
 	BaseMovementAction *suggestedAction = &DefaultBunnyAction();
-	if( bot->Skill() < 0.33f ) {
+	if( bot->ForceCombatKindOfMovement() ) {
+		// Do not try bunnying first and start from this combat action directly
+		suggestedAction = &module->combatDodgeSemiRandomlyToTargetAction;
+	} else if( bot->Skill() < 0.33f ) {
 		const auto *aasWorld = AiAasWorld::Instance();
 		const int currGroundedAreaNum = context->CurrGroundedAasAreaNum();
 		// If the current area is not a ramp-like area

@@ -79,17 +79,8 @@ float SelectedEnemies::DamageToKill() const {
 
 unsigned SelectedEnemies::FireDelay() const {
 	unsigned minDelay = std::numeric_limits<unsigned>::max();
-
 	for( const auto *enemy: activeEnemies ) {
-		if( !enemy->IsValid() ) {
-			return std::numeric_limits<unsigned>::max();
-		}
-
-		if( !enemy->ent->r.client ) {
-			return 0;
-		}
-
-		auto delay = (unsigned)enemy->ent->r.client->ps.stats[STAT_WEAPON_TIME];
+		auto delay = (unsigned)enemy->FireDelay();
 		if( delay < minDelay ) {
 			minDelay = delay;
 		}
@@ -228,10 +219,10 @@ float SelectedEnemies::ComputeThreatFactor( const edict_t *ent, int enemyNum ) c
 	}
 
 	if( enemyNum >= 0 ) {
-		if( !GetCanHit( enemyNum ) ) {
+		if( !GetCanHit( enemyNum, GetEnemyViewDirDotToBotDirValues()[enemyNum] ) ) {
 			dot *= 0.5f;
 		}
-	} else if( !TestCanHit( ent ) ) {
+	} else if( !TestCanHit( ent, GetEnemyViewDirDotToBotDirValues()[enemyNum] ) ) {
 		dot *= 0.5f;
 	}
 
@@ -248,36 +239,6 @@ float SelectedEnemies::TotalInflictedDamage() const {
 	return damage;
 }
 
-float SelectedEnemies::MaxDotProductOfBotViewAndDirToEnemy() const {
-	vec3_t botViewDir;
-
-	float maxDot = -1.0f;
-	for( const auto *enemy: activeEnemies ) {
-		Vec3 toEnemyDir( enemy->LastSeenOrigin() );
-		toEnemyDir -= self->s.origin;
-		toEnemyDir.NormalizeFast();
-		float dot = toEnemyDir.Dot( botViewDir );
-		if( dot > maxDot ) {
-			maxDot = dot;
-		}
-	}
-	return maxDot;
-}
-
-float SelectedEnemies::MaxDotProductOfEnemyViewAndDirToBot() const {
-	float maxDot = -1.0f;
-	for( const auto *enemy: activeEnemies ) {
-		Vec3 toBotDir( self->s.origin );
-		toBotDir -= enemy->LastSeenOrigin();
-		toBotDir.NormalizeFast();
-		float dot = toBotDir.Dot( enemy->LookDir() );
-		if( dot > maxDot ) {
-			maxDot = dot;
-		}
-	}
-	return maxDot;
-}
-
 bool SelectedEnemies::ArePotentiallyHittable() const {
 	CheckValid( __FUNCTION__ );
 
@@ -285,13 +246,19 @@ bool SelectedEnemies::ArePotentiallyHittable() const {
 		return arePotentiallyHittable;
 	}
 
+	const auto *viewDots = GetBotViewDirDotToEnemyDirValues();
+
 	trace_t trace;
 	Vec3 viewPoint( self->s.origin );
 	viewPoint.Z() += self->viewheight;
 	const auto *pvsCache = EntitiesPvsCache::Instance();
-	for( const auto *enemy: activeEnemies ) {
+	for( unsigned i = 0; i < activeEnemies.size(); ++i ) {
+		const auto *enemy = activeEnemies[i];
 		const auto *enemyEnt = enemy->ent;
 		if( !enemyEnt ) {
+			continue;
+		}
+		if( viewDots[i] < 0.7f ) {
 			continue;
 		}
 		if( !pvsCache->AreInPvs( self, enemyEnt ) ) {
@@ -313,12 +280,14 @@ bool SelectedEnemies::ArePotentiallyHittable() const {
 bool SelectedEnemies::CanHit() const {
 	CheckValid( __FUNCTION__ );
 
+	const auto *viewDots = GetEnemyViewDirDotToBotDirValues();
+
 	if( canEnemiesHitComputedAt == level.time ) {
 		return canEnemiesHit;
 	}
 
 	for( int i = 0, end = (int)activeEnemies.size(); i < end; ++i ) {
-		if( GetCanHit( i ) ) {
+		if( GetCanHit( i, viewDots[i] ) ) {
 			canEnemiesHitComputedAt = level.time;
 			canEnemiesHit = true;
 			return true;
@@ -330,35 +299,23 @@ bool SelectedEnemies::CanHit() const {
 	return false;
 }
 
-bool SelectedEnemies::GetCanHit( int enemyNum ) const {
+bool SelectedEnemies::GetCanHit( int enemyNum, float viewDot ) const {
 	if( canEnemyHitComputedAt[enemyNum] == level.time ) {
 		return canEnemyHit[enemyNum];
 	}
 
 	canEnemyHitComputedAt[enemyNum] = level.time;
-	canEnemyHit[enemyNum] = TestCanHit( activeEnemies[enemyNum]->ent );
+	canEnemyHit[enemyNum] = TestCanHit( activeEnemies[enemyNum]->ent, viewDot );
 	return canEnemyHit[enemyNum];
 }
 
-bool SelectedEnemies::TestCanHit( const edict_t *enemy ) const {
+bool SelectedEnemies::TestCanHit( const edict_t *enemy, float viewDot ) const {
 	if( !enemy ) {
 		return false;
 	}
 
-	Vec3 enemyToBot( self->s.origin );
-	enemyToBot -= enemy->s.origin;
-	enemyToBot.NormalizeFast();
-
-	if( enemy->ai && enemy->ai->botRef ) {
-		if( enemyToBot.Dot( self->ai->botRef->EntityPhysicsState()->ForwardDir() ) < self->ai->botRef->FovDotFactor() ) {
-			return false;
-		}
-	} else if ( enemy->r.client ) {
-		vec3_t forwardDir;
-		AngleVectors( enemy->s.origin, forwardDir, nullptr, nullptr );
-		if( enemyToBot.Dot( forwardDir ) < 0 ) {
-			return false;
-		}
+	if( viewDot < 0.7f ) {
+		return false;
 	}
 
 	if( !EntitiesPvsCache::Instance()->AreInPvs( enemy, self ) ) {
@@ -471,5 +428,216 @@ bool SelectedEnemies::HaveGoodCloseRangeWeapons() const {
 			return true;
 		}
 	}
+	return false;
+}
+
+const float *SelectedEnemies::GetBotViewDirDotToEnemyDirValues() const {
+	const auto levelTime = level.time;
+	if( levelTime == botViewDirDotToEnemyDirComputedAt ) {
+		return botViewDirDotToEnemyDir;
+	}
+
+	Vec3 botViewDir( self->ai->botRef->EntityPhysicsState()->ForwardDir() );
+	for( unsigned i = 0; i < activeEnemies.size(); ++i ) {
+		Vec3 botToEnemyDir( activeEnemies[i]->LastSeenOrigin() );
+		botToEnemyDir -= self->s.origin;
+		botToEnemyDir.Z() -= playerbox_stand_viewheight;
+		botToEnemyDir.NormalizeFast();
+		botViewDirDotToEnemyDir[i] = botViewDir.Dot( botToEnemyDir );
+	}
+
+	botViewDirDotToEnemyDirComputedAt = levelTime;
+	return botViewDirDotToEnemyDir;
+}
+
+const float *SelectedEnemies::GetEnemyViewDirDotToBotDirValues() const {
+	const auto levelTime = level.time;
+	if( levelTime == enemyViewDirDotToBotDirComputedAt ) {
+		return enemyViewDirDotToBotDir;
+	}
+
+	for( unsigned i = 0; i < activeEnemies.size(); ++i ) {
+		Vec3 enemyToBotDir( self->s.origin );
+		enemyToBotDir -= activeEnemies[i]->LastSeenOrigin();
+		enemyToBotDir.Z() -= playerbox_stand_viewheight;
+		enemyToBotDir.NormalizeFast();
+		enemyViewDirDotToBotDir[i] = activeEnemies[i]->LookDir().Dot( enemyToBotDir );
+	}
+
+	enemyViewDirDotToBotDirComputedAt = level.time;
+	return enemyViewDirDotToBotDir;
+}
+
+bool SelectedEnemies::TestAboutToHitEBorIG( int64_t levelTime ) const {
+	trace_t trace;
+	const auto *pvsCache = EntitiesPvsCache::Instance();
+	const auto *const viewDots = GetEnemyViewDirDotToBotDirValues();
+	for( int i = 0; i < activeEnemies.size(); ++i ) {
+		const auto *const enemy = activeEnemies[i];
+		if( !enemy->IsShootableCurrOrPendingWeapon( WEAP_ELECTROBOLT ) ) {
+			if( !enemy->IsShootableCurrOrPendingWeapon( WEAP_INSTAGUN ) ) {
+				continue;
+			}
+		}
+
+		// We can dodge at the last movement, so wait until there is 1/3 of a second to make a shot
+		if( enemy->FireDelay() > 333 ) {
+			continue;
+		}
+
+		// Just check and trust but do not force computations
+		if( canEnemyHitComputedAt[i] == levelTime && canEnemyHit[i] ) {
+			return true;
+		}
+
+		// Is not going to put crosshair right now
+		// TODO: Check past view dots and derive direction?
+		if( viewDots[i] < 0.7f ) {
+			continue;
+		}
+
+		if( !pvsCache->AreInPvs( self, enemy->ent ) ) {
+			continue;
+		}
+
+		Vec3 traceStart( enemy->LastSeenOrigin() );
+		traceStart.Z() += playerbox_stand_viewheight;
+		SolidWorldTrace( &trace, traceStart.Data(), self->s.origin );
+		if( trace.fraction == 1.0f ) {
+			return true;
+		}
+	}
+
+	return false;
+}
+
+bool SelectedEnemies::TestAboutToHitLGorPG( int64_t levelTime ) const {
+	trace_t trace;
+	const auto *pvsCache = EntitiesPvsCache::Instance();
+	const auto *const viewDots = GetEnemyViewDirDotToBotDirValues();
+	constexpr float squareDistanceThreshold = WorldState::MIDDLE_RANGE_MAX * WorldState::MIDDLE_RANGE_MAX;
+	for( int i = 0; i < activeEnemies.size(); ++i ) {
+		const auto *const enemy = activeEnemies[i];
+		// Skip enemies that are out of LG range. (Consider PG to be inefficient outside of this range too)
+		if( enemy->LastSeenOrigin().SquareDistanceTo( self->s.origin ) > squareDistanceThreshold ) {
+			continue;
+		}
+
+		if( !enemy->IsShootableCurrOrPendingWeapon( WEAP_LASERGUN ) ) {
+			if( !enemy->IsShootableCurrOrPendingWeapon( WEAP_PLASMAGUN ) ) {
+				continue;
+			}
+		}
+
+		// We can start dodging at the last moment, are not going to be hit hard
+		if( enemy->FireDelay() > 333 ) {
+			continue;
+		}
+
+		// Just check and trust but do not force computations
+		if( canEnemyHitComputedAt[i] == levelTime && canEnemyHit[i] ) {
+			return true;
+		}
+
+		// Is not going to put crosshair right now
+		if( viewDots[i] < 0.7f ) {
+			continue;
+		}
+
+		// TODO: Check past view dots and derive direction?
+
+		if( !pvsCache->AreInPvs( self, enemy->ent ) ) {
+			continue;
+		}
+
+		Vec3 traceStart( enemy->LastSeenOrigin() );
+		traceStart.Z() += playerbox_stand_viewheight;
+		SolidWorldTrace( &trace, traceStart.Data(), self->s.origin );
+		if( trace.fraction == 1.0f ) {
+			return true;
+		}
+	}
+	return false;
+}
+
+bool SelectedEnemies::TestAboutToHitRLorSW( int64_t levelTime ) const {
+	trace_t trace;
+	const auto *pvsCache = EntitiesPvsCache::Instance();
+	const auto *const viewDots = GetEnemyViewDirDotToBotDirValues();
+	for( int i = 0; i < activeEnemies.size(); ++i ) {
+		const auto *const enemy = activeEnemies[i];
+
+		float distanceThreshold = 512.0f;
+		// Ideally should check the bot environment too
+		const float deltaZ = enemy->LastSeenOrigin().Z() - self->s.origin[2];
+		if( deltaZ > 16.0f ) {
+			distanceThreshold += 2.0f * BoundedFraction( deltaZ, 128.0f );
+		} else if( deltaZ < -16.0f ) {
+			distanceThreshold -= BoundedFraction( deltaZ, 128.0f );
+		}
+
+		const float squareDistance = enemy->LastSeenOrigin().SquareDistanceTo( self->s.origin );
+		if( squareDistance > distanceThreshold * distanceThreshold ) {
+			continue;
+		}
+
+		if( !enemy->IsShootableCurrOrPendingWeapon( WEAP_ROCKETLAUNCHER ) ) {
+			if( !enemy->IsShootableCurrOrPendingWeapon( WEAP_SHOCKWAVE ) ) {
+				continue;
+			}
+		}
+
+		const float distance = SQRTFAST( squareDistance );
+		const float distanceFraction = BoundedFraction( distance, distanceThreshold );
+		// Do not wait for an actual shot on a short distance.
+		// Its impossible to dodge on a short distance due to damage splash.
+		// If the distance is close to zero 750 millis of reloading left must be used for making a dodge.
+		if( enemy->FireDelay() > 750 - ( ( 750 - 333 ) * distanceFraction ) ) {
+			continue;
+		}
+
+		// Just check and trust but do not force computations
+		if( canEnemyHitComputedAt[i] == levelTime && canEnemyHit[i] ) {
+			return true;
+		}
+
+		// Is not going to put crosshair right now
+		if( viewDots[i] < 0.3f + 0.4f * distanceFraction ) {
+			continue;
+		}
+
+		if( !pvsCache->AreInPvs( self, enemy->ent ) ) {
+			continue;
+		}
+
+		// TODO: Check view dot and derive direction?
+		Vec3 enemyViewOrigin( enemy->LastSeenOrigin() );
+		enemyViewOrigin.Z() += playerbox_stand_viewheight;
+		SolidWorldTrace( &trace, enemyViewOrigin.Data(), self->s.origin );
+		if( trace.fraction == 1.0f ) {
+			return true;
+		}
+
+		// A coarse environment test, check whether there are hittable environment elements
+		// around the bot that are visible for the enemy
+		for( int x = -1; x <= 1; x += 2 ) {
+			for( int y = -1; y <= 1; y += 2 ) {
+				Vec3 sidePoint( self->s.origin );
+				sidePoint.X() += 64.0f * x;
+				sidePoint.Y() += 64.0f * y;
+				SolidWorldTrace( &trace, self->s.origin, sidePoint.Data() );
+				if( trace.fraction == 1.0f || ( trace.surfFlags & SURF_NOIMPACT ) ) {
+					continue;
+				}
+				const Vec3 oldImpact( trace.endpos );
+				// Notice the order: we trace a ray from enemy to impact point to avoid having to offset start point
+				SolidWorldTrace( &trace, enemyViewOrigin.Data(), oldImpact.Data() );
+				if( trace.fraction == 1.0f || oldImpact.SquareDistanceTo( trace.endpos ) < 8 * 8 ) {
+					return true;
+				}
+			}
+		}
+	}
+
 	return false;
 }

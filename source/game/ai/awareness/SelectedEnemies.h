@@ -18,10 +18,20 @@ class SelectedEnemies {
 	mutable int64_t canEnemyHitComputedAt[MAX_ACTIVE_ENEMIES];
 	mutable int64_t maxThreatFactorComputedAt { 0 };
 	mutable int64_t canEnemiesHitComputedAt { 0 };
+	mutable int64_t botViewDirDotToEnemyDirComputedAt { 0 };
+	mutable int64_t enemyViewDirDotToBotDirComputedAt { 0 };
+	mutable int64_t aboutToHitEBorIGComputedAt { 0 };
+	mutable int64_t aboutToHitLGorPGComputedAt { 0 };
+	mutable int64_t aboutToHitRLorSWComputedAt { 0 };
 	mutable int64_t arePotentiallyHittableComputedAt { 0 };
 	mutable float threatFactors[MAX_ACTIVE_ENEMIES];
+	mutable float botViewDirDotToEnemyDir[MAX_ACTIVE_ENEMIES];
+	mutable float enemyViewDirDotToBotDir[MAX_ACTIVE_ENEMIES];
 	mutable bool canEnemyHit[MAX_ACTIVE_ENEMIES];
 	mutable bool canEnemiesHit { false };
+	mutable bool aboutToHitEBorIG { false };
+	mutable bool aboutToHitLGorPG { false };
+	mutable bool aboutToHitRLorSW { false };
 	mutable bool arePotentiallyHittable { false };
 
 	int64_t timeoutAt { 0 };
@@ -43,6 +53,21 @@ class SelectedEnemies {
 		memset( canEnemyHit, 0, sizeof( canEnemyHit ) );
 	}
 
+	bool TestAboutToHitEBorIG( int64_t levelTime ) const;
+	bool TestAboutToHitLGorPG( int64_t levelTime ) const;
+	bool TestAboutToHitRLorSW( int64_t levelTime ) const;
+
+	bool AreAboutToHit( int64_t *computedAt, bool *value, bool ( SelectedEnemies::*testHit )( int64_t ) const ) const {
+		auto levelTime = level.time;
+		if( levelTime != *computedAt ) {
+			*value = ( this->*testHit )( levelTime );
+			*computedAt = levelTime;
+		}
+		return *value;
+	}
+
+	const float *GetBotViewDirDotToEnemyDirValues() const;
+	const float *GetEnemyViewDirDotToBotDirValues() const;
 public:
 	bool AreValid() const;
 
@@ -169,8 +194,15 @@ public:
 	bool Contain( const TrackedEnemy *enemy ) const;
 	float TotalInflictedDamage() const;
 
-	float MaxDotProductOfBotViewAndDirToEnemy() const;
-	float MaxDotProductOfEnemyViewAndDirToBot() const;
+	float MaxDotProductOfBotViewAndDirToEnemy() const {
+		auto *dots = GetBotViewDirDotToEnemyDirValues();
+		return *std::max_element( dots, dots + activeEnemies.size() );
+	}
+
+	float MaxDotProductOfEnemyViewAndDirToBot() const {
+		auto *dots = GetEnemyViewDirDotToBotDirValues();
+		return *std::max_element( dots, dots + activeEnemies.size() );
+	}
 
 	// Checks whether a bot can potentially hit enemies from its origin if it adjusts view angles properly
 	bool ArePotentiallyHittable() const;
@@ -180,13 +212,23 @@ public:
 	inline EnemiesIterator end() const { return (EnemiesIterator)activeEnemies.cend(); }
 
 	bool CanHit() const;
-	bool GetCanHit( int enemyNum ) const;
-	bool TestCanHit( const edict_t *enemy ) const;
+	bool GetCanHit( int enemyNum, float viewDot ) const;
+	bool TestCanHit( const edict_t *enemy, float viewDot ) const;
 
 	bool HaveGoodSniperRangeWeapons() const;
 	bool HaveGoodFarRangeWeapons() const;
 	bool HaveGoodMiddleRangeWeapons() const;
 	bool HaveGoodCloseRangeWeapons() const;
+
+	bool AreAboutToHitEBorIG() const {
+		return AreAboutToHit( &aboutToHitEBorIGComputedAt, &aboutToHitEBorIG, &SelectedEnemies::TestAboutToHitEBorIG );
+	}
+	bool AreAboutToHitRLorSW() const {
+		return AreAboutToHit( &aboutToHitRLorSWComputedAt, &aboutToHitRLorSW, &SelectedEnemies::TestAboutToHitRLorSW );
+	}
+	bool AreAboutToHitLGorPG() const {
+		return AreAboutToHit( &aboutToHitLGorPGComputedAt, &aboutToHitLGorPG, &SelectedEnemies::TestAboutToHitLGorPG );
+	}
 
 	bool AreThreatening() const {
 		CheckValid( __FUNCTION__ );

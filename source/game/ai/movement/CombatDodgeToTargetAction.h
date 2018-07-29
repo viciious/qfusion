@@ -5,11 +5,15 @@
 
 class CombatDodgeSemiRandomlyToTargetAction : public BaseMovementAction
 {
-	int minTravelTimeToTarget;
-	float totalCovered2DDistance;
+	int bestTravelTimeSoFar { std::numeric_limits<int>::max() };
+	int bestFloorClusterSoFar { 0 };
 
-	unsigned maxAttempts;
-	unsigned attemptNum;
+	unsigned maxAttempts { 0 };
+	unsigned attemptNum { 0 };
+
+	// Results for the corresponding Bot:: calls precached at application sequence start
+	bool isCombatDashingAllowed { false };
+	bool isCompatCrouchingAllowed { false };
 
 	inline bool ShouldTryRandomness() { return attemptNum < maxAttempts / 2; }
 	inline bool ShouldTrySpecialMovement() {
@@ -23,13 +27,7 @@ class CombatDodgeSemiRandomlyToTargetAction : public BaseMovementAction
 	void UpdateKeyMoveDirs( MovementPredictionContext *context );
 
 public:
-	DECLARE_MOVEMENT_ACTION_CONSTRUCTOR( CombatDodgeSemiRandomlyToTargetAction, COLOR_RGB( 192, 192, 192 ) ) {
-		// Shut an analyzer up
-		this->minTravelTimeToTarget = std::numeric_limits<int>::max();
-		this->totalCovered2DDistance = 0.0f;
-		this->maxAttempts = 0;
-		this->attemptNum = 0;
-	}
+	DECLARE_MOVEMENT_ACTION_CONSTRUCTOR( CombatDodgeSemiRandomlyToTargetAction, COLOR_RGB( 192, 192, 192 ) ) {}
 	void PlanPredictionStep( MovementPredictionContext *context ) override;
 	void CheckPredictionStepResults( MovementPredictionContext *context ) override;
 	void OnApplicationSequenceStarted( MovementPredictionContext *context ) override;
