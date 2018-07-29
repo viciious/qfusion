@@ -669,6 +669,14 @@ public:
 
 	inline bool WillAttackMelee() const { return selectedTactics.willAttackMelee; }
 	inline bool ShouldRushHeadless() const { return selectedTactics.shouldRushHeadless; }
+
+	// Whether the bot should stop bunnying even if it could produce
+	// good predicted results and concentrate on combat/dodging
+	bool ForceCombatKindOfMovement() const;
+	// Whether it is allowed to dash right now
+	bool IsCombatDashingAllowed() const;
+	// Whether it is allowed to crouch right now
+	bool IsCombatCrouchingAllowed() const;
 };
 
 #endif

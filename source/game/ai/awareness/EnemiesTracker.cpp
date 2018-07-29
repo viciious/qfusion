@@ -93,6 +93,26 @@ Vec3 TrackedEnemy::LookDir() const {
 	return Vec3( lookDir );
 }
 
+bool TrackedEnemy::IsShootableCurrOrPendingWeapon( int weapon ) const {
+	const auto *client = ent->r.client;
+	if( !client ) {
+		return false;
+	}
+
+	const auto *playerStats = client->ps.stats;
+	if( playerStats[STAT_WEAPON] != weapon && playerStats[STAT_PENDING_WEAPON] != weapon ) {
+		return false;
+	}
+
+	const auto *inventory = client->ps.inventory;
+	if( inventory[weapon] ) {
+		constexpr int shifts[2] = { ( AMMO_GUNBLADE - WEAP_GUNBLADE ), ( AMMO_WEAK_GUNBLADE - WEAP_GUNBLADE ) };
+		return inventory[weapon + shifts[0]] || inventory[weapon + shifts[1]];
+	}
+
+	return false;
+}
+
 enum { RAIL = 1, SHAFT = 2, ROCKET = 4 };
 
 int TrackedEnemy::GetCheckForWeaponHitFlags( float damageToKillTarget ) const {
