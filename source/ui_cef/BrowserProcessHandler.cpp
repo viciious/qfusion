@@ -5,48 +5,85 @@
 
 class WswCefResourceHandler;
 
-class ReadResourceTask: public CefTask {
-	std::string filePath;
+class OpenFileTask: public CefTask {
+	const std::string &filePath;
 	WswCefResourceHandler *parent;
 
-	void NotifyOfResult( const uint8_t *fileData, int fileSize );
+	void NotifyOfResult( int filePointer, int fileSize );
 public:
-	ReadResourceTask( std::string &&filePath_, WswCefResourceHandler *parent_ )
+	OpenFileTask( WswCefResourceHandler *parent_, const std::string &filePath_ )
 		: filePath( filePath_ ), parent( parent_ ) {}
 
 	void Execute() override;
 
-	IMPLEMENT_REFCOUNTING( ReadResourceTask );
+	IMPLEMENT_REFCOUNTING( OpenFileTask );
 };
 
-class NotifyOfReadResultTask: public CefTask {
-	WswCefResourceHandler *parent;
-	const uint8_t *fileData;
-	int fileSize;
+class NotifyOfOpenFileTask: public CefTask {
+	WswCefResourceHandler *const parent;
+	const int filePointer;
+	const int fileSize;
 public:
-	NotifyOfReadResultTask( WswCefResourceHandler *parent_, const uint8_t *fileData_, int fileSize_ )
-		: parent( parent_ ), fileData( fileData_ ), fileSize( fileSize_ ) {}
+	NotifyOfOpenFileTask( WswCefResourceHandler *parent_, int filePointer_, int fileSize_ )
+		: parent( parent_ ), filePointer( filePointer_ ), fileSize( fileSize_ ) {}
 
 	void Execute() override;
 
-	IMPLEMENT_REFCOUNTING( NotifyOfReadResultTask );
+	IMPLEMENT_REFCOUNTING( NotifyOfOpenFileTask );
+};
+
+class ReadChunkTask: public CefTask {
+	WswCefResourceHandler *const parent;
+	void *const buffer;
+	const int filePointer;
+	const int bytesToRead;
+	const int seekTo;
+
+	void NotifyOfResult( int result );
+public:
+	ReadChunkTask( WswCefResourceHandler *parent_, int filePointer_, void *buffer_, int bytesToRead_, int seekTo_ = -1 ):
+		parent( parent_ ), buffer( buffer_), filePointer( filePointer_ ), bytesToRead( bytesToRead_ ), seekTo( seekTo_ ) {}
+
+	void Execute() override;
+
+	IMPLEMENT_REFCOUNTING( ReadChunkTask );
+};
+
+class NotifyOfChunkReadTask: public CefTask {
+	WswCefResourceHandler *const parent;
+	const int result;
+public:
+	NotifyOfChunkReadTask( WswCefResourceHandler *parent_, int result_ )
+		: parent( parent_ ), result( result_ ) {}
+
+	void Execute() override;
+
+	IMPLEMENT_REFCOUNTING( NotifyOfChunkReadTask );
 };
 
 class WswCefResourceHandler: public CefResourceHandler {
-	std::string urlValidationError;
+	std::string validationError;
+	std::string filePath;
 	CefRefPtr<CefCallback> processRequestCallback;
+	CefRefPtr<CefCallback> readResponseCallback;
 	// An address of a literal
-	const char *mime;
-	int fileSize;
-	const uint8_t *fileData;
-	int bytesAlreadyRead;
-	bool isAGetRequest;
+	const char *mime { nullptr };
+	int filePointer { -1 };
+	int fileSize { 0 };
+	int readResult { -1 };
+	int parsedRangeStart { -1 };
+	int parsedRangeEnd { -1 };
+	int realRangeStart { -1 };
+	int realRangeEnd { -1 };
+	int seekTo { -1 };
+	bool isAGetRequest { true };
 
 	static const char *schema;
 	static const int schemaOffset;
 
 	const std::string ValidateUrl( const std::string &url );
 	const std::string TrySaveMime( const char *ext );
+	const std::string TrySaveRequestRange( const std::string &rawRange );
 
 	void FailWith( CefRefPtr<CefResponse> response, const std::string statusText, int statusCode, cef_errorcode_t cefCode ) {
 		FailWith( response, statusText.c_str(), statusCode, cefCode );
@@ -58,15 +95,10 @@ class WswCefResourceHandler: public CefResourceHandler {
 		response->SetError( cefCode );
 	}
 public:
-	WswCefResourceHandler()
-		: mime( nullptr )
-		, fileSize( 0 )
-		, fileData( nullptr )
-		, bytesAlreadyRead( 0 )
-		, isAGetRequest( true ) {}
-
 	~WswCefResourceHandler() override {
-		delete fileData;
+		if( filePointer >= 0 ) {
+			api->FS_FCloseFile( filePointer );
+		}
 	}
 
 	bool ProcessRequest( CefRefPtr<CefRequest> request, CefRefPtr<CefCallback> callback ) override;
@@ -77,12 +109,39 @@ public:
 	bool CanGetCookie( const CefCookie & ) override { return false; }
 	bool CanSetCookie( const CefCookie & ) override { return false; }
 
-	void Cancel() override {}
+	void Cancel() override {
+		if( processRequestCallback ) {
+			processRequestCallback->Cancel();
+			processRequestCallback = nullptr;
+		}
+		if( readResponseCallback ) {
+			readResponseCallback->Cancel();
+			readResponseCallback = nullptr;
+		}
+	}
 
-	void NotifyOfReadResult( const uint8_t *fileData, int fileSize ) {
-		this->fileData = fileData;
-		this->fileSize = fileSize;
+	void NotifyOfOpenResult( int filePointer_, int fileSize_ ) {
+		CEF_REQUIRE_IO_THREAD();
+		if( !processRequestCallback ) {
+			return;
+		}
+
+		this->filePointer = filePointer_;
+		this->fileSize = fileSize_;
 		processRequestCallback->Continue();
+	}
+
+	void NotifyOfReadResult( int result_ ) {
+		CEF_REQUIRE_IO_THREAD();
+		this->readResult = result_;
+		if( !this->readResponseCallback ) {
+			return;
+		}
+		if( this->readResult >= 0 ) {
+			this->readResponseCallback->Continue();
+		} else {
+			this->readResponseCallback->Cancel();
+		}
 	}
 
 	IMPLEMENT_REFCOUNTING( WswCefResourceHandler );
@@ -100,19 +159,33 @@ bool WswCefResourceHandler::ProcessRequest( CefRefPtr<CefRequest> request, CefRe
 	}
 
 	std::string url( request->GetURL().ToString() );
-	this->urlValidationError = ValidateUrl( url );
-	if( !this->urlValidationError.empty() ) {
+	this->validationError = ValidateUrl( url );
+	if( !this->validationError.empty() ) {
 		callback->Continue();
 		return true;
 	}
 
-	std::string filePath( "ui/" );
-	filePath += url.c_str() + schemaOffset;
+	CefRequest::HeaderMap headerMap;
+	request->GetHeaderMap( headerMap );
+	if( !headerMap.empty() ) {
+		auto iter = headerMap.find( CefString( "Range" ) );
+		if( iter != headerMap.end() ) {
+			this->validationError = TrySaveRequestRange( iter->second.ToString() );
+			if( !this->validationError.empty() ) {
+				callback->Continue();
+				return true;
+			}
+		}
+	}
+
+	assert( filePath.empty() );
+	filePath += "ui/";
+	filePath += ( url.c_str() + schemaOffset );
 
 	// Save the callback that will be activated after reading the file contents
 	processRequestCallback = callback;
 	// Launch reading a file in a file IO thread...
-	CefPostTask( TID_FILE, AsCefPtr( new ReadResourceTask( std::move( filePath ), this ) ) );
+	CefPostTask( TID_FILE, AsCefPtr( new OpenFileTask( this, filePath ) ) );
 	return true;
 }
 
@@ -200,40 +273,62 @@ const std::string WswCefResourceHandler::TrySaveMime( const char *ext ) {
 	return std::string();
 }
 
-void ReadResourceTask::NotifyOfResult( const uint8_t *fileData, int fileSize ) {
-	CefPostTask( TID_IO, AsCefPtr( new NotifyOfReadResultTask( parent, fileData, fileSize ) ) );
-}
-
-void NotifyOfReadResultTask::Execute() {
-	parent->NotifyOfReadResult( fileData, fileSize );
-}
-
-void ReadResourceTask::Execute() {
-	int fileHandle;
-	int fileSize = api->FS_FOpenFile( filePath.c_str(), &fileHandle, FS_READ );
-	if( fileSize <= 0 ) {
-		NotifyOfResult( nullptr, 0 );
-		return;
+const std::string WswCefResourceHandler::TrySaveRequestRange( const std::string &rawRange ) {
+	const char *s = rawRange.c_str();
+	while ( isspace( *s ) ) {
+		s++;
 	}
 
-	struct FileGuard {
-		int fileHandle;
-		explicit FileGuard( int fileHandle_ ): fileHandle( fileHandle_ ) {}
-		~FileGuard() { api->FS_FCloseFile( fileHandle ); }
-	};
-
-	FileGuard fileGuard( fileHandle );
-
-	// Release the allocated data unless the ownership is explicitly revoked
-	std::unique_ptr<uint8_t[]> dataGuard( new uint8_t[fileSize] );
-
-	int readResult = api->FS_Read( dataGuard.get(), (unsigned)fileSize, fileHandle );
-	if( readResult != fileSize ) {
-		NotifyOfResult( nullptr, 0 );
+	if( strstr( s, "bytes" ) != s )	{
+		return "Only bytes are supported for the Range header units";
 	}
 
-	// Transfer the ownership of the allocated data
-	NotifyOfResult( dataGuard.release(), fileSize );
+	s += strlen( "bytes" );
+	while( isspace( *s ) ) {
+		s++;
+	}
+
+	if( *s != '=' ) {
+		return "`bytes` unit must be followed by `=`";
+	}
+
+	s++;
+	while( isspace( *s ) ) {
+		s++;
+	}
+
+	char *endptr;
+	auto start = strtoul( s, &endptr, 10 );
+	if( ( start == ULONG_MAX && errno == ERANGE ) || start > INT_MAX ) {
+		return "Malformed range start, only positive 32-bit integer numbers are allowed";
+	}
+	this->parsedRangeStart = (int)start;
+
+	if( *endptr != '-' ) {
+		return "Malformed range, a hyphen is expected as a separator, got " + std::string( endptr );
+	}
+
+	s = endptr + 1;
+	if( !*s ) {
+		// Should not allocate
+		return std::string();
+	}
+
+	auto end = strtoul( s, &endptr, 10 );
+	if( ( end == ULONG_MAX && errno == ERANGE ) || end > INT_MAX ) {
+		return "Malformed range end, only positive 32-bit integer numbers are allowed";
+	}
+	this->parsedRangeEnd = (int)end;
+
+	if( parsedRangeStart > parsedRangeEnd ) {
+		return "Malformed range, start is greater than the end";
+	}
+
+	if( *endptr ) {
+		return "Only a single document part can be specified";
+	}
+
+	return std::string();
 }
 
 void WswCefResourceHandler::GetResponseHeaders( CefRefPtr<CefResponse> response,
@@ -243,22 +338,50 @@ void WswCefResourceHandler::GetResponseHeaders( CefRefPtr<CefResponse> response,
 
 	// We have deferred this until we could return a response in well-known way
 	if( !isAGetRequest ) {
-		FailWith( response, "Only Get requests are allowed", 400, ERR_METHOD_NOT_SUPPORTED );
+		FailWith( response, "Only GET requests are allowed", 400, ERR_METHOD_NOT_SUPPORTED );
 	}
 
-	if( !urlValidationError.empty() ) {
-		FailWith( response, urlValidationError, 400, ERR_INVALID_URL );
+	if( !validationError.empty() ) {
+		FailWith( response, validationError, 400, ERR_INVALID_URL );
 		return;
 	}
 
-	if( !fileData ) {
+	if( filePointer < 0 ) {
 		FailWith( response, "Cannot open the file in the game filesystem", 404, ERR_FILE_NOT_FOUND );
 		return;
 	}
 
-	response->SetStatus( 200 );
-	response->SetStatusText( "OK" );
 	response->SetMimeType( mime );
+	// There was no range specified, return with 200
+	if( parsedRangeStart < 0 && parsedRangeEnd < 0 ) {
+		response->SetStatus( 200 );
+		response->SetStatusText( "OK" );
+		response_length = fileSize;
+		return;
+	}
+
+	realRangeStart = parsedRangeStart < 0 ? 0 : parsedRangeStart;
+	if( realRangeStart >= fileSize ) {
+		FailWith( response, "The range start is greater than the file size", 400, ERR_INVALID_ARGUMENT );
+		return;
+	}
+
+	realRangeEnd = parsedRangeEnd < 0 ? parsedRangeStart + 64 * 1024 : parsedRangeEnd;
+	if( realRangeEnd >= fileSize ) {
+		realRangeEnd = std::max( 0, fileSize - 1 );
+	}
+
+	seekTo = realRangeStart;
+
+	CefResponse::HeaderMap headerMap;
+	std::stringstream contentRange;
+	contentRange << realRangeStart << "-" << realRangeEnd << "/" << fileSize;
+	headerMap.emplace( std::make_pair( CefString( "Content-Range" ), CefString( contentRange.str() ) ) );
+	headerMap.emplace( std::make_pair( CefString( "Accept-Ranges" ), CefString( "bytes" ) ) );
+	headerMap.emplace( std::make_pair( CefString( "Content-Length" ), CefString( std::to_string( fileSize ) ) ) );
+	response->SetHeaderMap( headerMap );
+	response->SetStatus( 206 );
+	response->SetStatusText( "Partial content" );
 	response_length = fileSize;
 }
 
@@ -266,20 +389,61 @@ bool WswCefResourceHandler::ReadResponse( void *data_out,
 										  int bytes_to_read,
 										  int &bytes_read,
 										  CefRefPtr<CefCallback> callback ) {
-	int bytesAvailable = fileSize - bytesAlreadyRead;
-	int bytesToActuallyRead = std::min( bytesAvailable, bytes_to_read );
-	// Stop resource reading
-	if( !bytesToActuallyRead ) {
-		bytes_read = 0;
-		callback->Continue();
-		return false;
+	if( this->readResponseCallback ) {
+		this->readResponseCallback = nullptr;
+		// ReadResponse() must not be called if the request has been canceled once we were notified about read results
+		assert( this->readResult >= 0 );
+		// Notify we have read these bytes
+		bytes_read = this->readResult;
+		// Return immediately. Return false to terminate if there is no bytes left
+		return this->readResult > 0;
 	}
 
-	memcpy( data_out, fileData + bytesAlreadyRead, (unsigned)bytesToActuallyRead );
-	bytesAlreadyRead += bytesToActuallyRead;
-	bytes_read = bytesToActuallyRead;
-	callback->Continue();
+	// Schedule a task
+	this->readResponseCallback = callback;
+	CefPostTask( TID_FILE, AsCefPtr( new ReadChunkTask( this, filePointer, data_out, bytes_to_read, seekTo ) ) );
+	seekTo = -1;
+	// Wait for reading result
+	bytes_read = 0;
 	return true;
+}
+
+void OpenFileTask::NotifyOfResult( int filePointer, int fileSize ) {
+	CefPostTask( TID_IO, AsCefPtr( new NotifyOfOpenFileTask( parent, filePointer, fileSize ) ) );
+}
+
+void OpenFileTask::Execute() {
+	CEF_REQUIRE_FILE_THREAD();
+
+	int filePointer = -1;
+	int maybeFileSize = api->FS_FOpenFile( filePath.c_str(), &filePointer, FS_READ );
+	NotifyOfResult( filePointer, maybeFileSize );
+}
+
+void NotifyOfOpenFileTask::Execute() {
+	parent->NotifyOfOpenResult( filePointer, fileSize );
+}
+
+void ReadChunkTask::NotifyOfResult( int result ) {
+	CefPostTask( TID_IO, AsCefPtr( new NotifyOfChunkReadTask( parent, result ) ) );
+}
+
+void ReadChunkTask::Execute() {
+	CEF_REQUIRE_FILE_THREAD();
+
+	if( seekTo >= 0 ) {
+		if( api->FS_Seek( filePointer, seekTo, FS_SEEK_SET ) < 0 ) {
+			NotifyOfResult( -1 );
+			return;
+		}
+	}
+
+	int result = api->FS_Read( buffer, (size_t)bytesToRead, filePointer );
+	NotifyOfResult( result );
+}
+
+void NotifyOfChunkReadTask::Execute() {
+	parent->NotifyOfReadResult( this->result );
 }
 
 class WswCefSchemeHandlerFactory: public CefSchemeHandlerFactory {
