@@ -668,6 +668,8 @@ bool    FS_PakFileExists( const char *packfilename );
 time_t      FS_FileMTime( const char *filename );
 time_t      FS_BaseFileMTime( const char *filename );
 
+ssize_t FS_GetRealPath( const char *path, char *buffer, size_t bufferSize );
+
 // // only for game files
 const char *FS_FirstExtension( const char *filename, const char *extensions[], int num_extensions );
 const char *FS_PakNameForFile( const char *filename );

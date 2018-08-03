@@ -78,12 +78,23 @@ bool UiFacade::InitCef( int argc, char **argv, void *hInstance, int width, int h
 	settings.log_severity = api->Cvar_Value( "developer" ) ? LOGSEVERITY_VERBOSE : LOGSEVERITY_DISABLE;
 #endif
 
-	// Hacks! Unfortunately CEF always expects an absolute path
-	std::string realPath( api->Cvar_String( "fs_realpath" ) );
+	char pathBuffer[4096 + 64];
+	ssize_t pathLen = api->FS_GetRealPath( ".", pathBuffer, sizeof( pathBuffer ) );
+	if( pathLen < 0 ) {
+		api->Print( S_COLOR_RED "Can't get full real path of the current path\n" );
+		return false;
+	}
+
+	assert( pathLen < 4096 );
+	char *const pathSuffix = pathBuffer + pathLen;
+
 	// TODO: Make sure it's arch/platform-compatible!
-	CefString( &settings.browser_subprocess_path ).FromASCII( ( realPath + "/ui_cef_process.x86_64" ).c_str() );
-	CefString( &settings.resources_dir_path ).FromASCII( ( realPath + "/cef_resources/" ).c_str() );
-	CefString( &settings.locales_dir_path ).FromASCII( ( realPath + "/cef_resources/locales/" ).c_str() );
+	strncpy( pathSuffix, "/ui_cef_process.x86_64", 64 );
+	CefString( &settings.browser_subprocess_path ).FromASCII( pathBuffer );
+	strncpy( pathSuffix, "/cef_resources/", 64 );
+	CefString( &settings.resources_dir_path ).FromASCII( pathBuffer );
+	strncpy( pathSuffix, "/cef_resources/locales", 64 );
+	CefString( &settings.locales_dir_path ).FromASCII( pathBuffer );
 	// TODO settings.cache_path;
 	// TODO settings.user_data_path;
 	settings.windowless_rendering_enabled = true;

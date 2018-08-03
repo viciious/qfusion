@@ -27,6 +27,8 @@ const char *Sys_FS_GetSecureDirectory( void );
 const char *Sys_FS_GetMediaDirectory( fs_mediatype_t type );
 const char *Sys_FS_GetRuntimeDirectory( void );
 
+ssize_t Sys_FS_GetRealPath( const char *path, char *buffer, size_t bufferSize );
+
 bool    Sys_FS_RemoveDirectory( const char *path );
 bool    Sys_FS_CreateDirectory( const char *path );
 

@@ -172,6 +172,7 @@ void CL_UIModule_Init( void ) {
 	import.FS_IsUrl = FS_IsUrl;
 	import.FS_FileMTime = FS_FileMTime;
 	import.FS_RemoveDirectory = FS_RemoveDirectory;
+	import.FS_GetRealPath = FS_GetRealPath;
 
 	import.CL_Quit = CL_Quit;
 	import.CL_SetKeyDest = CL_SetKeyDest;

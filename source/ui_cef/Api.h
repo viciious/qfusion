@@ -119,6 +119,7 @@ typedef struct {
 	bool ( *FS_IsUrl )( const char *url );
 	time_t ( *FS_FileMTime )( const char *filename );
 	bool ( *FS_RemoveDirectory )( const char *dirname );
+	ssize_t ( *FS_GetRealPath )( const char *path, char *buffer, size_t bufferSize );
 
 	void ( *GetConfigString )( int i, char *str, int size );
 

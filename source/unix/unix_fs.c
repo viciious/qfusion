@@ -442,6 +442,34 @@ bool Sys_FS_RemoveDirectory( const char *path ) {
 	return ( !rmdir( path ) );
 }
 
+ssize_t Sys_FS_GetRealPath( const char *path, char *buffer, size_t bufferSize ) {
+	// If the buffer is a-priori capable of storing the path, use it
+	if( bufferSize >= PATH_MAX ) {
+		if( realpath( path, buffer ) ) {
+			return strlen( buffer );
+		}
+		return -1;
+	}
+
+	// Let this call allocate its result as needed
+	const char *resolved = realpath( buffer, NULL );
+	if( !resolved ) {
+		return -1;
+	}
+
+	// Check whether the result fits the buffer
+	size_t len = strlen( resolved );
+	if( len + 1 > bufferSize ) {
+		free( resolved );
+		return -1;
+	}
+
+	// Copy the result along with the last zero byte
+	memcpy( buffer, resolved, len + 1 );
+	free( resolved );
+	return len;
+}
+
 /*
 * Sys_FS_FileMTime
 */
