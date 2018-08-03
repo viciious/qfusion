@@ -53,6 +53,18 @@ public:
 	IMPLEMENT_REFCOUNTING( WswCefRenderHandler );
 };
 
+class WswCefDisplayHandler: public CefDisplayHandler {
+	bool OnConsoleMessage( CefRefPtr<CefBrowser> browser,
+						   const CefString& message,
+						   const CefString& source,
+						   int line ) override;
+
+	UiFacade *const parent;
+public:
+	explicit WswCefDisplayHandler( UiFacade *parent_ ): parent( parent_ ) {}
+
+	IMPLEMENT_REFCOUNTING( WswCefDisplayHandler );
+};
 
 class WswCefClient: public CefClient, public CefLifeSpanHandler, public CefContextMenuHandler {
 	friend class CallbackRequestHandler;
@@ -73,6 +85,7 @@ class WswCefClient: public CefClient, public CefLifeSpanHandler, public CefConte
 	GetKeyNamesRequestHandler getKeyNames;
 
 	CefRefPtr<WswCefRenderHandler> renderHandler;
+	CefRefPtr<WswCefDisplayHandler> displayHandler;
 
 	inline Logger *Logger() { return UiFacade::Instance()->Logger(); }
 public:
@@ -90,12 +103,15 @@ public:
 		, getLocalizedStrings( this )
 		, getKeyBindings( this )
 		, getKeyNames( this )
-		, renderHandler( new WswCefRenderHandler( width, height ) ) {
-		UiFacade::Instance()->RegisterRenderHandler( renderHandler.get() );
-	}
+		, renderHandler( new WswCefRenderHandler( UiFacade::Instance() ) )
+		, displayHandler( new WswCefDisplayHandler( UiFacade::Instance() ) ) {}
 
 	CefRefPtr<CefRenderHandler> GetRenderHandler() override {
 		return renderHandler;
+	}
+
+	CefRefPtr<CefDisplayHandler> GetDisplayHandler() override {
+		return displayHandler;
 	}
 
 	CefRefPtr<CefLifeSpanHandler> GetLifeSpanHandler() override {

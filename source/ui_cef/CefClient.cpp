@@ -1,4 +1,13 @@
 #include "CefClient.h"
+#include "UiFacade.h"
+
+bool WswCefDisplayHandler::OnConsoleMessage( CefRefPtr<CefBrowser> browser,
+											 const CefString &message,
+											 const CefString &source,
+											 int line ) {
+	parent->Logger()->Info( "[JS-CON.LOG] %s:%d: `%s`\n", source.ToString().c_str(), line, message.ToString().c_str() );
+	return true;
+}
 
 void WswCefRenderHandler::OnPaint( CefRefPtr<CefBrowser> browser,
 								   CefRenderHandler::PaintElementType type,
