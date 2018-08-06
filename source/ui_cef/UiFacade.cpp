@@ -109,8 +109,8 @@ UiFacade::UiFacade( int width_, int height_, int demoProtocol_, const char *demo
 	, demoProtocol( demoProtocol_ )
 	, demoExtension( demoExtension_ )
 	, basePath( basePath_ )
-	, messagePipe( this ) {
-	cursorShader = api->R_RegisterPic( "gfx/ui/cursor.tga" );
+	, messagePipe( this )
+	, rendererCompositionProxy( this ) {
 	api->Cmd_AddCommand( "menu_force", &MenuForceHandler );
 	api->Cmd_AddCommand( "menu_open", &MenuOpenHandler );
 	api->Cmd_AddCommand( "menu_modal", &MenuModalHandler );
@@ -139,13 +139,6 @@ void UiFacade::RegisterBrowser( CefRefPtr<CefBrowser> browser_ ) {
 
 void UiFacade::UnregisterBrowser( CefRefPtr<CefBrowser> browser_ ) {
 	this->browser = nullptr;
-}
-
-void UiFacade::RegisterRenderHandler( CefRenderHandler *handler_ ) {
-	assert( handler_ );
-	assert( !renderHandler );
-	renderHandler = dynamic_cast<WswCefRenderHandler *>( handler_ );
-	assert( renderHandler );
 }
 
 inline const char *NullToEmpty( const char *s ) {
@@ -182,7 +175,7 @@ void UiFacade::Refresh( int64_t time, int clientState, int serverState,
 	messagePipe.ConsumeScreenState( thisFrameScreenState );
 	thisFrameScreenState = nullptr;
 
-	DrawUi();
+	rendererCompositionProxy.Refresh( time, showCursor, backGround );
 }
 
 void UiFacade::UpdateConnectScreen( const char *serverName, const char *rejectMessage,
@@ -202,24 +195,6 @@ void UiFacade::UpdateConnectScreen( const char *serverName, const char *rejectMe
 	state.downloadFileName = NullToEmpty( downloadFilename );
 	state.downloadPercent = downloadPercent;
 	state.connectCount = connectCount;
-
-	DrawUi();
-}
-
-void UiFacade::DrawUi() {
-	assert( this->width == renderHandler->Width() );
-	assert( this->height == renderHandler->Height() );
-	assert( renderHandler->NumColorComponents() == 4 );
-	uint8_t *buffer = const_cast<uint8_t *>( renderHandler->BrowserRenderedBuffer() );
-	// TODO: Make this aware of linear/sRGB colorspaces and BGRA swizzles
-	auto *uiImage = api->R_RegisterRawPic( "uiBuffer", width, height, buffer, 4 );
-	vec4_t color = { 1.0f, 1.0f, 1.0f, 1.0f };
-	api->R_DrawStretchPic( 0, 0, width, height, 0.0f, 0.0f, 1.0f, 1.0f, color, uiImage );
-
-	// Draw cursor every refresh frame
-	// TODO: make this aware of display density!
-	// TODO: This should be displayed as 32x32 dp, the image is 64x64 px
-	api->R_DrawStretchPic( mouseXY[0], mouseXY[1], 32, 32, 0.0f, 0.0f, 1.0f, 1.0f, color, cursorShader );
 }
 
 uint32_t UiFacade::GetInputModifiers() const {

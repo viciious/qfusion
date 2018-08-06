@@ -121,6 +121,11 @@ void WswCefRenderProcessHandler::OnWebKitInitialized() {
 		"			callback(JSON.parse(serializedObject));"
 		"		});"
 		"	};"
+		"	/* The callback accepts a string status of the command as a single argument */"
+		"	ui.drawWorldModel = function(paramsObject, callback) {"
+		"		native function drawWorldModel(paramsObject, callback);"
+		"		drawWorldModel(paramsObject, callback);"
+		"	};"
 		"})();";
 
 	v8Handler = CefRefPtr<WswCefV8Handler>( new WswCefV8Handler( this ) );

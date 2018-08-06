@@ -90,6 +90,7 @@ public:
 	static const CefString getLocalizedStrings;
 	static const CefString getKeyBindings;
 	static const CefString getKeyNames;
+	static const CefString drawWorldModel;
 };
 
 class PendingRequestLauncher {
@@ -273,6 +274,8 @@ DERIVE_REQUEST_FOR_KEYS_HANDLER( GetKeyBindingsRequest, PendingCallbackRequest::
 DERIVE_PENDING_CALLBACK_REQUEST( GetKeyNamesRequest, PendingCallbackRequest::getKeyNames );
 DERIVE_REQUEST_FOR_KEYS_LAUNCHER( GetKeyNamesRequest, PendingCallbackRequest::getKeyNames );
 DERIVE_REQUEST_FOR_KEYS_HANDLER( GetKeyNamesRequest, PendingCallbackRequest::getKeyNames );
+
+DERIVE_REQUEST_IPC_HELPERS( DrawWorldModelRequest, PendingCallbackRequest::drawWorldModel );
 
 class SimplexMessage: public AllocatorChild {
 	const CefString &name;

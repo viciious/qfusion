@@ -30,6 +30,7 @@ class WswCefV8Handler: public CefV8Handler {
 	GetLocalizedStringsRequestLauncher getLocalizedStrings;
 	GetKeyBindingsRequestLauncher getKeyBindings;
 	GetKeyNamesRequestLauncher getKeyNames;
+	DrawWorldModelRequestLauncher drawWorldModel;
 
 	GameCommandHandler gameCommandHandler;
 	MouseSetHandler mouseSetHandler;
@@ -61,6 +62,7 @@ public:
 		, getLocalizedStrings( this )
 		, getKeyBindings( this )
 		, getKeyNames( this )
+		, drawWorldModel( this )
 		, gameCommandHandler( this )
 		, mouseSetHandler( this )
 		, updateScreenHandler( this )

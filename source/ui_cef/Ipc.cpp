@@ -24,6 +24,7 @@ const CefString PendingCallbackRequest::getMaps( "getMaps" );
 const CefString PendingCallbackRequest::getLocalizedStrings( "getLocalizedStrings" );
 const CefString PendingCallbackRequest::getKeyBindings( "getKeyBindings" );
 const CefString PendingCallbackRequest::getKeyNames( "getKeyNames" );
+const CefString PendingCallbackRequest::drawWorldModel( "drawWorldModel" );
 
 PendingCallbackRequest::PendingCallbackRequest( WswCefV8Handler *parent_,
 												CefRefPtr<CefV8Context> context_,

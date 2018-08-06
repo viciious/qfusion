@@ -1,7 +1,7 @@
 project(ui_cef)
 
 file(GLOB UI_CEF_HEADERS "*.h")
-file(GLOB UI_CEF_SOURCES "*.cpp" "syscalls/*.cpp")
+file(GLOB UI_CEF_SOURCES "*.cpp" "syscalls/*.cpp" "../gameshared/q_math.c" "../gameshared/q_shared.c")
 
 include_directories(${CEF_INCLUDE_DIR})
 link_directories(${CEF_LINK_DIR})

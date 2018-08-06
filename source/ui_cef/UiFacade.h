@@ -4,6 +4,15 @@
 #include "Logger.h"
 #include "MessagePipe.h"
 #include "Ipc.h"
+#include "RendererCompositionProxy.h"
+
+#include "../gameshared/q_math.h"
+#ifdef min
+#undef min
+#endif
+#ifdef max
+#undef max
+#endif
 
 #include <string>
 #include <include/cef_render_handler.h>
@@ -17,6 +26,8 @@ class BrowserProcessLogger: public Logger {
 
 class UiFacade {
 	friend class MessagePipe;
+	friend class WswCefRenderHandler;
+	friend class RendererCompositionProxy;
 
 	CefRefPtr<CefBrowser> browser;
 	WswCefRenderHandler *renderHandler;
@@ -31,6 +42,8 @@ class UiFacade {
 	std::string basePath;
 
 	MessagePipe messagePipe;
+
+	RendererCompositionProxy rendererCompositionProxy;
 
 	UiFacade( int width_, int height_, int demoProtocol_, const char *demoExtension_, const char *basePath_ );
 	~UiFacade();
@@ -48,12 +61,7 @@ class UiFacade {
 
 	static bool InitCef( int argc, char **argv, void *hInstance, int width, int height );
 
-	void DrawUi();
-
 	int64_t lastRefreshAt;
-
-	struct shader_s *cursorShader;
-
 	int64_t lastScrollAt;
 	int numScrollsInARow;
 	int lastScrollDirection;
@@ -81,7 +89,6 @@ public:
 
 	Logger *Logger() { return &logger; }
 
-	void RegisterRenderHandler( CefRenderHandler *handler_ );
 	void RegisterBrowser( CefRefPtr<CefBrowser> browser_ );
 	void UnregisterBrowser( CefRefPtr<CefBrowser> browser_ );
 
@@ -119,6 +126,10 @@ public:
 
 	void ShowQuickMenu( bool show ) {
 		messagePipe.ShowQuickMenu( show );
+	}
+
+	void StartShowingWorldModel( const char *name, bool blurred, bool looping, const std::vector<CameraAnimFrame> &frames ) {
+		rendererCompositionProxy.StartShowingWorldModel( name, blurred, looping, frames );
 	}
 };
 

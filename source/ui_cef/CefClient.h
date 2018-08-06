@@ -9,9 +9,9 @@
 #include "include/cef_render_handler.h"
 
 class WswCefRenderHandler: public CefRenderHandler {
-	uint8_t *browserRenderedBuffer;
 	const int width;
 	const int height;
+	RendererCompositionProxy *const rendererCompositionProxy;
 
 	void FillRect( CefRect &rect ) {
 		rect.x = 0;
@@ -19,23 +19,11 @@ class WswCefRenderHandler: public CefRenderHandler {
 		rect.width = width;
 		rect.height = height;
 	}
-
 public:
-	WswCefRenderHandler( int width_, int height_ ): width( width_ ), height( height_ ) {
-		// Check dimensions for sanity
-		assert( width > 0 && width <= ( 1 << 16 ) );
-		assert( height > 0 && height <= ( 1 << 16 ) );
-		browserRenderedBuffer = new uint8_t[width * height * NumColorComponents()];
-	}
-
-	~WswCefRenderHandler() override {
-		delete browserRenderedBuffer;
-	}
-
-	const uint8_t *BrowserRenderedBuffer() const { return browserRenderedBuffer; }
-	int Width() const { return width; }
-	int Height() const { return height; }
-	int NumColorComponents() const { return 4; }
+	explicit WswCefRenderHandler( UiFacade *facade )
+		: width( facade->width )
+		, height( facade->height )
+		, rendererCompositionProxy( &facade->rendererCompositionProxy ) {}
 
 	bool GetRootScreenRect( CefRefPtr<CefBrowser> browser, CefRect& rect ) override {
 		FillRect( rect );
@@ -48,7 +36,11 @@ public:
 	}
 
 	void OnPaint( CefRefPtr<CefBrowser> browser, PaintElementType type, const RectList& dirtyRects,
-				  const void* buffer, int width_, int height_ ) override;
+				  const void* buffer, int width_, int height_ ) override {
+		assert( width_ == this->width );
+		assert( height_ == this->height );
+		rendererCompositionProxy->UpdateChromiumBuffer( dirtyRects, buffer, width_, height_ );
+	}
 
 	IMPLEMENT_REFCOUNTING( WswCefRenderHandler );
 };
@@ -83,6 +75,7 @@ class WswCefClient: public CefClient, public CefLifeSpanHandler, public CefConte
 	GetLocalizedStringsRequestHandler getLocalizedStrings;
 	GetKeyBindingsRequestHandler getKeyBindings;
 	GetKeyNamesRequestHandler getKeyNames;
+	DrawWorldModelRequestHandler drawWorldModel;
 
 	CefRefPtr<WswCefRenderHandler> renderHandler;
 	CefRefPtr<WswCefDisplayHandler> displayHandler;
@@ -103,6 +96,7 @@ public:
 		, getLocalizedStrings( this )
 		, getKeyBindings( this )
 		, getKeyNames( this )
+		, drawWorldModel( this )
 		, renderHandler( new WswCefRenderHandler( UiFacade::Instance() ) )
 		, displayHandler( new WswCefDisplayHandler( UiFacade::Instance() ) ) {}
 
