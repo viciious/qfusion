@@ -18,6 +18,12 @@ public:
 		: framesArray( framesArray_ ), scope( scope_ ) {}
 
 	bool Parse( std::vector<CameraAnimFrame> &frames, bool looping, CefString &exception );
+
+	static CefRefPtr<CefV8Value> FindAnimField( ObjectFieldsGetter &paramsGetter,
+												const CefString &seqFieldName,
+												const CefString &loopFieldName,
+												const CefString **animFieldName,
+												CefString &exception );
 };
 
 #endif

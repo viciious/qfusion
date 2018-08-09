@@ -6,7 +6,7 @@ void CameraAnimator::ResetWithFrames( const CameraAnimFrame *framesBegin, const 
 	if( looping_ ) {
 		// First and last frames must have the same parameters except the timestamp
 		assert( VectorCompare( framesBegin[0].origin, framesEnd[-1].origin ) );
-		assert( VectorCompare( framesBegin[0].angles, framesEnd[-1].angles ) );
+		assert( VectorCompare( framesBegin[0].lookAt, framesEnd[-1].lookAt ) );
 		assert( framesBegin[0].fov == framesEnd[-1].fov );
 	}
 
@@ -16,7 +16,10 @@ void CameraAnimator::ResetWithFrames( const CameraAnimFrame *framesBegin, const 
 
 	// Provide initial values for immediate use
 	VectorCopy( framesBegin->origin, currOrigin );
-	AnglesToAxis( framesBegin->angles, currAxis );
+	vec3_t lookDir;
+	VectorSubtract( framesBegin->lookAt, framesBegin->origin, lookDir );
+	VectorNormalize( lookDir );
+	NormalVectorToAxis( lookDir, currAxis );
 	this->currFov = framesBegin->fov;
 
 	// Convert given frames to internal frames
@@ -28,7 +31,9 @@ void CameraAnimator::ResetWithFrames( const CameraAnimFrame *framesBegin, const 
 		frame.timestamp = framePtr->timestamp;
 		frame.fov = framePtr->fov;
 		mat3_t m;
-		AnglesToAxis( framePtr->angles, m );
+		VectorSubtract( framePtr->lookAt, framePtr->origin, lookDir );
+		VectorNormalize( lookDir );
+		NormalVectorToAxis( lookDir, m );
 		Quat_FromMatrix3( m, frame.orientation );
 		this->frames.emplace_back( frame );
 	}

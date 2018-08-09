@@ -76,6 +76,10 @@ class WswCefClient: public CefClient, public CefLifeSpanHandler, public CefConte
 	GetKeyBindingsRequestHandler getKeyBindings;
 	GetKeyNamesRequestHandler getKeyNames;
 	DrawWorldModelRequestHandler drawWorldModel;
+	StartDrawingModelRequestHandler startDrawingModel;
+	StopDrawingModelRequestHandler stopDrawingModel;
+	StartDrawingImageRequestHandler startDrawingImage;
+	StopDrawingImageRequestHandler stopDrawingImage;
 
 	CefRefPtr<WswCefRenderHandler> renderHandler;
 	CefRefPtr<WswCefDisplayHandler> displayHandler;
@@ -97,6 +101,10 @@ public:
 		, getKeyBindings( this )
 		, getKeyNames( this )
 		, drawWorldModel( this )
+		, startDrawingModel( this )
+		, stopDrawingModel( this )
+		, startDrawingImage( this )
+		, stopDrawingImage( this )
 		, renderHandler( new WswCefRenderHandler( UiFacade::Instance() ) )
 		, displayHandler( new WswCefDisplayHandler( UiFacade::Instance() ) ) {}
 

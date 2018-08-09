@@ -19,6 +19,7 @@ class ObjectFieldsGetter {
 	std::set<CefString> keySet;
 
 	void SetTypeError( const CefString &keyName, const CefString &scope, const CefString &expected, CefString &exception );
+
 public:
 	bool ContainsField( const CefString &name ) const {
 		return keySet.find( name ) != keySet.end();
@@ -37,10 +38,19 @@ public:
 
 	bool GetString( const CefString &keyName, CefString &result, CefString &exception, const CefString &scope = CefString() );
 	bool GetBool( const CefString &keyName, bool *result, CefString &exception, const CefString &scope = CefString() );
+	bool GetInt( const CefString &keyName, int *result, CefString &exception, const CefString &scope = CefString() );
 	bool GetUInt( const CefString &keyName, unsigned *result, CefString &exception, const CefString &scope = CefString() );
 	bool GetDouble( const CefString &keyName, double *result, CefString &exception, const CefString &scope = CefString() );
 	bool GetFloat( const CefString &keyName, float *result, CefString &exception, const CefString &scope = CefString() );
-	bool GetVec3( const CefString &keyName, vec3_t result, CefString &exception, const CefString &scope = CefString() );
+
+	bool GetFloatVec( const CefString &keyName, float *result, int size, CefString &exception, const CefString &scope );
+
+	bool GetVec3( const CefString &keyName, vec3_t result, CefString &exception, const CefString &scope = CefString() ) {
+		return GetFloatVec( keyName, result, 3, exception, scope );
+	}
+	bool GetVec2( const CefString &keyName, vec3_t result, CefString &exception, const CefString &scope = CefString() ) {
+		return GetFloatVec( keyName, result, 2, exception, scope );
+	}
 };
 
 #endif

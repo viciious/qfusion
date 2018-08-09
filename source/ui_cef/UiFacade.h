@@ -24,6 +24,28 @@ class BrowserProcessLogger: public Logger {
 	void SendLogMessage( cef_log_severity_t severity, const char *format, va_list va ) override;
 };
 
+class ItemDrawParams {
+public:
+	virtual ~ItemDrawParams() = default;
+	virtual const float *TopLeft() const = 0;
+	virtual const float *Dimensions() const = 0;
+	virtual int16_t ZIndex() const = 0;
+};
+
+class ModelDrawParams: public virtual ItemDrawParams {
+public:
+	virtual const CefString &Model() const = 0;
+	virtual const CefString &Skin() const = 0;
+	virtual int ColorRgba() const  = 0;
+	virtual bool IsAnimLooping() const = 0;
+	virtual const std::vector<CameraAnimFrame> &AnimFrames() const = 0;
+};
+
+class ImageDrawParams: public virtual ItemDrawParams {
+public:
+	virtual const CefString &Shader() const  = 0;
+};
+
 class UiFacade {
 	friend class MessagePipe;
 	friend class WswCefRenderHandler;
@@ -130,6 +152,22 @@ public:
 
 	void StartShowingWorldModel( const char *name, bool blurred, bool looping, const std::vector<CameraAnimFrame> &frames ) {
 		rendererCompositionProxy.StartShowingWorldModel( name, blurred, looping, frames );
+	}
+
+	int StartDrawingModel( const ModelDrawParams &params ) {
+		return rendererCompositionProxy.StartDrawingModel( params );
+	}
+
+	int StartDrawingImage( const ImageDrawParams &params ) {
+		return rendererCompositionProxy.StartDrawingImage( params );
+	}
+
+	bool StopDrawingModel( int drawnModelHandle ) {
+		return rendererCompositionProxy.StopDrawingModel( drawnModelHandle );
+	}
+
+	bool StopDrawingImage( int drawnModelHandle ) {
+		return rendererCompositionProxy.StopDrawingModel( drawnModelHandle );
 	}
 };
 

@@ -31,6 +31,10 @@ class WswCefV8Handler: public CefV8Handler {
 	GetKeyBindingsRequestLauncher getKeyBindings;
 	GetKeyNamesRequestLauncher getKeyNames;
 	DrawWorldModelRequestLauncher drawWorldModel;
+	StartDrawingModelRequestLauncher startDrawingModel;
+	StopDrawingModelRequestLauncher stopDrawingModel;
+	StartDrawingImageRequestLauncher startDrawingImage;
+	StopDrawingImageRequestLauncher stopDrawingImage;
 
 	GameCommandHandler gameCommandHandler;
 	MouseSetHandler mouseSetHandler;
@@ -63,6 +67,10 @@ public:
 		, getKeyBindings( this )
 		, getKeyNames( this )
 		, drawWorldModel( this )
+		, startDrawingModel( this )
+		, stopDrawingModel( this )
+		, startDrawingImage( this )
+		, stopDrawingImage( this )
 		, gameCommandHandler( this )
 		, mouseSetHandler( this )
 		, updateScreenHandler( this )

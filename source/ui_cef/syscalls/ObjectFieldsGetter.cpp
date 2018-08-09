@@ -126,6 +126,42 @@ bool ObjectFieldsGetter::GetFloat( const CefString &keyName, float *result, CefS
 	return false;
 }
 
+bool ObjectFieldsGetter::GetInt( const CefString &keyName, int *result, CefString &exception, const CefString &scope ) {
+	auto valueForKey( GetFieldValue( keyName, exception, scope ) );
+	if( !valueForKey ) {
+		return false;
+	}
+
+	if( valueForKey->IsInt() ) {
+		*result = valueForKey->GetIntValue();
+		return true;
+	}
+
+	if( valueForKey->IsUInt() ) {
+		unsigned value = valueForKey->GetUIntValue();
+		if( value <= std::numeric_limits<uint32_t>::max() ) {
+			*result = (int)value;
+			return true;
+		}
+		exception = "Can't convert an unsigned value " + std::to_string( value ) + " to a signed one";
+		return false;
+	}
+
+	if( valueForKey->IsDouble() ) {
+		double value = valueForKey->GetDoubleValue();
+		volatile auto v = (int)value;
+		if( (double)v == value ) {
+			*result = v;
+			return true;
+		}
+		exception = "Can't convert a double value" + std::to_string( value ) + " to an signed integer";
+		return false;
+	}
+
+	return false;
+}
+
+
 bool ObjectFieldsGetter::GetUInt( const CefString &keyName, unsigned *result, CefString &exception, const CefString &scope ) {
 	auto valueForKey( GetFieldValue( keyName, exception, scope ) );
 	if( !valueForKey ) {
@@ -199,37 +235,43 @@ bool ObjectFieldsGetter::GetObject( const CefString &keyName,
 	return true;
 }
 
-bool ObjectFieldsGetter::GetVec3( const CefString &keyName, vec3_t result,
-								  CefString &exception, const CefString &scope ) {
+bool ObjectFieldsGetter::GetFloatVec( const CefString &keyName,
+									  float *result,
+									  int size,
+									  CefString &exception,
+									  const CefString &scope ) {
 	CefRefPtr<CefV8Value> valueForKey;
 	if( !GetArray( keyName, valueForKey, exception, scope ) ) {
 		return false;
 	}
 
 	const int length = valueForKey->GetArrayLength();
-	if( length != 3 ) {
-		exception =
-			"An array field for key `" + keyName.ToString() +
-			"` must have 3 elements, got " + std::to_string( length ) + " ones";
+	assert( size > 0 );
+	if( length != size ) {
+		CefStringBuilder s;
+		s << "An array field for key `" << keyName << "` ";
+		if( !scope.empty() ) {
+			s << "in `" << scope << "` ";
+		}
+		s << "must have " << size << " elements, got " << length << " ones";
+		exception = s.ReleaseOwnership();
 		return false;
 	}
 
-	// Do not touch out parameter unless the conversion is complete
-	vec3_t tmp;
-	for( int i = 0; i < 3; ++i ) {
+	for( int i = 0; i < size; ++i ) {
 		auto elemValue( valueForKey->GetValue( i ) );
+		// TODO: Catch precision loss?
 		if( elemValue->IsInt() ) {
-			tmp[i] = elemValue->GetIntValue();
+			result[i] = elemValue->GetIntValue();
 		} else if( elemValue->IsUInt() ) {
-			tmp[i] = elemValue->GetUIntValue();
+			result[i] = elemValue->GetUIntValue();
 		} else if( elemValue->IsDouble() ) {
-			tmp[i] = (float)elemValue->GetDoubleValue();
+			result[i] = (float)elemValue->GetDoubleValue();
 		} else {
 			SetTypeError( "#" + std::to_string( i ), keyName, "a number", exception );
 			return false;
 		}
 	}
 
-	VectorCopy( tmp, result );
 	return true;
 }

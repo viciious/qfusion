@@ -91,6 +91,10 @@ public:
 	static const CefString getKeyBindings;
 	static const CefString getKeyNames;
 	static const CefString drawWorldModel;
+	static const CefString startDrawingModel;
+	static const CefString stopDrawingModel;
+	static const CefString startDrawingImage;
+	static const CefString stopDrawingImage;
 };
 
 class PendingRequestLauncher {
@@ -276,6 +280,75 @@ DERIVE_REQUEST_FOR_KEYS_LAUNCHER( GetKeyNamesRequest, PendingCallbackRequest::ge
 DERIVE_REQUEST_FOR_KEYS_HANDLER( GetKeyNamesRequest, PendingCallbackRequest::getKeyNames );
 
 DERIVE_REQUEST_IPC_HELPERS( DrawWorldModelRequest, PendingCallbackRequest::drawWorldModel );
+
+DERIVE_REQUEST_IPC_HELPERS( StartDrawingModelRequest, PendingCallbackRequest::startDrawingModel );
+DERIVE_REQUEST_IPC_HELPERS( StartDrawingImageRequest, PendingCallbackRequest::startDrawingImage );
+
+class StopDrawingItemRequest: public PendingCallbackRequest {
+public:
+	StopDrawingItemRequest( WswCefV8Handler *parent_,
+							CefRefPtr<CefV8Context> context_,
+							CefRefPtr<CefV8Value> callback_,
+							const CefString &method_ )
+		: PendingCallbackRequest( parent_, context_, callback_, method_ ) {}
+
+	void FireCallback( CefRefPtr<CefProcessMessage> reply ) override;
+};
+
+#define DERIVE_STOP_DRAWING_ITEM_REQUEST( Request, method )                                                   \
+class Request: public StopDrawingItemRequest {                                                                \
+public:                                                                                                       \
+	Request( WswCefV8Handler *parent_, CefRefPtr<CefV8Context> context_, CefRefPtr<CefV8Value> callback_ )    \
+		: StopDrawingItemRequest( parent_, context_, callback_, method ) {}                                   \
+};
+
+class StopDrawingItemRequestLauncher: public PendingRequestLauncher {
+protected:
+	StopDrawingItemRequestLauncher( WswCefV8Handler *parent_, const CefString &method_ )
+		: PendingRequestLauncher( parent_, method_ ) {}
+
+	void StartExec( const CefV8ValueList &jsArgs, CefRefPtr<CefV8Value> &retVal, CefString &exception ) override;
+
+	virtual std::shared_ptr<PendingCallbackRequest>
+		NewRequest( CefRefPtr<CefV8Context> ctx, CefRefPtr<CefV8Value> cb ) = 0;
+};
+
+#define DERIVE_STOP_DRAWING_ITEM_REQUEST_LAUNCHER( Request, method )                                \
+class Request##Launcher: public StopDrawingItemRequestLauncher {                                    \
+public:                                                                                             \
+	explicit Request##Launcher( WswCefV8Handler *parent_ )                                          \
+		: StopDrawingItemRequestLauncher( parent_, method ) {}                                      \
+	std::shared_ptr<PendingCallbackRequest> NewRequest( CefRefPtr<CefV8Context> ctx,                \
+														CefRefPtr<CefV8Value> cb ) override {       \
+		return std::make_shared<Request>( parent, ctx, cb );                                        \
+	}                                                                                               \
+};
+
+class StopDrawingItemRequestHandler: public CallbackRequestHandler {
+public:
+	StopDrawingItemRequestHandler( WswCefClient *parent_, const CefString &method_ )
+		: CallbackRequestHandler( parent_, method_ ) {}
+
+	void ReplyToRequest( CefRefPtr<CefBrowser> browser, CefRefPtr<CefProcessMessage> ingoing ) override;
+
+	virtual bool GetHandleProcessingResult( int drawnItemHandle ) = 0;
+};
+
+#define DERIVE_STOP_DRAWING_ITEM_REQUEST_HANDLER( Request, method )          \
+class Request##Handler: public StopDrawingItemRequestHandler {               \
+public:                                                                      \
+	Request##Handler( WswCefClient *parent_ )                                \
+		: StopDrawingItemRequestHandler( parent, method ) {}                 \
+	bool GetHandleProcessingResult( int drawnItemHandle ) override;          \
+}
+
+#define DERIVE_STOP_DRAWING_ITEM_IPC_HELPERS( Request, method )        \
+	DERIVE_STOP_DRAWING_ITEM_REQUEST( Request, method );               \
+	DERIVE_STOP_DRAWING_ITEM_REQUEST_LAUNCHER( Request, method );      \
+	DERIVE_STOP_DRAWING_ITEM_REQUEST_HANDLER( Request, method );       \
+
+DERIVE_STOP_DRAWING_ITEM_IPC_HELPERS( StopDrawingModelRequest, PendingCallbackRequest::stopDrawingModel );
+DERIVE_STOP_DRAWING_ITEM_IPC_HELPERS( StopDrawingImageRequest, PendingCallbackRequest::stopDrawingImage );
 
 class SimplexMessage: public AllocatorChild {
 	const CefString &name;

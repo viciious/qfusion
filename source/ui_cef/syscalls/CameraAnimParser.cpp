@@ -1,7 +1,8 @@
 #include "CameraAnimParser.h"
+#include "../CefStringBuilder.h"
 
 static const CefString originField( "origin" );
-static const CefString anglesField( "angles" );
+static const CefString lookAtField( "lookAt" );
 static const CefString timestampField( "timestamp" );
 static const CefString fovField( "fov" );
 
@@ -30,7 +31,15 @@ bool CameraAnimParser::Parse( std::vector<CameraAnimFrame> &frames, bool looping
 		if( !getter.GetVec3( originField, frame.origin, exception, elemScope )) {
 			return false;
 		}
-		if( !getter.GetVec3( anglesField, frame.angles, exception, elemScope )) {
+		if( !getter.GetVec3( lookAtField, frame.lookAt, exception, elemScope )) {
+			return false;
+		}
+
+		if( DistanceSquared( frame.origin, frame.lookAt ) < 1 ) {
+			exception =
+				"`origin` and `lookAt` values of `" + scope.ToString() +
+				"` array element #" + std::to_string( i ) +
+				" are way too close to each other";
 			return false;
 		}
 
@@ -98,8 +107,8 @@ bool CameraAnimParser::ValidateLoopingAnim( const std::vector<CameraAnimFrame> &
 		return false;
 	}
 
-	if( !VectorCompare( frames.front().angles, frames.back().angles ) ) {
-		exception = "Angles must match for the first and last loop frames";
+	if( !VectorCompare( frames.front().lookAt, frames.back().lookAt ) ) {
+		exception = "A `look-at` point must match for the first and last loop frames";
 		return false;
 	}
 
@@ -109,4 +118,42 @@ bool CameraAnimParser::ValidateLoopingAnim( const std::vector<CameraAnimFrame> &
 	}
 
 	return true;
+}
+
+CefRefPtr<CefV8Value> CameraAnimParser::FindAnimField( ObjectFieldsGetter &paramsGetter,
+													   const CefString &seqFieldName,
+													   const CefString &loopFieldName,
+													   const CefString **animFieldName,
+													   CefString &exception ) {
+	const bool isAnimSeqPresent = paramsGetter.ContainsField( seqFieldName );
+	const bool isAnimLoopPresent = paramsGetter.ContainsField( loopFieldName );
+	if( isAnimSeqPresent && isAnimLoopPresent ) {
+		CefStringBuilder s;
+		s << "Both " << seqFieldName << " and " << loopFieldName << " fields are present";
+		exception = s.ReleaseOwnership();
+		return nullptr;
+	}
+
+	if( !isAnimSeqPresent && !isAnimLoopPresent ) {
+		CefStringBuilder s;
+		s << "Neither " << seqFieldName << " nor " << loopFieldName << " fields are present";
+		exception = s.ReleaseOwnership();
+		return nullptr;
+	}
+
+	CefRefPtr<CefV8Value> result;
+	*animFieldName = nullptr;
+	if( isAnimSeqPresent ) {
+		if( !paramsGetter.GetArray( seqFieldName, result, exception ) ) {
+			return nullptr;
+		}
+		*animFieldName = &seqFieldName;
+	} else {
+		if( !paramsGetter.GetArray( loopFieldName, result, exception ) ) {
+			return nullptr;
+		}
+		*animFieldName = &loopFieldName;
+	}
+
+	return result;
 }

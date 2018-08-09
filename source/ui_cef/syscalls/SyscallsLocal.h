@@ -132,4 +132,38 @@ public:
 	}
 };
 
+inline size_t WriteVec( CefListValue *argsList, size_t argNum, const float *vector, int size ) {
+	for( int i = 0; i < size; ++i ) {
+		argsList->SetDouble( argNum++, vector[i] );
+	}
+	return argNum;
+}
+
+inline size_t ReadVec( CefListValue *argsList, size_t argNum, float *vector, int size ) {
+	for( int i = 0; i < size; ++i ) {
+		vector[i] = (vec_t)argsList->GetDouble( argNum++ );
+	}
+	return argNum;
+}
+
+inline size_t WriteVec3( CefListValue *argsList, size_t argNum, const vec3_t vector ) {
+	return WriteVec( argsList, argNum, vector, 3 );
+}
+
+inline size_t ReadVec3( CefListValue *argsList, size_t argNum, vec3_t vector ) {
+	return ReadVec( argsList, argNum, vector, 3 );
+}
+
+inline size_t WriteVec2( CefListValue *argsList, size_t argNum, const vec2_t vector ) {
+	return WriteVec( argsList, argNum, vector, 2 );
+}
+
+inline size_t ReadVec2( CefListValue *argsList, size_t argNum, vec2_t vector ) {
+	return ReadVec( argsList, argNum, vector, 2 );
+}
+
+size_t WriteCameraAnim( CefListValue *argsList, size_t argNum, bool looping, const std::vector<CameraAnimFrame> &frames );
+
+size_t ReadCameraAnim( CefListValue *argsList, size_t argNum, bool *looping, std::vector<CameraAnimFrame> &frames );
+
 #endif

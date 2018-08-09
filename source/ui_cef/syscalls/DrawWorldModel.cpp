@@ -4,22 +4,8 @@
 
 static const CefString mapField( "map" );
 static const CefString blurredField( "blurred" );
-static const CefString animSeqField( "animSeq" );
-static const CefString animLoopField( "animLoop" );
-
-inline size_t WriteVec3( CefListValue *argsList, size_t argNum, vec3_t vector ) {
-	for( int i = 0; i < 3; ++i ) {
-		argsList->SetDouble( argNum++, vector[i] );
-	}
-	return argNum;
-}
-
-inline size_t ReadVec3( CefListValue *argsList, size_t argNum, vec3_t vector ) {
-	for( int i = 0; i < 3; ++i ) {
-		vector[i] = (vec_t)argsList->GetDouble( argNum++ );
-	}
-	return argNum;
-}
+static const CefString seqField( "animSeq" );
+static const CefString loopField( "animLoop" );
 
 void DrawWorldModelRequestLauncher::StartExec( const CefV8ValueList &jsArgs,
 											   CefRefPtr<CefV8Value> &retVal,
@@ -65,33 +51,16 @@ void DrawWorldModelRequestLauncher::StartExec( const CefV8ValueList &jsArgs,
 		}
 	}
 
-	const bool isAnimSeqPresent = fieldsGetter.ContainsField( animSeqField );
-	const bool isAnimLoopPresent = fieldsGetter.ContainsField( animLoopField );
-	if( isAnimSeqPresent && isAnimLoopPresent ) {
-		exception = "Both " + animSeqField.ToString() + " and " + animLoopField.ToString() + " fields are present";
+	const CefString *animFieldName = nullptr;
+	auto animArrayField( CameraAnimParser::FindAnimField( fieldsGetter, seqField, loopField, &animFieldName, exception ) );
+	if( !animArrayField ) {
 		return;
-	}
-	if( !isAnimSeqPresent && !isAnimLoopPresent ) {
-		exception = "Neither " + animSeqField.ToString() + ", nor " + animLoopField.ToString() + " fields are present";
-	}
-
-	const CefString *animFieldName;
-	CefRefPtr<CefV8Value> animArrayValue;
-	if( isAnimSeqPresent ) {
-		if( !fieldsGetter.GetArray( animSeqField, animArrayValue, exception ) ) {
-			return;
-		}
-		animFieldName = &animSeqField;
-	} else {
-		if( !fieldsGetter.GetArray( animLoopField, animArrayValue, exception ) ) {
-			return;
-		}
-		animFieldName = &animLoopField;
 	}
 
 	std::vector<CameraAnimFrame> animFrames;
-	CameraAnimParser parser( animArrayValue, *animFieldName );
-	if( !parser.Parse( animFrames, isAnimLoopPresent, exception ) ) {
+	CameraAnimParser parser( animArrayField, *animFieldName );
+	const bool isAnimLooping = ( animFieldName == &loopField );
+	if( !parser.Parse( animFrames, animFieldName == &loopField, exception ) ) {
 		return;
 	}
 
@@ -104,17 +73,37 @@ void DrawWorldModelRequestLauncher::StartExec( const CefV8ValueList &jsArgs,
 
 	messageArgs->SetString( argNum++, map );
 	messageArgs->SetBool( argNum++, blurred );
-	messageArgs->SetBool( argNum++, isAnimLoopPresent );
-	messageArgs->SetInt( argNum++, (int)animFrames.size() );
-	for( auto &frame: animFrames ) {
-		argNum = WriteVec3( messageArgs, argNum, frame.origin );
-		// TODO: Use compressed representation for fields below?
-		argNum = WriteVec3( messageArgs, argNum, frame.angles );
-		messageArgs->SetInt( argNum++, (int)frame.fov );
-		messageArgs->SetInt( argNum++, frame.timestamp );
-	}
+	WriteCameraAnim( messageArgs, argNum, isAnimLooping, animFrames );
 
 	Commit( std::move( request ), context, message, retVal, exception );
+}
+
+size_t WriteCameraAnim( CefListValue *argsList, size_t argNum, bool looping, const std::vector<CameraAnimFrame> &frames ) {
+	argsList->SetBool( argNum++, looping );
+	argsList->SetInt( argNum++, (int)frames.size() );
+	for( const auto &frame: frames ) {
+		argNum = WriteVec3( argsList, argNum, frame.origin );
+		argNum = WriteVec3( argsList, argNum, frame.lookAt );
+		// TODO: Use compressed representation for fields below?
+		argsList->SetInt( argNum++, (int)frame.fov );
+		argsList->SetInt( argNum++, (int)frame.timestamp );
+	}
+	return argNum;
+}
+
+size_t ReadCameraAnim( CefListValue *argsList, size_t argNum, bool *looping, std::vector<CameraAnimFrame> &frames ) {
+	assert( frames.empty() );
+	*looping = argsList->GetBool( argNum++ );
+	const int numFrames = argsList->GetInt( argNum++ );
+	for( int i = 0; i < numFrames; ++i ) {
+		CameraAnimFrame frame;
+		argNum = ReadVec3( argsList, argNum, frame.origin );
+		argNum = ReadVec3( argsList, argNum, frame.lookAt );
+		frame.fov = (float)argsList->GetInt( argNum++ );
+		frame.timestamp = (unsigned)argsList->GetInt( argNum++ );
+		frames.emplace_back( frame );
+	}
+	return argNum;
 }
 
 void DrawWorldModelRequestHandler::ReplyToRequest( CefRefPtr<CefBrowser> browser,
@@ -123,17 +112,10 @@ void DrawWorldModelRequestHandler::ReplyToRequest( CefRefPtr<CefBrowser> browser
 	size_t argNum = 0;
 	const std::string map( ingoingArgs->GetString( argNum++ ).ToString() );
 	const bool blurred = ingoingArgs->GetBool( argNum++ );
-	const bool looping = ingoingArgs->GetBool( argNum++ );
-	int numFrames = ingoingArgs->GetInt( argNum++ );
+
+	bool looping = false;
 	std::vector<CameraAnimFrame> frames;
-	for( int i = 0; i < numFrames; ++i ) {
-		CameraAnimFrame frame;
-		argNum = ReadVec3( ingoingArgs, argNum, frame.origin );
-		argNum = ReadVec3( ingoingArgs, argNum, frame.angles );
-		frame.fov = ingoingArgs->GetInt( argNum++ );
-		frame.timestamp = (unsigned)ingoingArgs->GetInt( argNum++ );
-		frames.emplace_back( frame );
-	}
+	ReadCameraAnim( ingoingArgs, argNum, &looping, frames );
 
 	auto outgoing( NewMessage() );
 

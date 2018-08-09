@@ -15,7 +15,7 @@ struct CameraAnimFrame {
 	static constexpr float DEFAULT_FOV = 90.0f;
 
 	vec3_t origin;
-	vec3_t angles;
+	vec3_t lookAt;
 	float fov;
 	unsigned timestamp;
 };

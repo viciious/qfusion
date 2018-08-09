@@ -25,6 +25,10 @@ const CefString PendingCallbackRequest::getLocalizedStrings( "getLocalizedString
 const CefString PendingCallbackRequest::getKeyBindings( "getKeyBindings" );
 const CefString PendingCallbackRequest::getKeyNames( "getKeyNames" );
 const CefString PendingCallbackRequest::drawWorldModel( "drawWorldModel" );
+const CefString PendingCallbackRequest::startDrawingModel( "startDrawingModel" );
+const CefString PendingCallbackRequest::stopDrawingModel( "stopDrawingModel" );
+const CefString PendingCallbackRequest::startDrawingImage( "startDrawingImage" );
+const CefString PendingCallbackRequest::stopDrawingImage( "stopDrawingImage" );
 
 PendingCallbackRequest::PendingCallbackRequest( WswCefV8Handler *parent_,
 												CefRefPtr<CefV8Context> context_,
