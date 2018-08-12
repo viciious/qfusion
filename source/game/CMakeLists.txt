@@ -31,6 +31,7 @@ file(GLOB GAME_SOURCES
 	"ai/navigation/*.cpp"
 	"ai/planning/*.cpp"
 	"ai/teamplay/*.cpp"
+    "../gameshared/gs_ascript.cpp"
 	"../gameshared/*.c"
 	"../matchmaker/mm_rating.c"
 	"../qalgo/base64.c"
